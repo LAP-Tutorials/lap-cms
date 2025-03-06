@@ -5,6 +5,7 @@ import { signInWithEmailAndPassword } from "firebase/auth";
 import { auth } from "@/lib/firebase";
 import { useRouter } from "next/navigation";
 import { FaEye, FaEyeSlash } from "react-icons/fa";
+import PageTitle from "@/components/PageTitle";
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
@@ -35,8 +36,7 @@ export default function LoginPage() {
           friendlyMessage = "Incorrect password. Please try again.";
           break;
         case "auth/too-many-requests":
-          friendlyMessage =
-            "Too many failed attempts. Please try again later.";
+          friendlyMessage = "Too many failed attempts. Please try again later.";
           break;
         default:
           friendlyMessage = "An error occurred. Please try again.";
@@ -53,7 +53,16 @@ export default function LoginPage() {
         onSubmit={handleLogin}
         className="p-9 border border-white w-[90%] md:w-[60%] lg:w-[35%]"
       >
-        <h1 className="text-subtitle text-xl mb-10 text-center">L.A.P CMS</h1>
+        <div className="mb-5">
+          <PageTitle
+            className="sr-only"
+            imgSrc="/images/titles/lap-cms.svg"
+            imgAlt="Dashboard"
+          >
+            L.A.P CMS
+          </PageTitle>
+        </div>
+        {/* <h1 className="text-subtitle text-xl mb-10 text-center">L.A.P CMS</h1> */}
 
         {error && <p className="text-red-400 mb-2">{error}</p>}
 

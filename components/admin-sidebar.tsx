@@ -120,7 +120,7 @@ export default function AdminSidebar() {
               {/* Sign Out button at the bottom */}
               <button
                 onClick={handleSignOut}
-                className="mt-auto py-3 text-center mb-5 hover:text-purple-400 transition ease-in-out duration-300"
+                className="mt-auto py-3 font-semibold text-center mb-5 transition ease-in-out duration-300"
               >
                 Sign Out
               </button>
