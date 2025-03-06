@@ -1,6 +1,6 @@
 "use client";
 
-import { collection, getDocs, updateDoc, doc } from "firebase/firestore";
+import { collection, getDocs, updateDoc, deleteDoc, doc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import Link from "next/link";
 import { useEffect, useState } from "react";
@@ -40,6 +40,21 @@ export default function ArticlesPage() {
       );
     } catch (error) {
       console.error("Error updating publish status:", error);
+    }
+  };
+
+  // Delete an article after confirmation
+  const deleteArticle = async (articleId: string) => {
+    const confirmDelete = window.confirm("Are you sure you want to delete this article?");
+    if (!confirmDelete) return;
+
+    try {
+      await deleteDoc(doc(db, "articles", articleId));
+      setArticles((prevArticles) =>
+        prevArticles.filter((article) => article.id !== articleId)
+      );
+    } catch (error) {
+      console.error("Error deleting article:", error);
     }
   };
 
@@ -137,7 +152,7 @@ export default function ArticlesPage() {
             placeholder="Search by title, author, or label..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="px-4 py-2 border border-white/20 mb-5 text-white outline-none w-full"
+            className="px-4 py-2 border border-white/20 text-white outline-none w-full"
           />
         </div>
       </div>
@@ -150,34 +165,19 @@ export default function ArticlesPage() {
             <thead>
               <tr>
                 <th className="p-2 whitespace-nowrap">Image</th>
-                <th
-                  className="p-2 cursor-pointer whitespace-nowrap"
-                  onClick={() => handleSort("title")}
-                >
+                <th className="p-2 cursor-pointer whitespace-nowrap" onClick={() => handleSort("title")}>
                   Title {renderSortIcon("title")}
                 </th>
-                <th
-                  className="p-2 cursor-pointer whitespace-nowrap"
-                  onClick={() => handleSort("label")}
-                >
+                <th className="p-2 cursor-pointer whitespace-nowrap" onClick={() => handleSort("label")}>
                   Label {renderSortIcon("label")}
                 </th>
-                <th
-                  className="p-2 cursor-pointer whitespace-nowrap"
-                  onClick={() => handleSort("authorName")}
-                >
+                <th className="p-2 cursor-pointer whitespace-nowrap" onClick={() => handleSort("authorName")}>
                   Author {renderSortIcon("authorName")}
                 </th>
-                <th
-                  className="p-2 cursor-pointer whitespace-nowrap"
-                  onClick={() => handleSort("createdAt")}
-                >
+                <th className="p-2 cursor-pointer whitespace-nowrap" onClick={() => handleSort("createdAt")}>
                   Created {renderSortIcon("createdAt")}
                 </th>
-                <th
-                  className="p-2 cursor-pointer whitespace-nowrap"
-                  onClick={() => handleSort("publish")}
-                >
+                <th className="p-2 cursor-pointer whitespace-nowrap" onClick={() => handleSort("publish")}>
                   Publish {renderSortIcon("publish")}
                 </th>
                 <th className="p-2 whitespace-nowrap">Actions</th>
@@ -191,7 +191,7 @@ export default function ArticlesPage() {
                     <img
                       src={article.img}
                       alt={article.title}
-                      className="w-20 object-cover mb-2 mt-2"
+                      className="w-20 object-cover"
                     />
                   </td>
                   {/* Title */}
@@ -218,16 +218,22 @@ export default function ArticlesPage() {
                     <Link
                       href={`https://lap-docs.netlify.app/posts/${article.slug}`}
                       target="_blank"
-                      className="new-article-btn px-4 py-2 mr-4 transition duration-300 text-blue-400 hover:underline"
+                      className="new-article-btn px-4 py-2 mr-4 transition duration-300"
                     >
                       View
                     </Link>
                     <Link
                       href={`/admin/articles/${article.id}`}
-                      className="new-article-btn px-4 py-2 transition duration-300 text-blue-400 hover:underline"
+                      className="new-article-btn px-4 py-2 mr-4 transition duration-300"
                     >
                       Edit
                     </Link>
+                    <button
+                      onClick={() => deleteArticle(article.id)}
+                      className="px-4 py-2 transition duration-300"
+                    >
+                      Delete
+                    </button>
                   </td>
                 </tr>
               ))}
