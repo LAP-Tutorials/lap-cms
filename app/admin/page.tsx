@@ -66,11 +66,14 @@ export default function AdminDashboardPage() {
     </div>
   );
 
-  // Skeleton for a list item (article/news)
+  // Skeleton for a list item (article) with thumbnail
   const ListItemSkeleton = () => (
-    <div className="border-b border-white/20 py-5 animate-pulse">
-      <div className="h-6 bg-gray-700 rounded w-3/4 mb-1"></div>
-      <div className="h-4 bg-gray-700 rounded w-1/2"></div>
+    <div className="flex items-center gap-4 border-b border-white/20 py-5 animate-pulse">
+      <div className="w-16 h-16 bg-gray-700 rounded"></div>
+      <div className="flex-1">
+        <div className="h-6 bg-gray-700 rounded w-3/4 mb-1"></div>
+        <div className="h-4 bg-gray-700 rounded w-1/2"></div>
+      </div>
     </div>
   );
 
@@ -113,41 +116,59 @@ export default function AdminDashboardPage() {
       </div>
 
       {/* Latest Articles */}
-      <div className="mb-15 md:ml-5">
-        <h2 className="text-4xl font-bold mb-5">Latest Articles</h2>
-        {loading
-          ? Array.from({ length: 3 }).map((_, index) => (
-              <ListItemSkeleton key={index} />
-            ))
-          : latestArticles.map((article) => (
-              <div key={article.id} className="border-b border-white/20 py-5">
-                <p className="font-semibold text-lg mb-2">{article.title}</p>
+      <div className="mb-20 md:ml-5">
+        <h2 className="text-subtitle font-bold mb-5">Latest Articles</h2>
+        {loading ? (
+          Array.from({ length: 3 }).map((_, index) => (
+            <ListItemSkeleton key={index} />
+          ))
+        ) : latestArticles.length > 0 ? (
+          latestArticles.map((article) => (
+            <div
+              key={article.id}
+              className="flex items-center gap-4 border-b border-white/20 py-5"
+            >
+              <img
+                src={article.img}
+                alt={article.imgAlt || "Thumbnail"}
+                className="w-22 object-cover"
+              />
+              <div>
+                <p className="font-semibold text-xl mb-1">{article.title}</p>
                 <p className="text-sm text-white/50">
+                  By {article.authorName} •{" "}
                   {article.createdAt?.toDate?.().toLocaleString()}
                 </p>
               </div>
-            ))}
-        {!loading && latestArticles.length === 0 && (
+            </div>
+          ))
+        ) : (
           <p>No articles found.</p>
         )}
       </div>
 
       {/* Latest News */}
       <div className="mb-15 md:ml-5">
-        <h2 className="text-4xl font-bold mb-5">Latest News</h2>
-        {loading
-          ? Array.from({ length: 3 }).map((_, index) => (
-              <ListItemSkeleton key={index} />
-            ))
-          : latestNews.map((newsItem) => (
-              <div key={newsItem.id} className="border-b border-white/20 py-5">
-                <p className="font-semibold text-lg mb-2">{newsItem.title}</p>
-                <p className="text-sm text-white/50">
-                  {newsItem.createdAt?.toDate?.().toLocaleString?.()}
-                </p>
-              </div>
-            ))}
-        {!loading && latestNews.length === 0 && <p>No news found.</p>}
+        <h2 className="text-subtitle font-bold mb-5">Latest News</h2>
+        {loading ? (
+          Array.from({ length: 3 }).map((_, index) => (
+            <ListItemSkeleton key={index} />
+          ))
+        ) : latestNews.length > 0 ? (
+          latestNews.map((newsItem) => (
+            <div
+              key={newsItem.id}
+              className="border-b border-white/20 py-5"
+            >
+              <p className="font-semibold text-lg mb-1">{newsItem.title}</p>
+              <p className="text-sm text-white/50">
+                {newsItem.createdAt?.toDate?.().toLocaleString?.()}
+              </p>
+            </div>
+          ))
+        ) : (
+          <p>No news found.</p>
+        )}
       </div>
     </div>
   );
