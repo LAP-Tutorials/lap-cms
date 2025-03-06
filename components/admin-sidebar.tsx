@@ -1,7 +1,9 @@
+"use client";
+
 import Link from "next/link";
 import { signOut } from "firebase/auth";
 import { auth } from "@/lib/firebase";
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
 import Image from "next/image";
 import { useState } from "react";
 import { FiMenu } from "react-icons/fi";
@@ -10,6 +12,7 @@ import { motion, AnimatePresence } from "framer-motion";
 
 export default function AdminSidebar() {
   const router = useRouter();
+  const pathname = usePathname();
   const [isOpen, setIsOpen] = useState(true);
 
   const handleSignOut = async () => {
@@ -32,83 +35,97 @@ export default function AdminSidebar() {
     },
   };
 
+  // Helper to add active outline styling if the link matches the current pathname.
+  const getLinkClasses = (href: string) =>
+    `block transition ease-in-out duration-300 hover:text-purple-400 ${
+      pathname === href ? "border-b-2 border-purple-400 pb-1.5" : ""
+    }`;
+
   return (
     <>
-      {/* Mobile toggle button (visible on mobile screens) */}
-      <div className="md:hidden p-4 absolute z-50">
+      {/* Mobile toggle button */}
+      <div className="fixed top-4 left-4 z-50 p-1 px-2 md:hidden">
         <button onClick={() => setIsOpen(!isOpen)} className="text-white">
           {isOpen ? <FaTimes size={24} /> : <FiMenu size={24} />}
         </button>
       </div>
 
-      {/* Sidebar animated with Framer Motion */}
       <AnimatePresence>
         {isOpen && (
-          <motion.aside
-            variants={sidebarVariants}
-            initial="hidden"
-            animate="visible"
-            exit="exit"
-            className="w-60 border-r border-white p-4 flex flex-col h-screen md:relative absolute"
-          >
-            <div>
-              {/* Logo (centered and rounded) */}
-              <div className="flex justify-center mt-5 mb-10">
-                <Image
-                  src="/logos/LAP-Logo-Color.png"
-                  width={100}
-                  height={100}
-                  alt="L.A.P Logo"
-                  className="rounded-full"
-                />
+          <>
+            {/* Overlay for mobile: clicking it will hide the sidebar */}
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 0.5 }}
+              exit={{ opacity: 0 }}
+              className="fixed md:hidden top-0 left-0 w-full h-screen bg-black z-30"
+              onClick={() => setIsOpen(false)}
+            />
+
+            {/* Sidebar */}
+            <motion.aside
+              variants={sidebarVariants}
+              initial="hidden"
+              animate="visible"
+              exit="exit"
+              className="fixed top-0 left-0 z-40 w-60 border-r border-white p-4 flex flex-col h-screen bg-black"
+            >
+              <div>
+                {/* Logo (centered and rounded) */}
+                <div className="flex justify-center mt-5 mb-10">
+                  <Image
+                    src="/logos/LAP-Logo-Color.png"
+                    width={100}
+                    height={100}
+                    alt="L.A.P Logo"
+                    className="rounded-full"
+                  />
+                </div>
+
+                {/* Separation bar */}
+                <hr className="my-5 border-white/30" />
+
+                {/* Navigation links */}
+                <nav className="space-y-5 mt-10 font-semibold text-lg p-3">
+                  <Link href="/admin" className={getLinkClasses("/admin")}>
+                    Dashboard
+                  </Link>
+                  <Link
+                    href="/admin/articles"
+                    className={getLinkClasses("/admin/articles")}
+                  >
+                    Articles
+                  </Link>
+                  <Link
+                    href="/admin/team"
+                    className={getLinkClasses("/admin/team")}
+                  >
+                    Team
+                  </Link>
+                  <Link
+                    href="/admin/news"
+                    className={getLinkClasses("/admin/news")}
+                  >
+                    News
+                  </Link>
+                  <Link
+                    href="/admin/profile"
+                    className={getLinkClasses("/admin/profile")}
+                  >
+                    Profile
+                  </Link>
+                </nav>
               </div>
 
-              {/* Separation bar */}
-              <hr className="my-5 border-white/30" />
-
-              {/* Navigation links */}
-              <nav className="space-y-5 mt-10 font-semibold text-lg p-3">
-                <Link
-                  href="/admin"
-                  className="block hover:text-purple-400 transition ease-in-out duration-300"
-                >
-                  Dashboard
-                </Link>
-                <Link
-                  href="/admin/articles"
-                  className="block hover:text-purple-400 transition ease-in-out duration-300"
-                >
-                  Articles
-                </Link>
-                <Link
-                  href="/admin/team"
-                  className="block hover:text-purple-400 transition ease-in-out duration-300"
-                >
-                  Team
-                </Link>
-                <Link
-                  href="/admin/news"
-                  className="block hover:text-purple-400 transition ease-in-out duration-300"
-                >
-                  News
-                </Link>
-                <Link
-                  href="/admin/profile"
-                  className="block hover:text-purple-400 transition ease-in-out duration-300"
-                >
-                  Profile
-                </Link>
-              </nav>
-            </div>
-
-            {/* Sign Out button at the bottom */}
-            <button
-              onClick={handleSignOut}
-              className="mt-auto py-3 text-center mb-5 hover:text-purple-400 transition ease-in-out duration-300"
-            >
-              Sign Out
-            </button>
-          </motion.aside>
+              {/* Sign Out button at the bottom */}
+              <button
+                onClick={handleSignOut}
+                className="mt-auto py-3 text-center mb-5 hover:text-purple-400 transition ease-in-out duration-300"
+              >
+                Sign Out
+              </button>
+            </motion.aside>
+          </>
         )}
       </AnimatePresence>
     </>

@@ -1,13 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import {
-  collection,
-  getDocs,
-  query,
-  orderBy,
-  limit,
-} from "firebase/firestore";
+import PageTitle from "@/components/PageTitle";
+import { collection, getDocs, query, orderBy, limit } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 
 export default function AdminDashboardPage() {
@@ -17,6 +12,7 @@ export default function AdminDashboardPage() {
 
   const [latestArticles, setLatestArticles] = useState<any[]>([]);
   const [latestNews, setLatestNews] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -55,57 +51,103 @@ export default function AdminDashboardPage() {
         ...doc.data(),
       }));
       setLatestNews(newsList);
+
+      setLoading(false);
     };
 
     fetchData();
   }, []);
 
+  // Skeleton for a summary card
+  const SummaryCardSkeleton = () => (
+    <div className="p-4 border border-white rounded animate-pulse">
+      <div className="h-6 bg-gray-700 rounded w-1/2 mb-2"></div>
+      <div className="h-8 bg-gray-700 rounded w-1/3"></div>
+    </div>
+  );
+
+  // Skeleton for a list item (article/news)
+  const ListItemSkeleton = () => (
+    <div className="border-b border-white/20 py-5 animate-pulse">
+      <div className="h-6 bg-gray-700 rounded w-3/4 mb-1"></div>
+      <div className="h-4 bg-gray-700 rounded w-1/2"></div>
+    </div>
+  );
+
   return (
     <div>
-      <h1 className="text-2xl font-bold mb-4">Dashboard</h1>
+      <div className="mt-10 md:-mt-8">
+        <PageTitle
+          className="sr-only"
+          imgSrc="/images/titles/Dashboard.svg"
+          imgAlt="Dashboard"
+        >
+          Dashboard
+        </PageTitle>
+      </div>
 
-      {/* Summary cards */}
-      <div className="grid grid-cols-3 gap-4 mb-8">
-        <div className="p-4 border border-gray-700 rounded">
-          <h2 className="text-lg font-semibold">Total Articles</h2>
-          <p className="text-2xl">{articlesCount}</p>
-        </div>
-        <div className="p-4 border border-gray-700 rounded">
-          <h2 className="text-lg font-semibold">Total Team Members</h2>
-          <p className="text-2xl">{teamCount}</p>
-        </div>
-        <div className="p-4 border border-gray-700 rounded">
-          <h2 className="text-lg font-semibold">Total News Items</h2>
-          <p className="text-2xl">{newsCount}</p>
-        </div>
+      {/* Responsive Summary cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 mb-19 mt-10 w-full md:w-[70%] mx-auto">
+        {loading ? (
+          <>
+            <SummaryCardSkeleton />
+            <SummaryCardSkeleton />
+            <SummaryCardSkeleton />
+          </>
+        ) : (
+          <>
+            <div className="p-4 border border-white">
+              <h2 className="text-lg font-bold">Articles</h2>
+              <p className="text-xl">{articlesCount}</p>
+            </div>
+            <div className="p-4 border border-white">
+              <h2 className="text-lg font-bold">Team</h2>
+              <p className="text-xl">{teamCount}</p>
+            </div>
+            <div className="p-4 border border-white">
+              <h2 className="text-lg font-bold">News Items</h2>
+              <p className="text-xl">{newsCount}</p>
+            </div>
+          </>
+        )}
       </div>
 
       {/* Latest Articles */}
-      <div className="mb-8">
-        <h2 className="text-xl font-bold mb-2">Latest Articles</h2>
-        {latestArticles.map((article) => (
-          <div key={article.id} className="border-b border-gray-700 py-2">
-            <p className="font-semibold">{article.title}</p>
-            <p className="text-sm text-gray-400">
-              {article.createdAt?.toDate?.().toLocaleString()}
-            </p>
-          </div>
-        ))}
-        {latestArticles.length === 0 && <p>No articles found.</p>}
+      <div className="mb-15 md:ml-5">
+        <h2 className="text-4xl font-bold mb-5">Latest Articles</h2>
+        {loading
+          ? Array.from({ length: 3 }).map((_, index) => (
+              <ListItemSkeleton key={index} />
+            ))
+          : latestArticles.map((article) => (
+              <div key={article.id} className="border-b border-white/20 py-5">
+                <p className="font-semibold text-lg mb-2">{article.title}</p>
+                <p className="text-sm text-white/50">
+                  {article.createdAt?.toDate?.().toLocaleString()}
+                </p>
+              </div>
+            ))}
+        {!loading && latestArticles.length === 0 && (
+          <p>No articles found.</p>
+        )}
       </div>
 
       {/* Latest News */}
-      <div>
-        <h2 className="text-xl font-bold mb-2">Latest News</h2>
-        {latestNews.map((newsItem) => (
-          <div key={newsItem.id} className="border-b border-gray-700 py-2">
-            <p className="font-semibold">{newsItem.title}</p>
-            <p className="text-sm text-gray-400">
-              {newsItem.createdAt?.toDate?.().toLocaleString?.()}
-            </p>
-          </div>
-        ))}
-        {latestNews.length === 0 && <p>No news found.</p>}
+      <div className="mb-15 md:ml-5">
+        <h2 className="text-4xl font-bold mb-5">Latest News</h2>
+        {loading
+          ? Array.from({ length: 3 }).map((_, index) => (
+              <ListItemSkeleton key={index} />
+            ))
+          : latestNews.map((newsItem) => (
+              <div key={newsItem.id} className="border-b border-white/20 py-5">
+                <p className="font-semibold text-lg mb-2">{newsItem.title}</p>
+                <p className="text-sm text-white/50">
+                  {newsItem.createdAt?.toDate?.().toLocaleString?.()}
+                </p>
+              </div>
+            ))}
+        {!loading && latestNews.length === 0 && <p>No news found.</p>}
       </div>
     </div>
   );
