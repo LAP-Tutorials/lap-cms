@@ -172,3 +172,13 @@ select:-webkit-autofill {
   -webkit-text-fill-color: #fff !important;
   transition: background-color 5000s ease-in-out 0s;
 }
+
+.new-article-btn {
+  background-color: #8a2be2;
+  color: #ffffff;
+  transition: all 0.3s;
+}
+
+.new-article-btn:hover {
+  background-color: #7b26ca;
+}
