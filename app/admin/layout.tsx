@@ -43,7 +43,7 @@ export default function AdminLayout({
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-screen">
+      <div className="flex items-center justify-center h-screen text-white">
         <p>Loading...</p>
       </div>
     );
@@ -51,14 +51,14 @@ export default function AdminLayout({
 
   if (!allowed) {
     return (
-      <div className="flex items-center justify-center h-screen">
+      <div className="flex items-center justify-center h-screen text-white">
         <p>Access Denied</p>
       </div>
     );
   }
 
   return (
-    <div className="flex min-h-screen bg-black text-white">
+    <div className="flex min-h-screen text-white">
       <AdminSidebar />
       <main className="flex-1 p-4">{children}</main>
     </div>
