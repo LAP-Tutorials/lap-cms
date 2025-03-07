@@ -151,7 +151,7 @@ export default function EditTeamMemberPage() {
   
   return (
     <div className="px-4 py-6 text-white mx-auto">
-      <h1 className="text-subtitle font-bold mb-10">Edit Team Member</h1>
+      <h1 className="text-subtitle font-bold mb-10">Edit Member</h1>
       
       {/* Avatar Section */}
       <div className="mb-6">
