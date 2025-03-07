@@ -252,7 +252,7 @@ export default function EditTeamMemberPage() {
       )}
       
       {/* Social Media Section */}
-      <div className="mb-6">
+      <div className="mb-6 border border-white p-4">
         <label className="block mb-2 font-semibold">Social Media:</label>
         
         {/* Add New Social */}

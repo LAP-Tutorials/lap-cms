@@ -19,7 +19,13 @@ export default function NewTeamMemberPage() {
   const [slug, setSlug] = useState("");
   const [imgAlt, setImgAlt] = useState("");
   const [avatar, setAvatar] = useState("");
+  const [socials, setSocials] = useState<Record<string, string>>({});
+  const [socialPlatform, setSocialPlatform] = useState("");
+  const [socialLink, setSocialLink] = useState("");
   const router = useRouter();
+  
+  // Available social media platforms
+  const platforms = ["twitter", "linkedin", "instagram", "github", "facebook", "youtube"];
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
@@ -46,6 +52,25 @@ export default function NewTeamMemberPage() {
       setImgAlt(`Profile picture of ${name}`);
     }
   }, [name, imgAlt]);
+
+  const handleAddSocial = () => {
+    if (!socialPlatform || !socialLink) return;
+    
+    setSocials({
+      ...socials,
+      [socialPlatform]: socialLink
+    });
+    
+    // Reset fields
+    setSocialPlatform("");
+    setSocialLink("");
+  };
+
+  const handleRemoveSocial = (platform: string) => {
+    const updatedSocials = { ...socials };
+    delete updatedSocials[platform];
+    setSocials(updatedSocials);
+  };
 
   const handleCreate = async (e: FormEvent) => {
     e.preventDefault();
@@ -74,6 +99,7 @@ export default function NewTeamMemberPage() {
           summary: "",
         },
         slug: slug,
+        socials, // Add the socials map
         createdAt: new Date().toISOString(),
         dateJoined: new Date(),
       });
@@ -85,7 +111,7 @@ export default function NewTeamMemberPage() {
   };
 
   if (!["super", "admin"].includes(currentUserRole)) {
-    return <div>Access Denied</div>;
+    return <div className="text-subtitle">Access Denied</div>;
   }
 
   return (
@@ -197,6 +223,72 @@ export default function NewTeamMemberPage() {
             onChange={(e) => setPassword(e.target.value)}
             required
           />
+        </div>
+
+        {/* Social Media Section */}
+        <div className="mb-6 border border-white p-4">
+          <label className="block mb-2 font-semibold">Social Media:</label>
+          
+          {/* Add New Social */}
+          <div className="flex mb-4 gap-2">
+            <select
+              className="p-2 border border-white"
+              value={socialPlatform}
+              onChange={(e) => setSocialPlatform(e.target.value)}
+            >
+              <option value="">Select Platform</option>
+              {platforms.map(platform => (
+                <option key={platform} value={platform}>
+                  {platform.charAt(0).toUpperCase() + platform.slice(1)}
+                </option>
+              ))}
+            </select>
+            <input
+              className="flex-1 p-2 border border-white"
+              value={socialLink}
+              onChange={(e) => setSocialLink(e.target.value)}
+              placeholder="https://..."
+            />
+            <button
+              type="button"
+              onClick={handleAddSocial}
+              className="bg-purple-600 px-4 py-2"
+            >
+              Add
+            </button>
+          </div>
+          
+          {/* Social Media List */}
+          {Object.keys(socials).length > 0 ? (
+            <ul className="p-4">
+              {Object.entries(socials).map(([platform, link]) => (
+                <li key={platform} className="flex justify-between items-center py-2 border-b border-white last:border-0">
+                  <div>
+                    <span className="font-medium capitalize">{platform}</span>
+                    <a
+                      href={link}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="block text-sm text-gray-400 hover:text-purple-400 truncate max-w-xs"
+                    >
+                      {link}
+                    </a>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleRemoveSocial(platform)}
+                    className="p-2 px-3"
+                  >
+                    ✕
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <div className="p-4 text-center">
+              No social media links added
+            </div>
+          )}
         </div>
 
         <button type="submit" className="bg-purple-600 px-4 py-2 mt-9">
