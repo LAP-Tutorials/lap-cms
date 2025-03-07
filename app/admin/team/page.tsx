@@ -51,9 +51,9 @@ export default function TeamPage() {
         <PageTitle
           className="sr-only"
           imgSrc="/images/titles/team.svg"
-          imgAlt="Dashboard"
+          imgAlt="Team"
         >
-          Dashboard
+          Team
         </PageTitle>
       </div>
         {(currentUserRole === "super" || currentUserRole === "admin") && (
