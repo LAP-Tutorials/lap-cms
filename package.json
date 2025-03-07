@@ -12,9 +12,12 @@
     "@radix-ui/react-slot": "^1.1.2",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "dompurify": "^3.2.4",
     "firebase": "^11.4.0",
     "framer-motion": "^12.4.10",
     "lucide-react": "^0.477.0",
+    "markdown-to-jsx": "^7.7.4",
+    "marked": "^15.0.7",
     "msw": "^2.7.3",
     "next": "15.2.1",
     "react": "^19.0.0",
@@ -22,8 +25,11 @@
     "react-hot-toast": "^2.5.2",
     "react-icons": "^5.5.0",
     "react-markdown": "^10.0.1",
+    "rehype-raw": "^7.0.0",
+    "remark-gfm": "^4.0.1",
     "tailwind-merge": "^3.0.2",
-    "tailwindcss-animate": "^1.0.7"
+    "tailwindcss-animate": "^1.0.7",
+    "uuid": "^11.1.0"
   },
   "devDependencies": {
     "typescript": "^5",

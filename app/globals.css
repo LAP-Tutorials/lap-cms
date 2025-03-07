@@ -1,4 +1,6 @@
 @import "tailwindcss";
+@import url("https://cdnjs.cloudflare.com/ajax/libs/github-markdown-css/5.2.0/github-markdown-dark.min.css");
+
 
 @layer base {
   :root {
@@ -181,4 +183,87 @@ select:-webkit-autofill {
 
 .new-article-btn:hover {
   background-color: #7b26ca;
+}
+
+/* Keep existing CSS code and add/modify these styles */
+
+/* Remove the all: revert !important; which is causing problems */
+.markdown-body {
+  color: #c9d1d9 !important;
+  padding: 20px !important;
+}
+
+/* Add specific styling for markdown elements */
+.markdown-body h1 {
+  font-size: 2em !important;
+  margin-bottom: 0.5em !important;
+  color: #fff !important;
+  border-bottom: 1px solid #30363d !important;
+  padding-bottom: 0.3em !important;
+}
+
+.markdown-body h2 {
+  font-size: 1.5em !important;
+  margin-bottom: 0.5em !important;
+  color: #fff !important;
+  border-bottom: 1px solid #30363d !important;
+  padding-bottom: 0.3em !important;
+}
+
+.markdown-body h3 {
+  font-size: 1.25em !important;
+  margin-bottom: 0.5em !important;
+  color: #fff !important;
+}
+
+.markdown-body h4 {
+  font-size: 1em !important;
+  margin-bottom: 0.5em !important;
+  color: #fff !important;
+}
+
+.markdown-body ul, 
+.markdown-body ol {
+  padding-left: 2em !important;
+  margin-bottom: 1em !important;
+}
+
+.markdown-body li {
+  margin: 0.25em 0 !important;
+  list-style-type: disc !important;
+}
+
+.markdown-body ol li {
+  list-style-type: decimal !important;
+}
+
+.markdown-body code {
+  background-color: #161b22 !important;
+  padding: 0.2em 0.4em !important;
+  border-radius: 3px !important;
+  font-family: monospace !important;
+}
+
+.markdown-body pre {
+  background-color: #161b22 !important;
+  padding: 16px !important;
+  border-radius: 6px !important;
+  overflow: auto !important;
+  margin-bottom: 1em !important;
+}
+
+.markdown-body pre code {
+  background-color: transparent !important;
+  padding: 0 !important;
+}
+
+.markdown-body blockquote {
+  padding: 0 1em !important;
+  color: #8b949e !important;
+  border-left: 0.25em solid #30363d !important;
+  margin-bottom: 1em !important;
+}
+
+.markdown-body p {
+  margin-bottom: 1em !important;
 }
