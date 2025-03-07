@@ -14,7 +14,11 @@ export default function EditNewsPage() {
 
   useEffect(() => {
     const fetchNews = async () => {
-      const ref = doc(db, "news", params.id);
+      if (typeof params.id !== "string") {
+        console.error("Invalid document ID");
+        return;
+      }
+      const ref = doc(db, "news", params.id as string);
       const snap = await getDoc(ref);
       if (snap.exists()) {
         const data = snap.data();
@@ -26,7 +30,11 @@ export default function EditNewsPage() {
   }, [params.id]);
 
   const handleUpdate = async () => {
-    const ref = doc(db, "news", params.id);
+    if (typeof params.id !== "string") {
+      console.error("Invalid document ID");
+      return;
+    }
+    const ref = doc(db, "news", params.id as string);
     // Preserve existing createdAt
     await updateDoc(ref, {
       title,
@@ -36,32 +44,32 @@ export default function EditNewsPage() {
   };
 
   const handleDelete = async () => {
-    const ref = doc(db, "news", params.id);
+    const ref = doc(db, "news", params.id as string);
     await deleteDoc(ref);
     router.push("/admin/news");
   };
 
   return (
-    <div>
-      <h1 className="text-2xl font-bold mb-4">Edit News</h1>
+    <div className="ml-0 md:ml-3">
+      <h1 className="text-subtitle font-bold mb-6 mt-5 md:mt-1">Edit News</h1>
       <div className="mb-4">
-        <label className="block mb-1">Title</label>
+        <label className="block mb-1">News:</label>
         <input
-          className="w-full p-2 text-black"
+          className="w-full p-2 border border-white"
           value={title}
           onChange={(e) => setTitle(e.target.value)}
         />
       </div>
-      <div className="flex gap-2">
+      <div className="flex gap-2 mt-9">
         <button
           onClick={handleUpdate}
-          className="bg-purple-600 px-4 py-2 rounded"
+          className="px-4 py-2"
         >
           Update
         </button>
         <button
           onClick={handleDelete}
-          className="bg-red-600 px-4 py-2 rounded"
+          className="px-4 py-2"
         >
           Delete
         </button>

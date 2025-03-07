@@ -21,19 +21,19 @@ export default function NewNewsPage() {
   };
 
   return (
-    <div>
-      <h1 className="text-2xl font-bold mb-4">Create News</h1>
+    <div className="ml-0 md:ml-3">
+      <h1 className="text-subtitle font-bold mb-6 mt-5 md:mt-1">Create News</h1>
       <div className="mb-4">
-        <label className="block mb-1">Title</label>
+        <label className="block mb-1">News:</label>
         <input
-          className="w-full p-2 text-black"
+          className="w-full p-2 border border-white"
           value={title}
           onChange={(e) => setTitle(e.target.value)}
         />
       </div>
       <button
         onClick={handleCreate}
-        className="bg-purple-600 px-4 py-2 rounded"
+        className="px-4 py-2 mt-9"
       >
         Create
       </button>
