@@ -117,7 +117,7 @@ export default function AdminDashboardPage() {
 
       {/* Latest Articles */}
       <div className="mb-20 md:ml-5">
-        <h2 className="text-subtitle font-bold mb-5">Latest Articles</h2>
+        <h2 className="text-subtitle font-bold mb-5">Latest Posts</h2>
         {loading ? (
           Array.from({ length: 3 }).map((_, index) => (
             <ListItemSkeleton key={index} />
