@@ -6,12 +6,14 @@ import { db, auth } from "@/lib/firebase";
 import Link from "next/link";
 import { onAuthStateChanged } from "firebase/auth";
 import { doc, getDoc } from "firebase/firestore";
+import PageTitle from "@/components/PageTitle";
 
 interface TeamMember {
   id: string;
   name: string;
   role: string;
   uid: string;
+  slug: string;
 }
 
 export default function TeamPage() {
@@ -46,17 +48,23 @@ export default function TeamPage() {
   return (
     <div>
       <div className="flex justify-between items-center mb-4">
-        <h1 className="text-2xl font-bold">Team Members</h1>
+        <PageTitle
+          className="sr-only"
+          imgSrc="/images/titles/team.svg"
+          imgAlt="Dashboard"
+        >
+          Dashboard
+        </PageTitle>
+      </div>
         {(currentUserRole === "super" || currentUserRole === "admin") && (
           <Link
             href="/admin/team/new"
-            className="bg-purple-600 hover:bg-purple-700 px-4 py-2 rounded"
+            className="new-article-btn px-8 py-3 font-semibold inline-block ml-0 md:ml-4 mb-3"
           >
             + New Member
           </Link>
         )}
-      </div>
-      <table className="w-full text-left">
+      <table className="w-full text-left mt-5 ml-0 md:ml-4">
         <thead>
           <tr>
             <th className="p-2">Name</th>
@@ -66,15 +74,20 @@ export default function TeamPage() {
         </thead>
         <tbody>
           {team.map((member) => (
-            <tr key={member.id} className="border-b border-gray-700">
-              <td className="p-2">{member.name}</td>
-              <td className="p-2">{member.role}</td>
-              <td className="p-2">
+            <tr key={member.id} className="border-b border-white/20">
+              <td className="p-2 whitespace-nowrap">{member.name}</td>
+              <td className="p-2 whitespace-nowrap">{member.role}</td>
+              <td className="p-2 space-x-2 whitespace-nowrap pt-4 pb-4">
+                <Link
+                  href={`https://lap-docs.netlify.app/authors/${member.slug}`}
+                  className="new-article-btn px-4 py-2 mr-4 transition duration-300"
+                  target="_blank"
+                  >View</Link>
                 <Link
                   href={`/admin/team/${member.id}`}
-                  className="mr-2 text-blue-400 hover:underline"
+                  className="new-article-btn px-4 py-2 mr-4 transition duration-300"
                 >
-                  View/Edit
+                  Edit
                 </Link>
               </td>
             </tr>
