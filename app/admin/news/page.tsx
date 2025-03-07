@@ -4,6 +4,7 @@ import { collection, getDocs } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import PageTitle from "@/components/PageTitle";
 
 interface NewsItem {
   id: string;
@@ -26,16 +27,24 @@ export default function NewsPage() {
   }, []);
 
   return (
-    <div>
+    <div className="ml-0 md:ml-3">
       <div className="flex justify-between items-center mb-4">
-        <h1 className="text-2xl font-bold">News</h1>
+        <PageTitle
+          className="sr-only mt-10 md:-mt-8"
+          imgSrc="/images/titles/news.svg"
+          imgAlt="Dashboard"
+        >
+          News
+        </PageTitle>
+      </div>
+      <div className="mt-4 mb-9">
         <Link
           href="/admin/news/new"
-          className="bg-purple-600 hover:bg-purple-700 px-4 py-2 rounded"
+          className="new-article-btn px-8 py-3 font-semibold inline-block"
         >
           + New News
         </Link>
-      </div>
+        </div>
       <table className="w-full text-left">
         <thead>
           <tr>
@@ -45,12 +54,12 @@ export default function NewsPage() {
         </thead>
         <tbody>
           {news.map((item) => (
-            <tr key={item.id} className="border-b border-gray-700">
+            <tr key={item.id} className="border-b border-white/20">
               <td className="p-2">{item.title}</td>
-              <td className="p-2">
+              <td className="p-2 whitespace-nowrap pb-4 pt-4">
                 <Link
                   href={`/admin/news/${item.id}`}
-                  className="mr-2 text-blue-400 hover:underline"
+                  className="new-article-btn px-4 py-2 mr-4 transition duration-300"
                 >
                   Edit
                 </Link>
