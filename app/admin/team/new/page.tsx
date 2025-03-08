@@ -25,7 +25,7 @@ export default function NewTeamMemberPage() {
   const router = useRouter();
   
   // Available social media platforms
-  const platforms = ["twitter", "linkedin", "instagram", "github", "facebook", "youtube"];
+  const platforms = ["twitter", "linkedin", "instagram", "github", "facebook", "youtube", "tiktok", "patreon"];
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
@@ -176,7 +176,7 @@ export default function NewTeamMemberPage() {
           <p className="text-xs text-gray-500">For accessibility purposes</p>
         </div>
         <div className="mb-4">
-          <label className="block mb-1">City:</label>
+          <label className="block mb-1">Country:</label>
           <input
             className="w-full p-2 border border-white"
             value={city}

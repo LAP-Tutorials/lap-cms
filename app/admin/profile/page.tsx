@@ -63,7 +63,7 @@ export default function ProfilePage() {
         />
       </div>
       <div className="mb-4">
-        <label className="block mb-1">City:</label>
+        <label className="block mb-1">Country:</label>
         <input
           className="w-full p-2 border border-white"
           value={profile.city || ""}

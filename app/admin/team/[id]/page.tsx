@@ -31,7 +31,7 @@ export default function EditTeamMemberPage() {
   const router = useRouter();
   
   // Available social media platforms
-  const platforms = ["twitter", "linkedin", "instagram", "github", "facebook", "youtube"];
+  const platforms = ["twitter", "linkedin", "instagram", "github", "facebook", "youtube", "tiktok", "patreon"];
   
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
@@ -217,7 +217,7 @@ export default function EditTeamMemberPage() {
         </div>
         
         <div>
-          <label className="block mb-1 font-semibold">City:</label>
+          <label className="block mb-1 font-semibold">Country:</label>
           <input
             className="w-full p-2  border border-white"
             value={member.city || ""}
