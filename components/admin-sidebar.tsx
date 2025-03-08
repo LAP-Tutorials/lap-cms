@@ -94,7 +94,7 @@ export default function AdminSidebar() {
                     href="/admin/articles"
                     className={getLinkClasses("/admin/articles")}
                   >
-                    Articles
+                    Posts
                   </Link>
                   <Link
                     href="/admin/team"
