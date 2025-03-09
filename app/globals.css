@@ -267,3 +267,17 @@ select:-webkit-autofill {
 .markdown-body p {
   margin-bottom: 1em !important;
 }
+
+iframe {
+  width: 100% !important;
+  height: 35rem !important;
+  border: none !important;
+  margin-bottom: 4rem;
+  margin-top: 4rem;
+}
+
+/* @media (max-width: 768px) {
+  iframe {
+    height: 14rem !important;
+  }
+} */

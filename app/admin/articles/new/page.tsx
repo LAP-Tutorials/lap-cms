@@ -6,6 +6,7 @@ import { db, auth } from "@/lib/firebase";
 import { collection, setDoc, serverTimestamp, doc, getDocs } from "firebase/firestore";
 import { v4 as uuidv4 } from "uuid";
 import ReactMarkdown from "react-markdown";
+import rehypeRaw from "rehype-raw";
 
 // Type for an author document
 interface Author {
@@ -244,7 +245,7 @@ export default function NewArticlePage() {
         )}
         {mode === "preview" && (
           <div className="p-4 border border-white markdown-body">
-            <ReactMarkdown>{previewHtml}</ReactMarkdown>
+            <ReactMarkdown rehypePlugins={[rehypeRaw]}>{previewHtml}</ReactMarkdown>
           </div>
         )}
       </div>

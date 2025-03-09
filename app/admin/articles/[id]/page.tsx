@@ -93,7 +93,10 @@ export default function EditArticlePage() {
       breaks: true,
     });
     const rawHtml = await marked.parse(mdContent);
-    return DOMPurify.sanitize(rawHtml);
+    return DOMPurify.sanitize(rawHtml, {
+      ADD_TAGS: ["iframe"],
+      ADD_ATTR: ["allow", "allowfullscreen", "frameborder", "height", "scrolling", "src", "width"],
+    });
   };
 
   const [previewHtml, setPreviewHtml] = useState("");
@@ -177,7 +180,7 @@ export default function EditArticlePage() {
           />
         )}
         {mode === "preview" && (
-          <div className="mt-2 p-4 border border-white markdown-body">
+          <div className="mt-2 p-4 border border-white markdown-body w-full">
             <div dangerouslySetInnerHTML={{ __html: previewHtml }} />
           </div>
         )}
