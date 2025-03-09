@@ -82,13 +82,17 @@ export default function TeamPage() {
                   href={`https://lap-docs.netlify.app/authors/${member.slug}`}
                   className="new-article-btn px-4 py-2 mr-4 transition duration-300"
                   target="_blank"
-                  >View</Link>
-                <Link
-                  href={`/admin/team/${member.id}`}
-                  className="new-article-btn px-4 py-2 mr-4 transition duration-300"
                 >
-                  Edit
+                  View
                 </Link>
+                {currentUserRole !== "manager" && (
+                  <Link
+                    href={`/admin/team/${member.id}`}
+                    className="new-article-btn px-4 py-2 mr-4 transition duration-300"
+                  >
+                    Edit
+                  </Link>
+                )}
               </td>
             </tr>
           ))}

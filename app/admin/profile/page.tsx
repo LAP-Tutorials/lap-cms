@@ -5,10 +5,19 @@ import { doc, getDoc, updateDoc } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
 import { onAuthStateChanged, updatePassword } from "firebase/auth";
 import PageTitle from "@/components/PageTitle";
+import { FaEye, FaEyeSlash } from "react-icons/fa";
 
 export default function ProfilePage() {
-  const [profile, setProfile] = useState<any>({});
+  const [profile, setProfile] = useState<any>({
+    biography: { body: "", summary: "" },
+    socials: {},
+  });
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [socialPlatform, setSocialPlatform] = useState("");
+  const [socialLink, setSocialLink] = useState("");
+
+  const platforms = ["twitter", "linkedin", "instagram", "github", "facebook", "youtube", "tiktok", "patreon"];
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
@@ -31,6 +40,7 @@ export default function ProfilePage() {
       city: profile.city,
       job: profile.job,
       biography: profile.biography,
+      socials: profile.socials,
     });
     alert("Profile updated!");
   };
@@ -45,15 +55,55 @@ export default function ProfilePage() {
     }
   };
 
+  const handleAddSocial = () => {
+    if (socialPlatform && socialLink) {
+      setProfile({
+        ...profile,
+        socials: {
+          ...profile.socials,
+          [socialPlatform]: socialLink,
+        },
+      });
+      setSocialPlatform("");
+      setSocialLink("");
+    }
+  };
+
+  const handleRemoveSocial = (platform: string) => {
+    const { [platform]: _, ...rest } = profile.socials;
+    setProfile({
+      ...profile,
+      socials: rest,
+    });
+  };
+
   return (
     <div className="ml-0 md:ml-3">
       <PageTitle
-                className="sr-only"
-                imgSrc="/images/titles/profile.svg"
-                imgAlt="Profile"
-              >
-                Profile
-              </PageTitle>
+        className="sr-only"
+        imgSrc="/images/titles/profile.svg"
+        imgAlt="Profile"
+      >
+        Profile
+      </PageTitle>
+
+      {/* Avatar Preview */}
+      <div className="mb-4">
+        <label className="block mb-1">Avatar:</label>
+        <input
+          className="w-full p-2 border border-white"
+          value={profile.avatar || ""}
+          onChange={(e) => setProfile({ ...profile, avatar: e.target.value })}
+        />
+        {profile.avatar && (
+          <img
+            src={profile.avatar}
+            alt="Avatar Preview"
+            className="mt-2 max-h-32 object-cover"
+          />
+        )}
+      </div>
+
       <div className="mb-4">
         <label className="block mb-1">Name:</label>
         <input
@@ -104,6 +154,74 @@ export default function ProfilePage() {
           }
         />
       </div>
+
+      {/* Social Media Section */}
+      <div className="mb-6 border border-white p-4">
+        <label className="block mb-2 font-semibold">Social Media:</label>
+
+        {/* Add New Social */}
+        <div className="flex mb-4 gap-2">
+          <select
+            className="p-2 border border-white"
+            value={socialPlatform}
+            onChange={(e) => setSocialPlatform(e.target.value)}
+          >
+            <option value="">Select Platform</option>
+            {platforms.map((platform) => (
+              <option key={platform} value={platform}>
+                {platform.charAt(0).toUpperCase() + platform.slice(1)}
+              </option>
+            ))}
+          </select>
+          <input
+            className="flex-1 p-2 border border-white"
+            value={socialLink}
+            onChange={(e) => setSocialLink(e.target.value)}
+            placeholder="https://..."
+          />
+          <button
+            type="button"
+            onClick={handleAddSocial}
+            className="bg-purple-600 px-4 py-2"
+          >
+            Add
+          </button>
+        </div>
+
+        {/* Social Media List */}
+        {Object.keys(profile.socials).length > 0 ? (
+          <ul className="p-4">
+            {Object.entries(profile.socials).map(([platform, link]) => (
+              <li
+                key={platform}
+                className="flex justify-between items-center py-2 border-b border-white last:border-0"
+              >
+                <div>
+                  <span className="font-medium capitalize">{platform}</span>
+                  <a
+                    href={link as string}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="block text-sm text-gray-400 hover:text-purple-400 truncate max-w-xs"
+                  >
+                    {String(link)}
+                  </a>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleRemoveSocial(platform)}
+                  className="p-2 px-3"
+                >
+                  ✕
+                </button>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <div className="p-4 text-center">No social media links added</div>
+        )}
+      </div>
+
       <button onClick={handleSave} className="bg-purple-600 px-4 py-2 mt-3">
         Save
       </button>
@@ -111,19 +229,25 @@ export default function ProfilePage() {
       <hr className="my-4 border-white/20" />
 
       <h2 className="text-xl font-bold mb-5 mt-3">Change Password</h2>
-      <div className="mb-4">
+      <div className="mb-4 relative">
         <label className="block mb-1">New Password:</label>
-        <input
-          type="password"
-          className="w-full p-2 border border-white"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-        />
+        <div className="relative">
+          <input
+            type={showPassword ? "text" : "password"}
+            className="block w-full p-3 pr-10 text-white border border-white outline-none"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            required
+          />
+          <div
+            className="absolute inset-y-0 right-0 flex items-center px-3 cursor-pointer border border-white"
+            onClick={() => setShowPassword(!showPassword)}
+          >
+            {showPassword ? <FaEyeSlash size={20} /> : <FaEye size={20} />}
+          </div>
+        </div>
       </div>
-      <button
-        onClick={handleChangePassword}
-        className="px-4 py-2 mt-5"
-      >
+      <button onClick={handleChangePassword} className="px-4 py-2 mt-5">
         Update Password
       </button>
     </div>
