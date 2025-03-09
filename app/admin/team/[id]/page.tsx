@@ -31,7 +31,7 @@ export default function EditTeamMemberPage() {
   const router = useRouter();
   
   // Available social media platforms
-  const platforms = ["twitter", "linkedin", "instagram", "github", "facebook", "youtube", "tiktok", "patreon"];
+  const platforms = ["twitter", "linkedin", "instagram", "github", "facebook", "youtube", "tiktok", "patreon", "link"];
   
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {

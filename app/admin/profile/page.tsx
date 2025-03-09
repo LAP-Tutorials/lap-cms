@@ -17,7 +17,7 @@ export default function ProfilePage() {
   const [socialPlatform, setSocialPlatform] = useState("");
   const [socialLink, setSocialLink] = useState("");
 
-  const platforms = ["twitter", "linkedin", "instagram", "github", "facebook", "youtube", "tiktok", "patreon"];
+  const platforms = ["twitter", "linkedin", "instagram", "github", "facebook", "youtube", "tiktok", "patreon", "link"];
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
