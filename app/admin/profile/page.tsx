@@ -36,6 +36,7 @@ export default function ProfilePage() {
     if (!auth.currentUser) return;
     const ref = doc(db, "authors", auth.currentUser.uid);
     await updateDoc(ref, {
+      avatar: profile.avatar,
       name: profile.name,
       city: profile.city,
       job: profile.job,
