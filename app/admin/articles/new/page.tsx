@@ -72,9 +72,8 @@ export default function NewArticlePage() {
 
   // Auto-generate slug from title (if not manually modified)
   useEffect(() => {
-    if (!slug || slug === title.toLowerCase().replace(/\s+/g, "-")) {
       setSlug(title.toLowerCase().replace(/\s+/g, "-"));
-    }
+    
   }, [title]);
 
   // Update selected author if input changes
