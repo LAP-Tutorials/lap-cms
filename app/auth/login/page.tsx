@@ -62,7 +62,6 @@ export default function LoginPage() {
             L.A.P CMS
           </PageTitle>
         </div>
-        {/* <h1 className="text-subtitle text-xl mb-10 text-center">L.A.P CMS</h1> */}
 
         {error && <p className="text-red-400 mb-2">{error}</p>}
 
