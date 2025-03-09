@@ -19,6 +19,7 @@ export default function RootLayout({
           href="/logos/LAP-Logo-Color.png"
           type="image/x-icon"
         />
+        <meta name="robots" content="noindex, nofollow" />
       </head>
       <body>
         {children}
