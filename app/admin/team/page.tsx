@@ -47,7 +47,7 @@ export default function TeamPage() {
 
   return (
     <div>
-      <div className="flex justify-between items-center mb-4">
+      <div className="flex justify-between items-center mb-4 mt-10 md:-mt-8">
         <PageTitle
           className="sr-only"
           imgSrc="/images/titles/team.svg"

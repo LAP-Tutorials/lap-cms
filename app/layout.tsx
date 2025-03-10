@@ -6,6 +6,13 @@ export const metadata: Metadata = {
   description: "Getting things done on L.A.P Docs",
 };
 
+export const viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
+  viewportFit: "cover",
+};
+
 export default function RootLayout({
   children,
 }: {

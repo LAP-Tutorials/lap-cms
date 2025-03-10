@@ -79,7 +79,7 @@ export default function ProfilePage() {
   };
 
   return (
-    <div className="ml-0 md:ml-3">
+    <div className="ml-0 md:ml-3 mt-10 md:-mt-8">
       <PageTitle
         className="sr-only"
         imgSrc="/images/titles/profile.svg"

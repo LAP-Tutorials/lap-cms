@@ -58,7 +58,7 @@ export default function AdminSidebar() {
               initial={{ opacity: 0 }}
               animate={{ opacity: 0.5 }}
               exit={{ opacity: 0 }}
-              className="fixed md:hidden top-0 left-0 w-full h-screen bg-black z-30"
+              className="fixed md:hidden top-0 left-0 w-full h-screen  z-30"
               onClick={() => setIsOpen(false)}
             />
 
@@ -68,7 +68,7 @@ export default function AdminSidebar() {
               initial="hidden"
               animate="visible"
               exit="exit"
-              className="fixed top-0 left-0 z-40 w-60 border-r border-white p-4 flex flex-col h-screen bg-black"
+              className="fixed top-0 left-0 z-40 w-60 border-r border-white p-4 flex flex-col h-screen "
             >
               <div>
                 {/* Logo (centered and rounded) */}
@@ -120,7 +120,7 @@ export default function AdminSidebar() {
               {/* Sign Out button at the bottom */}
               <button
                 onClick={handleSignOut}
-                className="mt-auto py-3 font-semibold text-center mb-5 transition ease-in-out duration-300"
+                className="mt-auto py-3 font-semibold text-center mb-19 md:mb-7 transition ease-in-out duration-300"
               >
                 Sign Out
               </button>

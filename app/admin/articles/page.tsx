@@ -125,7 +125,7 @@ export default function ArticlesPage() {
   };
 
   return (
-    <div className="min-h-screen text-white overflow-x-hidden ">
+    <div className="min-h-screen text-white overflow-x-hidden w-full">
       {/* Header */}
       <div className="w-full px-4">
         <div className="mt-10 md:-mt-8">

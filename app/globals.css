@@ -1,6 +1,10 @@
 @import "tailwindcss";
 @import url("https://cdnjs.cloudflare.com/ajax/libs/github-markdown-css/5.2.0/github-markdown-dark.min.css");
 
+iframe[aria-hidden="true"] {
+  display: none !important;
+}
+
 
 @layer base {
   :root {
@@ -185,44 +189,86 @@ select:-webkit-autofill {
   background-color: #7b26ca;
 }
 
-/* Keep existing CSS code and add/modify these styles */
-
-/* Remove the all: revert !important; which is causing problems */
+/* Markdown Styles */
 .markdown-body {
-  color: #c9d1d9 !important;
-  padding: 20px !important;
+  color: #fff !important;
 }
 
-/* Add specific styling for markdown elements */
+/* Heading */
 .markdown-body h1 {
-  font-size: 2em !important;
+  font-weight: 600;
+  font-size: clamp(3rem, 2.7857rem + 1.0714vw, 4.5rem);
   margin-bottom: 0.5em !important;
-  color: #fff !important;
-  border-bottom: 1px solid #30363d !important;
-  padding-bottom: 0.3em !important;
+  border-bottom: 1px solid #ffffff5b !important;
+  padding-bottom: 0.1em !important;
 }
 
 .markdown-body h2 {
-  font-size: 1.5em !important;
+  font-size: clamp(2.2rem, 2.0857rem + 0.6714vw, 3.3rem);
+  font-weight: 600;
   margin-bottom: 0.5em !important;
-  color: #fff !important;
-  border-bottom: 1px solid #30363d !important;
+  border-bottom: 1px solid #ffffff5b !important;
   padding-bottom: 0.3em !important;
 }
 
 .markdown-body h3 {
-  font-size: 1.25em !important;
+  font-size: clamp(1.9rem, 1.8857rem + 0.4714vw, 2.8rem);
+  font-weight: 600;
   margin-bottom: 0.5em !important;
-  color: #fff !important;
 }
 
-.markdown-body h4 {
-  font-size: 1em !important;
-  margin-bottom: 0.5em !important;
-  color: #fff !important;
+/* Bold Text */
+.markdown-body strong,
+.markdown-body b {
+  font-weight: 700;
 }
 
-.markdown-body ul, 
+/* Italic Text */
+.markdown-body em,
+.markdown-body i {
+  font-style: italic;
+}
+
+/* Horizontal Rule */
+.markdown-body hr {
+  border: 0;
+  height: 1px;
+  background: #ffffff5b;
+  margin: 1.5em 0;
+}
+
+/* Blockquote */
+.markdown-body blockquote {
+  padding: 0 1em !important;
+  color: #eeeeee !important;
+  border-left: 0.25em solid #30363d !important;
+  margin-bottom: 1em !important;
+}
+
+/* Code Block */
+.markdown-body pre {
+  background-color: #161b22 !important;
+  padding: 16px !important;
+  border-radius: 6px !important;
+  overflow: auto !important;
+  margin-bottom: 1em !important;
+}
+
+.markdown-body pre code {
+  background-color: transparent !important;
+  padding: 0 !important;
+}
+
+/* Inline Code */
+.markdown-body code {
+  background-color: #161b22 !important;
+  padding: 0.2em 0.4em !important;
+  border-radius: 3px !important;
+  font-family: monospace !important;
+}
+
+/* Ordered and Unordered Lists */
+.markdown-body ul,
 .markdown-body ol {
   padding-left: 2em !important;
   margin-bottom: 1em !important;
@@ -237,35 +283,98 @@ select:-webkit-autofill {
   list-style-type: decimal !important;
 }
 
-.markdown-body code {
-  background-color: #161b22 !important;
-  padding: 0.2em 0.4em !important;
-  border-radius: 3px !important;
-  font-family: monospace !important;
-}
-
-.markdown-body pre {
-  background-color: #161b22 !important;
-  padding: 16px !important;
-  border-radius: 6px !important;
-  overflow: auto !important;
-  margin-bottom: 1em !important;
-}
-
-.markdown-body pre code {
-  background-color: transparent !important;
-  padding: 0 !important;
-}
-
-.markdown-body blockquote {
-  padding: 0 1em !important;
-  color: #8b949e !important;
-  border-left: 0.25em solid #30363d !important;
-  margin-bottom: 1em !important;
-}
-
+/* Paragraph */
 .markdown-body p {
-  margin-bottom: 1em !important;
+  font-weight: 300;
+  font-size: 1.15rem;
+  margin-bottom: 1rem;
+}
+
+/* Links */
+.markdown-body a {
+  color: #fff;
+  font-weight: 500;
+  text-decoration: none;
+  border-bottom: #fff 1px solid;
+  transition: all 0.3s;
+}
+
+.markdown-body a:hover {
+  color: #8a2be2;
+  text-decoration: none;
+}
+
+/* Checkbox (for task lists) */
+.markdown-body input[type="checkbox"] {
+  margin: 0 0.5em 0 0;
+  vertical-align: middle;
+}
+
+/* Table */
+.markdown-body table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 1em;
+}
+
+.markdown-body th,
+.markdown-body td {
+  border: 1px solid #ffffff5b;
+  padding: 0.5em;
+  text-align: left;
+}
+
+.markdown-body th {
+  font-weight: 600;
+  background-color: #161b22;
+}
+
+/* Custom ID Headings */
+.markdown-body h1[id],
+.markdown-body h2[id],
+.markdown-body h3[id] {
+  position: relative;
+}
+
+.markdown-body h1[id]::after,
+.markdown-body h2[id]::after,
+.markdown-body h3[id]::after {
+  content: "#" attr(id);
+  font-size: 0.8em;
+  color: #ffffff5b;
+  margin-left: 0.5em;
+  text-decoration: none;
+}
+
+/* Footnote */
+.markdown-body .footnote {
+  font-size: 0.9em;
+  color: #bbb;
+  margin-top: 1em;
+}
+
+/* Highlight */
+.markdown-body mark {
+  background-color: #892be280;
+  color: #fff;
+  padding: 0.2em;
+}
+
+/* Subscript */
+.markdown-body sub {
+  vertical-align: sub;
+  font-size: smaller;
+}
+
+/* Superscript */
+.markdown-body sup {
+  vertical-align: super;
+  font-size: smaller;
+}
+
+.markdown-body [id]::before {
+  content: attr(id);
+  display: none;
 }
 
 iframe {
@@ -275,9 +384,8 @@ iframe {
   margin-bottom: 4rem;
   margin-top: 4rem;
 }
-
-/* @media (max-width: 768px) {
+@media (max-width: 768px) {
   iframe {
     height: 14rem !important;
   }
-} */
+}

@@ -104,7 +104,7 @@ export default function AdminDashboardPage() {
               <p className="text-xl">{articlesCount}</p>
             </div>
             <div className="p-4 border border-white">
-              <h2 className="text-lg font-bold">Team</h2>
+              <h2 className="text-lg font-bold">Members</h2>
               <p className="text-xl">{teamCount}</p>
             </div>
             <div className="p-4 border border-white">
