@@ -1,3 +1,25 @@
+/*
+README Documentation Summary for Next.js Project
+
+Overview:
+- This document outlines a Next.js project, bootstrapped with create-next-app.
+- It serves as an introduction and quick-start guide for developers.
+
+Getting Started:
+- Instructions to launch the development server using various package managers (npm, yarn, pnpm, bun).
+- The application runs locally at http://localhost:3000.
+- Developers are advised to begin modifications in the 'app/page.tsx' file, noting that changes auto-update in real time.
+
+Features:
+- Automatic font optimization via next/font, particularly for the Geist font.
+- Quick links provided for further exploration of Next.js documentation, interactive learning modules, and community contributions via the official GitHub repository.
+
+Deployment:
+- Guidance on deploying the application using the Vercel Platform with a dedicated deployment guide.
+
+Note:
+- This comment serves as a high-level documentation summary of the project setup, usage, and resources without repeating the original code.
+*/
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
 ## Getting Started

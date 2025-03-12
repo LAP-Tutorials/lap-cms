@@ -217,6 +217,13 @@ select:-webkit-autofill {
   margin-bottom: 0.5em !important;
 }
 
+/* Images */
+.markdown-body img {
+  max-width: 100%;
+  height: auto;
+  margin: 1.5em 0;
+}
+
 /* Bold Text */
 .markdown-body strong,
 .markdown-body b {
@@ -271,15 +278,21 @@ select:-webkit-autofill {
 .markdown-body ul,
 .markdown-body ol {
   padding-left: 2em !important;
+  font-weight: 300;
+  font-size: 1.15rem;
   margin-bottom: 1em !important;
 }
 
 .markdown-body li {
   margin: 0.25em 0 !important;
+  font-weight: 300;
+  font-size: 1.15rem;
   list-style-type: disc !important;
 }
 
 .markdown-body ol li {
+  font-weight: 300;
+  font-size: 1.15rem;
   list-style-type: decimal !important;
 }
 
