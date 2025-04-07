@@ -1,343 +1,493 @@
-"use client";
+"use client"
 
-import { useState, useEffect } from "react";
-import { db } from "@/lib/firebase";
-import { doc, getDoc, updateDoc, deleteDoc } from "firebase/firestore";
-import { useParams, useRouter } from "next/navigation";
-import { onAuthStateChanged } from "firebase/auth";
-import { auth } from "@/lib/firebase";
-import Image from "next/image";
+import type React from "react"
+
+import { useState, useEffect } from "react"
+import { db } from "@/lib/firebase"
+import { doc, getDoc, updateDoc, deleteDoc } from "firebase/firestore"
+import { useParams, useRouter } from "next/navigation"
+import { onAuthStateChanged } from "firebase/auth"
+import { auth } from "@/lib/firebase"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { useToast } from "@/hooks/use-toast"
+import { Breadcrumb } from "@/components/breadcrumb"
+import { Loader2, AlertTriangle, RefreshCw, Plus, X } from "lucide-react"
 
 interface Member {
-  name: string;
-  city: string;
-  job: string;
-  slug: string;
-  avatar: string;
-  imgAlt: string;
-  socials: Record<string, string>;
-  role?: string;
+  name: string
+  city: string
+  job: string
+  slug: string
+  avatar: string
+  imgAlt: string
+  socials: Record<string, string>
+  role?: string
 }
 
 export default function EditTeamMemberPage() {
-  const [member, setMember] = useState<Member | null>(null);
-  const [currentUserRole, setCurrentUserRole] = useState("");
-  const [socialPlatform, setSocialPlatform] = useState("");
-  const [socialLink, setSocialLink] = useState("");
-  const [socials, setSocials] = useState<Record<string, string>>({});
-  const [avatarPreview, setAvatarPreview] = useState("");
-  
-  const params = useParams();
-  const router = useRouter();
-  
+  const [member, setMember] = useState<Member | null>(null)
+  const [currentUserRole, setCurrentUserRole] = useState("")
+  const [socialPlatform, setSocialPlatform] = useState("")
+  const [socialLink, setSocialLink] = useState("")
+  const [socials, setSocials] = useState<Record<string, string>>({})
+  const [avatarPreview, setAvatarPreview] = useState("")
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const params = useParams()
+  const router = useRouter()
+  const { toast } = useToast()
+  const id = typeof params.id === "string" ? params.id : ""
+
   // Available social media platforms
-  const platforms = ["twitter", "linkedin", "instagram", "github", "facebook", "youtube", "tiktok", "patreon", "link"];
-  
+  const platforms = ["twitter", "linkedin", "instagram", "github", "facebook", "youtube", "tiktok", "patreon", "link"]
+
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       if (user) {
-        const ref = doc(db, "authors", user.uid);
-        const snap = await getDoc(ref);
-        if (snap.exists()) {
-          setCurrentUserRole(snap.data().role);
+        try {
+          const ref = doc(db, "authors", user.uid)
+          const snap = await getDoc(ref)
+
+          if (snap.exists()) {
+            setCurrentUserRole(snap.data().role)
+          }
+        } catch (err) {
+          console.error("Error fetching user role:", err)
         }
       }
-    });
-    return () => unsubscribe();
-  }, []);
-  
+    })
+
+    return () => unsubscribe()
+  }, [])
+
   useEffect(() => {
     const fetchMember = async () => {
-      if (params.id) {
-        const ref = doc(db, "authors", params.id as string);
-        const snap = await getDoc(ref);
-        if (snap.exists()) {
-          const data = snap.data();
-          setMember(data as Member);
-          setSocials(data.socials || {});
-          setAvatarPreview(data.avatar || "");
-        }
+      setLoading(true)
+      setError(null)
+
+      if (!id) {
+        setError("Invalid member ID")
+        setLoading(false)
+        return
       }
-    };
-    fetchMember();
-  }, [params.id]);
-  
-    const handleUpdate = async () => {
-    if (!params.id) {
-      console.error("No ID provided");
-      return;
+
+      try {
+        const ref = doc(db, "authors", id)
+        const snap = await getDoc(ref)
+
+        if (snap.exists()) {
+          const data = snap.data()
+          setMember(data as Member)
+          setSocials(data.socials || {})
+          setAvatarPreview(data.avatar || "")
+        } else {
+          setError("Member not found")
+        }
+      } catch (err) {
+        console.error("Error fetching member:", err)
+        setError("Failed to load member data")
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    fetchMember()
+  }, [id])
+
+  const handleUpdate = async () => {
+    if (!id) {
+      toast({
+        title: "Error",
+        description: "No ID provided",
+        variant: "destructive",
+      })
+      return
     }
 
     if (!member) {
-      console.error("No member data available");
-      return;
+      toast({
+        title: "Error",
+        description: "No member data available",
+        variant: "destructive",
+      })
+      return
     }
-    
-    const ref = doc(db, "authors", params.id as string);
-    await updateDoc(ref, {
-      name: member.name,
-      city: member.city,
-      job: member.job,
-      slug: member.slug,
-      avatar: member.avatar,
-      imgAlt: member.imgAlt,
-      socials: socials,
-      // Only super can change role
-      ...(currentUserRole === "super" && { role: member.role }),
-    });
-    
-    router.push("/admin/team");
-  };
-  
+
+    if (!member.name.trim()) {
+      toast({
+        title: "Missing name",
+        description: "Please enter a name for the team member",
+        variant: "destructive",
+      })
+      return
+    }
+
+    setSaving(true)
+
+    try {
+      const ref = doc(db, "authors", id)
+      await updateDoc(ref, {
+        name: member.name,
+        city: member.city,
+        job: member.job,
+        slug: member.slug,
+        avatar: member.avatar,
+        imgAlt: member.imgAlt,
+        socials: socials,
+        // Only super can change role
+        ...(currentUserRole === "super" && { role: member.role }),
+      })
+
+      toast({
+        title: "Member updated",
+        description: "Team member has been successfully updated",
+        variant: "success",
+      })
+
+      router.push("/admin/team")
+    } catch (error) {
+      console.error("Error updating member:", error)
+      toast({
+        title: "Error",
+        description: "Failed to update team member",
+        variant: "destructive",
+      })
+      setSaving(false)
+    }
+  }
+
   const handleDelete = async () => {
     if (currentUserRole !== "super") {
-      alert("Only super admin can delete team members.");
-      return;
+      toast({
+        title: "Permission denied",
+        description: "Only super admin can delete team members",
+        variant: "destructive",
+      })
+      return
     }
-    
-    if (window.confirm("Are you sure you want to delete this team member?")) {
-      const ref = doc(db, "authors", params.id as string);
-      await deleteDoc(ref);
-      router.push("/admin/team");
+
+    try {
+      const ref = doc(db, "authors", id)
+      await deleteDoc(ref)
+
+      toast({
+        title: "Member deleted",
+        description: "Team member has been permanently removed",
+        variant: "success",
+      })
+
+      router.push("/admin/team")
+    } catch (error) {
+      console.error("Error deleting member:", error)
+      toast({
+        title: "Error",
+        description: "Failed to delete team member",
+        variant: "destructive",
+      })
     }
-  };
-  
+  }
+
   const handleAddSocial = () => {
-    if (!socialPlatform || !socialLink) return;
-    
+    if (!socialPlatform || !socialLink) {
+      toast({
+        title: "Missing information",
+        description: "Please select a platform and enter a link",
+        variant: "destructive",
+      })
+      return
+    }
+
     setSocials({
       ...socials,
-      [socialPlatform]: socialLink
-    });
-    
-    // Reset fields
-    setSocialPlatform("");
-    setSocialLink("");
-  };
-  
+      [socialPlatform]: socialLink,
+    })
+
+    setSocialPlatform("")
+    setSocialLink("")
+
+    toast({
+      title: "Social link added",
+      description: `Added ${socialPlatform} to the member's profile`,
+      variant: "success",
+    })
+  }
+
   const handleRemoveSocial = (platform: string) => {
-    const updatedSocials = { ...socials };
-    delete updatedSocials[platform];
-    setSocials(updatedSocials);
-  };
-  
-  const handleAvatarChange = (e: { target: { value: any; }; }) => {
-    const avatarUrl = e.target.value;
+    const updatedSocials = { ...socials }
+    delete updatedSocials[platform]
+    setSocials(updatedSocials)
+
+    toast({
+      title: "Social link removed",
+      description: `Removed ${platform} from the member's profile`,
+      variant: "default",
+    })
+  }
+
+  const handleAvatarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const avatarUrl = e.target.value
     if (member) {
-      setMember({ ...member, avatar: avatarUrl });
+      setMember({ ...member, avatar: avatarUrl })
     }
-    setAvatarPreview(avatarUrl);
-  };
-  
+    setAvatarPreview(avatarUrl)
+  }
+
   // Generate slug based on name
   const generateSlug = () => {
     if (member?.name) {
       const slug = member.name
         .toLowerCase()
-        .replace(/[^\w ]+/g, '')
-        .replace(/ +/g, '-');
-      setMember({ ...member, slug });
+        .replace(/[^\w ]+/g, "")
+        .replace(/ +/g, "-")
+      setMember({ ...member, slug })
+
+      toast({
+        title: "Slug generated",
+        description: "Created slug from member name",
+        variant: "default",
+      })
     }
-  };
-  
-  if (!member) {
-    return (
-      <div className="flex justify-center items-center min-h-screen">
-        {/* <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-purple-500"></div> */}
-        <span className="ml-3">Loading...</span>
-      </div>
-    );
   }
-  
+
+  const breadcrumbItems = [
+    { label: "Dashboard", href: "/admin" },
+    { label: "Team", href: "/admin/team" },
+    { label: "Edit Member" },
+  ]
+
+  if (loading) {
+    return (
+      <div className="flex justify-center items-center min-h-[60vh]">
+        <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-[#8a2be2]"></div>
+        <span className="ml-3">Loading member data...</span>
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div className="px-4 py-6">
+        <div className="flex items-center justify-center min-h-[60vh] flex-col">
+          <AlertTriangle className="h-12 w-12 text-red-500 mb-4" />
+          <h2 className="text-xl font-bold mb-2">Error</h2>
+          <p className="text-white/70">{error}</p>
+          <Button onClick={() => router.push("/admin/team")} className="mt-6">
+            Back to Team
+          </Button>
+        </div>
+      </div>
+    )
+  }
+
+  if (!member) {
+    return null
+  }
+
   return (
-    <div className="px-4 py-6 text-white mx-auto">
-      <h1 className="text-subtitle font-bold mb-10">Edit Member</h1>
-      
-      {/* Avatar Section */}
-      <div className="mb-6">
-        <label className="block mb-2 font-semibold">Avatar:</label>
-        <div className="flex flex-col md:flex-row gap-4 items-start">
-          <div className="w-32 h-32 rounded-full overflow-hidden flex items-center justify-center">
-            {avatarPreview ? (
-              <img 
-                src={avatarPreview} 
-                alt={member.imgAlt || member.name} 
-                className="w-full h-full object-cover"
-              />
+    <div className="px-4 py-6">
+      <div className="mb-2 mt-6 md:mt-0">
+        <Breadcrumb items={breadcrumbItems} />
+      </div>
+
+      <h1 className="text-subtitle font-bold mb-8 mt-4">Edit Member</h1>
+
+      <div className="max-w-4xl">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+          {/* Left column - Avatar */}
+          <div className="md:col-span-1">
+            <div className="mb-6">
+              <label className="block mb-2 font-medium">Avatar:</label>
+              <div className="flex flex-col items-center space-y-4">
+                <div className="w-40 h-40 rounded-none overflow-hidden flex items-center justify-center border border-white/20">
+                  {avatarPreview ? (
+                    <img
+                      src={avatarPreview || "/placeholder.svg"}
+                      alt={member.imgAlt || member.name}
+                      className="w-full h-full object-cover"
+                      onError={(e) => {
+                        e.currentTarget.src = "/placeholder.svg?height=160&width=160"
+                      }}
+                    />
+                  ) : (
+                    <div className="text-white/50">No Avatar</div>
+                  )}
+                </div>
+                <Input
+                  value={member.avatar || ""}
+                  onChange={handleAvatarChange}
+                  placeholder="Avatar URL"
+                  className="w-full"
+                />
+                <Input
+                  value={member.imgAlt || ""}
+                  onChange={(e) => setMember({ ...member, imgAlt: e.target.value })}
+                  placeholder="Image Alt Text"
+                  className="w-full"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Right column - Member details */}
+          <div className="md:col-span-2">
+            <div className="space-y-6">
+              <div>
+                <label className="block mb-2 font-medium">Name:</label>
+                <Input
+                  value={member.name || ""}
+                  onChange={(e) => setMember({ ...member, name: e.target.value })}
+                  placeholder="Member name"
+                />
+              </div>
+
+              <div>
+                <label className="block mb-2 font-medium">Slug:</label>
+                <div className="flex gap-2">
+                  <Input
+                    value={member.slug || ""}
+                    onChange={(e) => setMember({ ...member, slug: e.target.value })}
+                    placeholder="URL-friendly identifier"
+                    className="flex-1"
+                  />
+                  <Button onClick={generateSlug} variant="outline" title="Generate slug from name" className="px-3">
+                    <RefreshCw className="h-4 w-4" />
+                  </Button>
+                </div>
+                <p className="text-sm text-white/50 mt-1">Used in profile URLs</p>
+              </div>
+
+              <div>
+                <label className="block mb-2 font-medium">Country:</label>
+                <Input
+                  value={member.city || ""}
+                  onChange={(e) => setMember({ ...member, city: e.target.value })}
+                  placeholder="Member country"
+                />
+              </div>
+
+              <div>
+                <label className="block mb-2 font-medium">Job:</label>
+                <Input
+                  value={member.job || ""}
+                  onChange={(e) => setMember({ ...member, job: e.target.value })}
+                  placeholder="Member job title"
+                />
+              </div>
+
+              {/* Role Selector (Super Admin Only) */}
+              {currentUserRole === "super" && (
+                <div>
+                  <label className="block mb-2 font-medium">Role:</label>
+                  <select
+                    className="w-full p-2 border border-white bg-[#121212] text-white"
+                    value={member.role || ""}
+                    onChange={(e) => setMember({ ...member, role: e.target.value })}
+                  >
+                    <option value="">Select role</option>
+                    <option value="super">Super Admin</option>
+                    <option value="admin">Admin</option>
+                    <option value="manager">Manager</option>
+                  </select>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Social Media Section */}
+        <div className="mt-8 border border-white/10 p-6">
+          <h2 className="text-xl font-bold mb-4">Social Media</h2>
+
+          {/* Add New Social */}
+          <div className="flex flex-col sm:flex-row gap-4 mb-6">
+            <div className="flex-1">
+              <label className="block mb-2 font-medium">Platform:</label>
+              <select
+                className="w-full p-2 border border-white bg-[#121212] text-white"
+                value={socialPlatform}
+                onChange={(e) => setSocialPlatform(e.target.value)}
+              >
+                <option value="">Select Platform</option>
+                {platforms.map((platform) => (
+                  <option key={platform} value={platform}>
+                    {platform.charAt(0).toUpperCase() + platform.slice(1)}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="flex-1">
+              <label className="block mb-2 font-medium">Link:</label>
+              <Input value={socialLink} onChange={(e) => setSocialLink(e.target.value)} placeholder="https://..." />
+            </div>
+
+            <div className="flex items-end">
+              <Button onClick={handleAddSocial} className="h-10 whitespace-nowrap" variant="outline">
+                <Plus className="h-4 w-4 mr-1" /> Add Link
+              </Button>
+            </div>
+          </div>
+
+          {/* Social Media List */}
+          <div className="border border-white/10">
+            {Object.keys(socials).length > 0 ? (
+              <ul className="divide-y divide-white/10">
+                {Object.entries(socials).map(([platform, link]) => (
+                  <li key={platform} className="flex justify-between items-center p-4">
+                    <div className="flex-1">
+                      <span className="font-medium capitalize block">{platform}</span>
+                      <a
+                        href={link}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-sm text-white/60 hover:text-white truncate block max-w-xs"
+                      >
+                        {link}
+                      </a>
+                    </div>
+                    <Button variant="outline" size="icon" onClick={() => handleRemoveSocial(platform)}>
+                      <X className="h-4 w-4" />
+                    </Button>
+                  </li>
+                ))}
+              </ul>
             ) : (
-              <div className="text-gray-400">No Avatar</div>
+              <div className="p-8 text-center text-white/50">No social media links added</div>
             )}
           </div>
-          <div className="flex-1">
-            <p className="mb-1">Image URL:</p>
-            <input
-              className="w-full p-2 border border-white mb-3"
-              value={member.avatar || ""}
-              onChange={handleAvatarChange}
-              placeholder="Avatar URL"
-            />
-            <p className="mb-1">Image Alt:</p>
-            <input
-              className="w-full p-2 border border-white"
-              value={member.imgAlt || ""}
-              onChange={(e) => setMember({ ...member, imgAlt: e.target.value })}
-              placeholder="Image Alt Text"
-            />
-          </div>
         </div>
-      </div>
-      
-      {/* Basic Info */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-        <div>
-          <label className="block mb-1 font-semibold">Name:</label>
-          <input
-            className="w-full p-2 border border-white"
-            value={member.name || ""}
-            onChange={(e) => setMember({ ...member, name: e.target.value })}
-          />
-        </div>
-        
-        <div>
-          <label className="block mb-1 font-semibold">Slug:</label>
-          <div className="flex">
-            <input
-              className="w-full p-2 border border-white"
-              value={member.slug || ""}
-              onChange={(e) => setMember({ ...member, slug: e.target.value })}
-            />
-            <button
-              onClick={generateSlug}
-              className="px-3 border-r border-t border-b border-white"
-              title="Generate slug from name"
+
+        {/* Action Buttons */}
+        <div className="flex flex-wrap gap-4 mt-8">
+          <Button onClick={handleUpdate} disabled={saving}  variant="outline">
+            {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            {saving ? "Updating..." : "Update Member"}
+          </Button>
+
+          {currentUserRole === "super" && (
+            <Button
+               variant="outline"
+              className="border-red-500 text-red-500"
+              onClick={() => {
+                if (window.confirm("Are you sure you want to delete this team member? This action cannot be undone.")) {
+                  handleDelete()
+                }
+              }}
+              disabled={saving}
             >
-              ↻
-            </button>
-          </div>
+              Delete Member
+            </Button>
+          )}
+
+          <Button variant="outline" onClick={() => router.push("/admin/team")} disabled={saving} className="ml-auto">
+            Cancel
+          </Button>
         </div>
-        
-        <div>
-          <label className="block mb-1 font-semibold">Country:</label>
-          <input
-            className="w-full p-2  border border-white"
-            value={member.city || ""}
-            onChange={(e) => setMember({ ...member, city: e.target.value })}
-          />
-        </div>
-        
-        <div>
-          <label className="block mb-1 font-semibold">Job:</label>
-          <input
-            className="w-full p-2 border border-white"
-            value={member.job || ""}
-            onChange={(e) => setMember({ ...member, job: e.target.value })}
-          />
-        </div>
-      </div>
-      
-      {/* Role Selector (Super Admin Only) */}
-      {currentUserRole === "super" && (
-        <div className="mb-6">
-          <label className="block mb-1 font-semibold">Role:</label>
-          <select
-            className="w-full p-2 border border-white"
-            value={member.role || ""}
-            onChange={(e) => setMember({ ...member, role: e.target.value })}
-          >
-            <option value="super">Super Admin</option>
-            <option value="admin">Admin</option>
-            <option value="manager">Manager</option>
-          </select>
-        </div>
-      )}
-      
-      {/* Social Media Section */}
-      <div className="mb-6 border border-white p-4">
-        <label className="block mb-2 font-semibold">Social Media:</label>
-        
-        {/* Add New Social */}
-        <div className="flex mb-4 gap-2">
-          <select
-            className="p-2 border border-white"
-            value={socialPlatform}
-            onChange={(e) => setSocialPlatform(e.target.value)}
-          >
-            <option value="">Select Platform</option>
-            {platforms.map(platform => (
-              <option key={platform} value={platform}>
-                {platform.charAt(0).toUpperCase() + platform.slice(1)}
-              </option>
-            ))}
-          </select>
-          <input
-            className="flex-1 p-2 border border-white"
-            value={socialLink}
-            onChange={(e) => setSocialLink(e.target.value)}
-            placeholder="https://..."
-          />
-          <button
-            onClick={handleAddSocial}
-            className="bg-purple-600 px-4 py-2"
-          >
-            Add
-          </button>
-        </div>
-        
-        {/* Social Media List */}
-        {Object.keys(socials).length > 0 ? (
-          <ul className="p-4">
-            {Object.entries(socials).map(([platform, link]) => (
-              <li key={platform} className="flex justify-between items-center py-2 border-b border-white last:border-0">
-                <div>
-                  <span className="font-medium capitalize">{platform}</span>
-                  <a 
-                    href={link} 
-                    target="_blank" 
-                    rel="noopener noreferrer"
-                    className="block text-sm text-gray-400 hover:text-purple-400 truncate max-w-xs"
-                  >
-                    {link}
-                  </a>
-                </div>
-                <button
-                  onClick={() => handleRemoveSocial(platform)}
-                  className="p-2 px-3"
-                >
-                  ✕
-                </button>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <div className="p-4 text-center">
-            No social media links added
-          </div>
-        )}
-      </div>
-      
-      {/* Action Buttons */}
-      <div className="flex gap-2 mt-6">
-        <button
-          onClick={handleUpdate}
-          className="bg-purple-600 px-6 py-2 hover:bg-purple-700 transition"
-        >
-          Update
-        </button>
-        {currentUserRole === "super" && (
-          <button
-            onClick={handleDelete}
-            className=" px-6 py-2 transition"
-          >
-            Delete
-          </button>
-        )}
-        <button
-          onClick={() => router.push("/admin/team")}
-          className="px-6 py-2 transition ml-auto"
-        >
-          Cancel
-        </button>
       </div>
     </div>
-  );
+  )
 }
+

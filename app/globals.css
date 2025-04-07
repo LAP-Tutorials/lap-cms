@@ -5,7 +5,6 @@ iframe[aria-hidden="true"] {
   display: none !important;
 }
 
-
 @layer base {
   :root {
     --background: 0 0% 100%;
@@ -140,8 +139,8 @@ iframe[aria-hidden="true"] {
 
 /* Text selection */
 ::selection {
-  background: #892be280; 
-  color: white; 
+  background: #892be280;
+  color: white;
 }
 
 ::-moz-selection {
@@ -149,13 +148,42 @@ iframe[aria-hidden="true"] {
   color: white;
 }
 
-*{
+* {
   scrollbar-width: 4px;
   scrollbar-color: #8a2be2 #121212;
   background-color: #121212;
 }
 
-button {
+/* Safe area insets for mobile devices */
+body {
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  position: relative;
+  z-index: 0;
+}
+
+/* Ensure all our admin components have proper z-index */
+.admin-content {
+  position: relative;
+  z-index: 10;
+}
+
+.pt-safe {
+  padding-top: env(safe-area-inset-top);
+}
+
+.pr-safe {
+  padding-right: env(safe-area-inset-right);
+}
+
+.pb-safe {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+.pl-safe {
+  padding-left: env(safe-area-inset-left);
+}
+
+/* button {
   cursor: pointer;
   background-color: #8a2be2;
   transition: all 0.3s;
@@ -168,7 +196,7 @@ button:hover {
 input {
   background-color: #121212;
   color: #ffffff;
-}
+} */
 
 input:-webkit-autofill,
 textarea:-webkit-autofill,
@@ -179,7 +207,7 @@ select:-webkit-autofill {
   transition: background-color 5000s ease-in-out 0s;
 }
 
-.new-article-btn {
+/* .new-article-btn {
   background-color: #8a2be2;
   color: #ffffff;
   transition: all 0.3s;
@@ -187,7 +215,7 @@ select:-webkit-autofill {
 
 .new-article-btn:hover {
   background-color: #7b26ca;
-}
+} */
 
 /* Markdown Styles */
 .markdown-body {
@@ -402,3 +430,28 @@ iframe {
     height: 14rem !important;
   }
 }
+
+/* Mobile responsiveness improvements */
+@media (max-width: 768px) {
+  .text-subtitle {
+    font-size: clamp(1.8rem, 1.5rem + 2vw, 3rem);
+  }
+
+  .markdown-body h1 {
+    font-size: clamp(1.8rem, 1.5rem + 2vw, 3rem);
+  }
+
+  .markdown-body h2 {
+    font-size: clamp(1.5rem, 1.3rem + 1vw, 2.5rem);
+  }
+
+  .markdown-body h3 {
+    font-size: clamp(1.2rem, 1.1rem + 0.5vw, 2rem);
+  }
+
+  /* Improve table display on mobile */
+  .overflow-x-auto {
+    -webkit-overflow-scrolling: touch;
+  }
+}
+

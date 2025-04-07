@@ -1,7 +1,8 @@
 // app/page.tsx
-import { redirect } from "next/navigation";
+import { redirect } from "next/navigation"
 
 export default function HomePage() {
-  redirect("/auth/login");
-  return null;
+  redirect("/auth/login")
+  return null
 }
+

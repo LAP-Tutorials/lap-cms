@@ -1,64 +1,58 @@
-"use client";
+"use client"
 
-import { FormEvent, useState } from "react";
-import { signInWithEmailAndPassword } from "firebase/auth";
-import { auth } from "@/lib/firebase";
-import { useRouter } from "next/navigation";
-import { FaEye, FaEyeSlash } from "react-icons/fa";
-import PageTitle from "@/components/PageTitle";
+import { type FormEvent, useState } from "react"
+import { signInWithEmailAndPassword } from "firebase/auth"
+import { auth } from "@/lib/firebase"
+import { useRouter } from "next/navigation"
+import { FaEye, FaEyeSlash } from "react-icons/fa"
+import PageTitle from "@/components/PageTitle"
+import { Button } from "@/components/ui/button"
 
 export default function LoginPage() {
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [error, setError] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [showPassword, setShowPassword] = useState(false);
-  const router = useRouter();
+  const [email, setEmail] = useState("")
+  const [password, setPassword] = useState("")
+  const [error, setError] = useState("")
+  const [loading, setLoading] = useState(false)
+  const [showPassword, setShowPassword] = useState(false)
+  const router = useRouter()
 
   const handleLogin = async (e: FormEvent) => {
-    e.preventDefault();
-    setLoading(true);
-    setError("");
+    e.preventDefault()
+    setLoading(true)
+    setError("")
 
     try {
-      await signInWithEmailAndPassword(auth, email, password);
-      router.push("/admin");
+      await signInWithEmailAndPassword(auth, email, password)
+      router.push("/admin")
     } catch (err: any) {
-      let friendlyMessage = "";
+      let friendlyMessage = ""
       switch (err.code) {
         case "auth/invalid-email":
-          friendlyMessage = "The email address is invalid.";
-          break;
+          friendlyMessage = "The email address is invalid."
+          break
         case "auth/user-not-found":
-          friendlyMessage = "No account found with this email address.";
-          break;
+          friendlyMessage = "No account found with this email address."
+          break
         case "auth/wrong-password":
-          friendlyMessage = "Incorrect password. Please try again.";
-          break;
+          friendlyMessage = "Incorrect password. Please try again."
+          break
         case "auth/too-many-requests":
-          friendlyMessage = "Too many failed attempts. Please try again later.";
-          break;
+          friendlyMessage = "Too many failed attempts. Please try again later."
+          break
         default:
-          friendlyMessage = "An error occurred. Please try again.";
+          friendlyMessage = "An error occurred. Please try again."
       }
-      setError(friendlyMessage);
+      setError(friendlyMessage)
     } finally {
-      setLoading(false);
+      setLoading(false)
     }
-  };
+  }
 
   return (
     <div className="flex items-center justify-center h-screen text-white">
-      <form
-        onSubmit={handleLogin}
-        className="p-9 border border-white w-[90%] md:w-[60%] lg:w-[35%]"
-      >
+      <form onSubmit={handleLogin} className="p-9 border border-white w-[90%] md:w-[60%] lg:w-[35%]">
         <div className="mb-5">
-          <PageTitle
-            className="sr-only"
-            imgSrc="/images/titles/lap-cms.svg"
-            imgAlt="Dashboard"
-          >
+          <PageTitle className="sr-only" imgSrc="/images/titles/lap-cms.svg" imgAlt="Dashboard">
             L.A.P CMS
           </PageTitle>
         </div>
@@ -91,14 +85,16 @@ export default function LoginPage() {
           </div>
         </div>
 
-        <button
+        <Button
+         variant="outline"
           type="submit"
           disabled={loading}
           className="text-center w-full py-3 font-medium hover:bg-[#8a2be2] transition ease-in-out duration-300"
         >
           {loading ? "Verifying..." : "Sign In"}
-        </button>
+        </Button>
       </form>
     </div>
-  );
+  )
 }
+
