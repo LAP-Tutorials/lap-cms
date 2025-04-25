@@ -1,6 +1,3 @@
-/*
-README Documentation Summary for Next.js Project
-
 Overview:
 - This document outlines a Next.js project, bootstrapped with create-next-app.
 - It serves as an introduction and quick-start guide for developers.
