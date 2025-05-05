@@ -1,7 +1,6 @@
 "use client"
 
-import { collection, getDocs, updateDoc, deleteDoc, doc } from "firebase/firestore"
-import { db } from "@/lib/firebase"
+import { orderBy } from "firebase/firestore"
 import Link from "next/link"
 import { useEffect, useState } from "react"
 import PageTitle from "@/components/PageTitle"
@@ -11,6 +10,7 @@ import { Input } from "@/components/ui/input"
 import { useToast } from "@/hooks/use-toast"
 import { Breadcrumb } from "@/components/breadcrumb"
 import { formatDate } from "@/lib/utils"
+import { usePaginatedCollection, useUpdateDocument, useDeleteDocument } from "@/hooks/use-firestore-query"
 
 interface Article {
   id: string
@@ -26,26 +26,46 @@ interface Article {
 type SortField = "title" | "authorName" | "createdAt" | "publish" | "label"
 
 export default function ArticlesPage() {
-  const [articles, setArticles] = useState<Article[]>([])
   const [searchTerm, setSearchTerm] = useState("")
   const [sortField, setSortField] = useState<SortField | null>(null)
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc")
-  const [loading, setLoading] = useState(true)
-  // Remove these state variables as they're no longer needed
-  // const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
-  // const [articleToDelete, setArticleToDelete] = useState<string | null>(null)
 
   const { toast } = useToast()
+  const updateArticle = useUpdateDocument("articles")
+  const deleteArticleMutation = useDeleteDocument("articles")
+
+  // Set up query constraints based on sort field and order
+  const getConstraints = () => {
+    const constraints = []
+
+    if (sortField) {
+      constraints.push(orderBy(sortField, sortOrder))
+    } else {
+      constraints.push(orderBy("createdAt", "desc"))
+    }
+
+    return constraints
+  }
+
+  // Use the paginated collection hook
+  const {
+    items: articles,
+    loading,
+    hasMore,
+    loadMore,
+    refresh,
+  } = usePaginatedCollection("articles", 20, getConstraints())
 
   // Toggle the publish status
   const togglePublish = async (articleId: string, currentStatus: boolean) => {
     try {
-      const articleRef = doc(db, "articles", articleId)
-      await updateDoc(articleRef, { publish: !currentStatus })
+      await updateArticle.mutateAsync({
+        id: articleId,
+        data: { publish: !currentStatus },
+      })
 
-      setArticles((prevArticles) =>
-        prevArticles.map((article) => (article.id === articleId ? { ...article, publish: !currentStatus } : article)),
-      )
+      // Force refresh the articles list after toggling publish status
+      refresh()
 
       toast({
         title: "Status updated",
@@ -62,25 +82,24 @@ export default function ArticlesPage() {
     }
   }
 
-  // Replace the confirmDelete function with this version that uses window.confirm
+  // Delete article
   const confirmDelete = (articleId: string) => {
     if (window.confirm("Are you sure you want to delete this article? This action cannot be undone.")) {
       deleteArticle(articleId)
     }
   }
 
-  // Update the deleteArticle function to accept the articleId parameter
   const deleteArticle = async (articleId: string) => {
     try {
-      await deleteDoc(doc(db, "articles", articleId))
-
-      setArticles((prevArticles) => prevArticles.filter((article) => article.id !== articleId))
+      await deleteArticleMutation.mutateAsync(articleId)
 
       toast({
         title: "Article deleted",
         description: "The article has been permanently removed",
         variant: "success",
       })
+
+      refresh() // Refresh the list after deletion
     } catch (error) {
       console.error("Error deleting article:", error)
       toast({
@@ -90,30 +109,6 @@ export default function ArticlesPage() {
       })
     }
   }
-
-  useEffect(() => {
-    const fetchArticles = async () => {
-      setLoading(true)
-      try {
-        const snap = await getDocs(collection(db, "articles"))
-        const docs = snap.docs.map((doc) => ({
-          id: doc.id,
-          ...doc.data(),
-        })) as Article[]
-        setArticles(docs)
-      } catch (error) {
-        console.error("Error fetching articles:", error)
-        toast({
-          title: "Error",
-          description: "Failed to load articles",
-          variant: "destructive",
-        })
-      } finally {
-        setLoading(false)
-      }
-    }
-    fetchArticles()
-  }, [toast])
 
   // Sorting
   const handleSort = (field: SortField) => {
@@ -125,41 +120,23 @@ export default function ArticlesPage() {
     }
   }
 
-  // Filter and sort articles
-  const filteredArticles = articles
-    .filter((article) => {
-      const term = searchTerm.toLowerCase()
-      return (
-        article.title?.toLowerCase().includes(term) ||
-        article.authorName?.toLowerCase().includes(term) ||
-        article.label?.toLowerCase().includes(term)
-      )
-    })
-    .sort((a, b) => {
-      if (!sortField) return 0
+  // Effect to refresh data when sort parameters change
+  useEffect(() => {
+    // Add console log to verify when this effect runs
+    console.log("Sort parameters changed, refreshing data", { sortField, sortOrder })
+    refresh()
+  }, [sortField, sortOrder])
 
-      let aVal: any = a[sortField]
-      let bVal: any = b[sortField]
-
-      if (sortField === "createdAt") {
-        aVal = aVal?.toDate?.() ?? new Date(0)
-        bVal = bVal?.toDate?.() ?? new Date(0)
-      }
-
-      if (sortField === "publish") {
-        aVal = aVal ? 1 : 0
-        bVal = bVal ? 1 : 0
-      }
-
-      if (typeof aVal === "string") {
-        aVal = aVal.toLowerCase()
-        bVal = bVal.toLowerCase()
-      }
-
-      if (aVal < bVal) return sortOrder === "asc" ? -1 : 1
-      if (aVal > bVal) return sortOrder === "asc" ? 1 : -1
-      return 0
-    })
+  // Filter articles based on search term
+  const filteredArticles = articles.filter((article) => {
+    const term = searchTerm.toLowerCase()
+    const articleData = article as Article
+    return (
+      articleData.title?.toLowerCase().includes(term) ||
+      articleData.authorName?.toLowerCase().includes(term) ||
+      articleData.label?.toLowerCase().includes(term)
+    )
+  })
 
   // Render sort icons for the active column
   const renderSortIcon = (field: SortField) => {
@@ -212,7 +189,7 @@ export default function ArticlesPage() {
 
       {/* Scrollable table area */}
       <div className="px-4 pb-4 mt-6">
-        {loading ? (
+        {loading && articles.length === 0 ? (
           <div className="flex justify-center items-center py-20">
             <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-[#8a2be2]"></div>
             <span className="ml-3">Loading articles...</span>
@@ -257,73 +234,78 @@ export default function ArticlesPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/10">
-                {filteredArticles.map((article) => (
-                  <tr key={article.id} className="hover:bg-white/5">
-                    {/* Thumbnail */}
-                    <td className="p-4 whitespace-nowrap">
-                      <div className="w-16 h-16 overflow-hidden">
-                        <img
-                          src={article.img || "/placeholder.svg?height=64&width=64"}
-                          alt={article.title}
-                          className="w-full h-full object-cover"
-                          onError={(e) => {
-                            e.currentTarget.src = "/placeholder.svg?height=64&width=64"
-                          }}
-                        />
-                      </div>
-                    </td>
-                    {/* Title */}
-                    <td className="p-4 whitespace-nowrap font-medium">{article.title}</td>
-                    {/* Label */}
-                    <td className="p-4 whitespace-nowrap">
-                      <span className="px-2 py-1 bg-white/10 text-xs rounded-none">
-                        {article.label || "Uncategorized"}
-                      </span>
-                    </td>
-                    {/* Author */}
-                    <td className="p-4 whitespace-nowrap">{article.authorName}</td>
-                    {/* Created Date */}
-                    <td className="p-4 whitespace-nowrap">{formatDate(article.createdAt?.toDate?.())}</td>
-                    {/* Publish Toggle */}
-                    <td className="p-4 whitespace-nowrap">
-                      <Button
-                        onClick={() => togglePublish(article.id, article.publish)}
-                        variant={article.publish ? "default" : "secondary"}
-                        size="sm"
-                      >
-                        {article.publish ? "Published" : "Draft"}
-                      </Button>
-                    </td>
-                    {/* Actions */}
-                    <td className="p-4 whitespace-nowrap">
-                      <div className="flex items-center space-x-2">
-                        <Button asChild size="icon" variant="ghost">
-                          <Link
-                            href={`https://lap-docs.netlify.app/posts/${article.slug}`}
-                            target="_blank"
-                            title="View article"
-                          >
-                            <Eye className="h-4 w-4" />
-                          </Link>
-                        </Button>
-                        <Button asChild size="icon" variant="ghost">
-                          <Link href={`/admin/articles/${article.id}`} title="Edit article">
-                            <Pencil className="h-4 w-4" />
-                          </Link>
-                        </Button>
+                {filteredArticles.map((article) => {
+                  const articleData = article as Article
+                  return (
+                    <tr key={articleData.id} className="hover:bg-white/5">
+                      {/* Thumbnail */}
+                      <td className="p-4 whitespace-nowrap">
+                        <div className="w-16 h-16 overflow-hidden">
+                          <img
+                            src={articleData.img || "/placeholder.svg?height=64&width=64"}
+                            alt={articleData.title}
+                            className="w-full h-full object-cover"
+                            onError={(e) => {
+                              e.currentTarget.src = "/placeholder.svg?height=64&width=64"
+                            }}
+                          />
+                        </div>
+                      </td>
+                      {/* Title */}
+                      <td className="p-4 whitespace-nowrap font-medium">{articleData.title}</td>
+                      {/* Label */}
+                      <td className="p-4 whitespace-nowrap">
+                        <span className="px-2 py-1 bg-white/10 text-xs rounded-none">
+                          {articleData.label || "Uncategorized"}
+                        </span>
+                      </td>
+                      {/* Author */}
+                      <td className="p-4 whitespace-nowrap">{articleData.authorName}</td>
+                      {/* Created Date */}
+                      <td className="p-4 whitespace-nowrap">{formatDate(articleData.createdAt?.toDate?.())}</td>
+                      {/* Publish Toggle */}
+                      <td className="p-4 whitespace-nowrap">
                         <Button
-                          size="icon"
-                          variant="ghost"
-                          className="text-red-500"
-                          onClick={() => confirmDelete(article.id)}
-                          title="Delete article"
+                          onClick={() => togglePublish(articleData.id, articleData.publish)}
+                          variant={articleData.publish ? "default" : "secondary"}
+                          size="sm"
+                          disabled={updateArticle.isPending}
                         >
-                          <Trash2 className="h-4 w-4" />
+                          {articleData.publish ? "Published" : "Draft"}
                         </Button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
+                      </td>
+                      {/* Actions */}
+                      <td className="p-4 whitespace-nowrap">
+                        <div className="flex items-center space-x-2">
+                          <Button asChild size="icon" variant="ghost">
+                            <Link
+                              href={`https://lap-docs.netlify.app/posts/${articleData.slug}`}
+                              target="_blank"
+                              title="View article"
+                            >
+                              <Eye className="h-4 w-4" />
+                            </Link>
+                          </Button>
+                          <Button asChild size="icon" variant="ghost">
+                            <Link href={`/admin/articles/${articleData.id}`} title="Edit article">
+                              <Pencil className="h-4 w-4" />
+                            </Link>
+                          </Button>
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="text-red-500"
+                            onClick={() => confirmDelete(articleData.id)}
+                            title="Delete article"
+                            disabled={deleteArticleMutation.isPending}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </td>
+                    </tr>
+                  )
+                })}
                 {filteredArticles.length === 0 && (
                   <tr>
                     <td colSpan={7} className="p-8 text-center text-white/50">
@@ -335,19 +317,23 @@ export default function ArticlesPage() {
             </table>
           </div>
         )}
-      </div>
 
-      {/* Remove the ConfirmDialog component at the bottom of the component */}
-      {/* <ConfirmDialog
-        open={deleteDialogOpen}
-        onOpenChange={setDeleteDialogOpen}
-        title="Delete Article"
-        description="Are you sure you want to delete this article? This action cannot be undone."
-        onConfirm={deleteArticle}
-        confirmText="Delete"
-        variant="destructive"
-      /> */}
+        {/* Load more button */}
+        {hasMore && filteredArticles.length > 0 && (
+          <div className="flex justify-center mt-4">
+            <Button onClick={loadMore} variant="outline" disabled={loading}>
+              {loading ? (
+                <>
+                  <div className="animate-spin rounded-full h-4 w-4 border-t-2 border-b-2 border-[#8a2be2] mr-2"></div>
+                  Loading...
+                </>
+              ) : (
+                "Load More"
+              )}
+            </Button>
+          </div>
+        )}
+      </div>
     </div>
   )
 }
-

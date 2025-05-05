@@ -2,11 +2,12 @@ import type React from "react"
 import "./globals.css"
 import type { Metadata } from "next"
 import { Toaster } from "@/components/ui/toaster"
+import { Providers } from "./providers"
 
 export const metadata: Metadata = {
   title: "L.A.P CMS",
   description: "Getting things done on L.A.P Docs",
-    generator: 'v0.dev'
+  generator: "v0.dev",
 }
 
 export const viewport = {
@@ -29,13 +30,11 @@ export default function RootLayout({
         <meta name="robots" content="noindex, nofollow" />
       </head>
       <body>
-        {children}
-        <Toaster />
+        <Providers>
+          {children}
+          <Toaster />
+        </Providers>
       </body>
     </html>
   )
 }
-
-
-
-import './globals.css'

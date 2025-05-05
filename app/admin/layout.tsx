@@ -1,49 +1,28 @@
 "use client"
 
 import type React from "react"
-
-import { useEffect, useState } from "react"
-import { onAuthStateChanged } from "firebase/auth"
-import { auth, db } from "@/lib/firebase"
-import { doc, getDoc } from "firebase/firestore"
+import { useEffect } from "react"
 import { useRouter } from "next/navigation"
 import AdminSidebar from "@/components/admin-sidebar"
+import { useAuth } from "@/lib/auth-context"
 
 export default function AdminLayout({
   children,
 }: {
   children: React.ReactNode
 }) {
-  const [loading, setLoading] = useState(true)
-  const [allowed, setAllowed] = useState(false)
+  const { user, userRole, isLoading } = useAuth()
   const router = useRouter()
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (user) => {
-      if (!user) {
-        router.replace("/auth/login")
-        return
-      }
-      // Fetch role from authors collection
-      const ref = doc(db, "authors", user.uid)
-      const snap = await getDoc(ref)
-      if (snap.exists()) {
-        const data = snap.data()
-        if (["super", "admin", "manager"].includes(data.role)) {
-          setAllowed(true)
-        } else {
-          router.replace("/auth/login")
-        }
-      } else {
-        router.replace("/auth/login")
-      }
-      setLoading(false)
-    })
+    if (!isLoading && !user) {
+      router.replace("/auth/login")
+    } else if (!isLoading && user && !["super", "admin", "manager"].includes(userRole || "")) {
+      router.replace("/auth/login")
+    }
+  }, [user, userRole, isLoading, router])
 
-    return () => unsubscribe()
-  }, [router])
-
-  if (loading) {
+  if (isLoading) {
     return (
       <div className="flex items-center justify-center h-screen text-white">
         <p>Loading...</p>
@@ -51,7 +30,7 @@ export default function AdminLayout({
     )
   }
 
-  if (!allowed) {
+  if (!user || !["super", "admin", "manager"].includes(userRole || "")) {
     return (
       <div className="flex items-center justify-center h-screen text-white">
         <p>Access Denied</p>
@@ -68,4 +47,3 @@ export default function AdminLayout({
     </div>
   )
 }
-
