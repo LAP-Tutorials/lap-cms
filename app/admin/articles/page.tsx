@@ -36,7 +36,7 @@ export default function ArticlesPage() {
 
   // Set up query constraints based on sort field and order
   const getConstraints = () => {
-    const constraints = []
+    const constraints = [] 
 
     if (sortField) {
       constraints.push(orderBy(sortField, sortOrder))
