@@ -58,12 +58,10 @@ export default function AdminSidebar() {
     visible: {
       x: 0,
       opacity: 1,
-      transition: { duration: 0.3, ease: "easeInOut" },
     },
     exit: {
       x: "-100%",
       opacity: 0,
-      transition: { duration: 0.3, ease: "easeInOut" },
     },
   };
 
@@ -129,6 +127,7 @@ export default function AdminSidebar() {
               initial="hidden"
               animate="visible"
               exit="exit"
+              transition={{ duration: 0.3, ease: "easeInOut" }}
               className="fixed top-0 left-0 z-[999] w-64 border-r border-white/10 bg-[#121212] flex flex-col h-screen pt-safe"
             >
               <div className="flex flex-col h-full">
