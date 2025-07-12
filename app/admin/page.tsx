@@ -146,7 +146,7 @@ export default function AdminDashboardPage() {
 
       {/* Monthly Articles Chart */}
       <div className="mb-20 md:ml-5">
-        <h2 className="text-subtitle font-bold mb-5">Monthly Articles</h2>
+        <h2 className="text-subtitle font-bold mb-5">Monthly Post</h2>
         {loading ? (
           <ChartSkeleton />
         ) : (
@@ -164,7 +164,7 @@ export default function AdminDashboardPage() {
                   labelStyle={{ color: "#fff" }}
                 />
                 <Legend wrapperStyle={{ color: "#fff" }} />
-                <Bar dataKey="articles" fill="#8a2be2" name="Articles Published" />
+                <Bar dataKey="articles" fill="#8a2be2" name="Posts Published" />
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -179,7 +179,7 @@ export default function AdminDashboardPage() {
         ) : latestArticles.length > 0 ? (
           latestArticles.map((article) => (
             <div key={article.id} className="flex items-center gap-4 border-b border-white/20 py-5">
-              <img src={article.img} alt={article.imgAlt || "Thumbnail"} className="w-22 object-cover" />
+              <img src={article.img || "/images/articles/preview/an-indestructible-hope.jpg"} alt={article.imgAlt || "Thumbnail"} className="w-22 object-cover" />
               <div>
                 <p className="font-semibold text-xl mb-1">{article.title}</p>
                 <p className="text-sm text-white/50">
