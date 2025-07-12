@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { doc, getDoc, updateDoc } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
-import { onAuthStateChanged, updatePassword } from "firebase/auth";
+import { onAuthStateChanged, updatePassword, GoogleAuthProvider, linkWithPopup } from "firebase/auth";
 import PageTitle from "@/components/PageTitle";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,6 +11,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { Breadcrumb } from "@/components/breadcrumb";
 import { Eye, EyeOff, Loader2, AlertTriangle, Plus, X } from "lucide-react";
+import { FcGoogle } from "react-icons/fc";
 
 interface ProfileData {
   avatar: string;
@@ -41,6 +42,8 @@ export default function ProfilePage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [changingPassword, setChangingPassword] = useState(false);
+  const [linkingGoogle, setLinkingGoogle] = useState(false);
+  const [isGoogleLinked, setIsGoogleLinked] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const { toast } = useToast();
@@ -62,6 +65,10 @@ export default function ProfilePage() {
       setError(null);
 
       if (user) {
+        // Check if Google is a linked provider
+        const isLinked = user.providerData.some((provider) => provider.providerId === GoogleAuthProvider.PROVIDER_ID);
+        setIsGoogleLinked(isLinked);
+
         try {
           const ref = doc(db, "authors", user.uid);
           const snap = await getDoc(ref);
@@ -93,6 +100,43 @@ export default function ProfilePage() {
 
     return () => unsubscribe();
   }, []);
+
+  const handleLinkGoogle = async () => {
+    if (!auth.currentUser) {
+      toast({
+        title: "Not authenticated",
+        description: "You must be logged in to link an account.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setLinkingGoogle(true);
+    const provider = new GoogleAuthProvider();
+
+    try {
+      await linkWithPopup(auth.currentUser, provider);
+      setIsGoogleLinked(true);
+      toast({
+        title: "Account Linked",
+        description: "Your Google account has been successfully linked.",
+        variant: "success",
+      });
+    } catch (err: any) {
+      console.error("Error linking Google account:", err);
+      let description = "Failed to link Google account.";
+      if (err.code === "auth/credential-already-in-use") {
+        description = "This Google account is already linked to another user.";
+      }
+      toast({
+        title: "Error",
+        description,
+        variant: "destructive",
+      });
+    } finally {
+      setLinkingGoogle(false);
+    }
+  };
 
   const handleSave = async () => {
     if (!auth.currentUser) {
@@ -459,6 +503,26 @@ export default function ProfilePage() {
         </div>
 
         <hr className="my-10 border-white/10" />
+
+        {/* Link Google Account Section */}
+        <div className="max-w-md mb-10">
+          <h2 className="text-xl font-bold mb-6">Link Accounts</h2>
+          {isGoogleLinked ? (
+            <Button variant="outline" disabled className="w-full">
+              <FcGoogle className="mr-2 h-5 w-5" />
+              Google Account Linked
+            </Button>
+          ) : (
+            <Button onClick={handleLinkGoogle} disabled={linkingGoogle} variant="outline" className="w-full">
+              {linkingGoogle ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <FcGoogle className="mr-2 h-5 w-5" />
+              )}
+              {linkingGoogle ? "Linking..." : "Link Google Account"}
+            </Button>
+          )}
+        </div>
 
         {/* Change Password Section */}
         <div className="max-w-md">
