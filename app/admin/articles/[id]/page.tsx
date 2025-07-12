@@ -16,6 +16,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { formatDate } from "@/lib/utils"
 import { Loader2, AlertTriangle } from "lucide-react"
 import { MarkdownToolbar } from "@/components/markdown-toolbar"
+import { Switch } from "@/components/ui/switch"
+import { Label } from "@/components/ui/label"
 
 export default function EditArticlePage() {
   const [title, setTitle] = useState("")
@@ -27,12 +29,13 @@ export default function EditArticlePage() {
   const [slug, setSlug] = useState("")
   const [date, setDate] = useState("")
   const [popularity, setPopularity] = useState(false)
+  const [isPublished, setIsPublished] = useState(false)
   const [readTime, setReadTime] = useState("")
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [previewHtml, setPreviewHtml] = useState("")
-  const contentRef = useRef<HTMLTextAreaElement>(null!)
+  const contentRef = useRef<HTMLTextAreaElement>(null)
 
   const router = useRouter()
   const params = useParams()
@@ -61,6 +64,7 @@ export default function EditArticlePage() {
           setLabel(data.label || "")
           setSlug(data.slug || "")
           setPopularity(data.popularity || false)
+          setIsPublished(data.publish || false)
           setReadTime(data.read || "")
           setDate(data.date ? formatDate(data.date.toDate()) : "")
         } else {
@@ -110,6 +114,7 @@ export default function EditArticlePage() {
         label,
         slug,
         popularity,
+        publish: isPublished,
         read: readTime,
         updatedAt: serverTimestamp(),
         // Don't update date to keep it uneditable
@@ -231,8 +236,11 @@ export default function EditArticlePage() {
       <div className="mb-2 mt-6 md:mt-0">
         <Breadcrumb items={breadcrumbItems} />
       </div>
+      
+      <div className="flex justify-between items-center">
+        <h1 className="text-subtitle font-bold mb-8 mt-4">Edit Article</h1>
+      </div>
 
-      <h1 className="text-subtitle font-bold mb-8 mt-4">Edit Article</h1>
 
       <div className="max-w-4xl">
         {/* Title */}
@@ -274,7 +282,7 @@ export default function EditArticlePage() {
               <TabsTrigger value="preview">Preview</TabsTrigger>
             </TabsList>
             <TabsContent value="write">
-              <MarkdownToolbar textareaRef={contentRef} onInsert={handleMarkdownInsert} />
+              <MarkdownToolbar textareaRef={contentRef as React.RefObject<HTMLTextAreaElement>} onInsert={handleMarkdownInsert} />
               <Textarea
                 ref={contentRef}
                 value={content}
@@ -348,6 +356,12 @@ export default function EditArticlePage() {
           />
         </div>
 
+        {/* Publish Status */}
+        <div className="mb-6 flex items-center space-x-2">
+            <Switch id="publish-status" checked={isPublished} onCheckedChange={setIsPublished} />
+            <Label htmlFor="publish-status">{isPublished ? "Published" : "Draft"}</Label>
+        </div>
+        
         {/* Popularity */}
         <div className="mb-6 flex items-center space-x-2">
           <Checkbox

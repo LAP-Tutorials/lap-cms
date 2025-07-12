@@ -2,8 +2,9 @@
 
 import { useEffect, useState } from "react"
 import PageTitle from "@/components/PageTitle"
-import { collection, getDocs, query, orderBy, limit } from "firebase/firestore"
+import { collection, getDocs, query, orderBy, limit, where, Timestamp } from "firebase/firestore"
 import { db } from "@/lib/firebase"
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts"
 
 export default function AdminDashboardPage() {
   const [articlesCount, setArticlesCount] = useState(0)
@@ -12,6 +13,7 @@ export default function AdminDashboardPage() {
 
   const [latestArticles, setLatestArticles] = useState<any[]>([])
   const [latestNews, setLatestNews] = useState<any[]>([])
+  const [monthlyArticlesData, setMonthlyArticlesData] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -44,6 +46,39 @@ export default function AdminDashboardPage() {
       }))
       setLatestNews(newsList)
 
+      // 4. Fetch articles for the last 6 months for chart
+      const sixMonthsAgo = new Date()
+      sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6)
+      const articlesForChartQuery = query(
+        collection(db, "articles"),
+        where("createdAt", ">=", Timestamp.fromDate(sixMonthsAgo)),
+        orderBy("createdAt", "asc"),
+      )
+      const chartSnap = await getDocs(articlesForChartQuery)
+      const monthlyCounts: { [key: string]: number } = {}
+
+      chartSnap.docs.forEach((doc) => {
+        const data = doc.data()
+        if (data.createdAt) {
+          const date = data.createdAt.toDate()
+          const month = date.toLocaleString("default", { month: "short", year: "2-digit" })
+          monthlyCounts[month] = (monthlyCounts[month] || 0) + 1
+        }
+      })
+
+      // Prepare data for the chart, ensuring we have entries for the last 6 months
+      const chartData = []
+      for (let i = 5; i >= 0; i--) {
+        const d = new Date()
+        d.setMonth(d.getMonth() - i)
+        const monthKey = d.toLocaleString("default", { month: "short", year: "2-digit" })
+        chartData.push({
+          month: monthKey,
+          articles: monthlyCounts[monthKey] || 0,
+        })
+      }
+      setMonthlyArticlesData(chartData)
+
       setLoading(false)
     }
 
@@ -66,6 +101,12 @@ export default function AdminDashboardPage() {
         <div className="h-6 bg-gray-700 rounded w-3/4 mb-1"></div>
         <div className="h-4 bg-gray-700 rounded w-1/2"></div>
       </div>
+    </div>
+  )
+
+  const ChartSkeleton = () => (
+    <div className="h-[300px] w-full bg-gray-800 animate-pulse rounded p-4">
+      <div className="h-full w-full bg-gray-700 rounded"></div>
     </div>
   )
 
@@ -100,6 +141,33 @@ export default function AdminDashboardPage() {
               <p className="text-xl">{newsCount}</p>
             </div>
           </>
+        )}
+      </div>
+
+      {/* Monthly Articles Chart */}
+      <div className="mb-20 md:ml-5">
+        <h2 className="text-subtitle font-bold mb-5">Monthly Articles</h2>
+        {loading ? (
+          <ChartSkeleton />
+        ) : (
+          <div className="w-full h-[300px]">
+            <ResponsiveContainer>
+              <BarChart data={monthlyArticlesData}>
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255, 255, 255, 0.1)" />
+                <XAxis dataKey="month" stroke="#fff" />
+                <YAxis stroke="#fff" allowDecimals={false} />
+                <Tooltip
+                  contentStyle={{
+                    backgroundColor: "#1a1a1a",
+                    border: "1px solid rgba(255, 255, 255, 0.2)",
+                  }}
+                  labelStyle={{ color: "#fff" }}
+                />
+                <Legend wrapperStyle={{ color: "#fff" }} />
+                <Bar dataKey="articles" fill="#8a2be2" name="Articles Published" />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
         )}
       </div>
 
@@ -144,4 +212,3 @@ export default function AdminDashboardPage() {
     </div>
   )
 }
-
