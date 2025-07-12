@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { useRouter, useParams } from "next/navigation"
 import { db, auth } from "@/lib/firebase"
 import { doc, getDoc, updateDoc, deleteDoc, serverTimestamp } from "firebase/firestore"
@@ -15,6 +15,7 @@ import { Breadcrumb } from "@/components/breadcrumb"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { formatDate } from "@/lib/utils"
 import { Loader2, AlertTriangle } from "lucide-react"
+import { MarkdownToolbar } from "@/components/markdown-toolbar"
 
 export default function EditArticlePage() {
   const [title, setTitle] = useState("")
@@ -31,6 +32,7 @@ export default function EditArticlePage() {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [previewHtml, setPreviewHtml] = useState("")
+  const contentRef = useRef<HTMLTextAreaElement>(null!)
 
   const router = useRouter()
   const params = useParams()
@@ -153,6 +155,23 @@ export default function EditArticlePage() {
       })
     }
   }
+  
+  const handleMarkdownInsert = (textToInsert: string) => {
+    const textarea = contentRef.current
+    if (!textarea) return
+
+    const start = textarea.selectionStart
+    const end = textarea.selectionEnd
+    const newContent = `${content.substring(0, start)}${textToInsert}${content.substring(end)}`
+    setContent(newContent)
+
+    // Focus and set cursor position after the inserted text
+    setTimeout(() => {
+      textarea.focus()
+      const newCursorPosition = start + textToInsert.length
+      textarea.setSelectionRange(newCursorPosition, newCursorPosition)
+    }, 0)
+  }
 
   // Convert markdown to HTML using Marked and sanitize it with DOMPurify
   useEffect(() => {
@@ -255,11 +274,13 @@ export default function EditArticlePage() {
               <TabsTrigger value="preview">Preview</TabsTrigger>
             </TabsList>
             <TabsContent value="write">
+              <MarkdownToolbar textareaRef={contentRef} onInsert={handleMarkdownInsert} />
               <Textarea
+                ref={contentRef}
                 value={content}
                 onChange={(e) => setContent(e.target.value)}
                 placeholder="Write your article content in Markdown..."
-                className="min-h-[400px] font-mono"
+                className="min-h-[400px] font-mono border-t-0 rounded-t-none"
               />
             </TabsContent>
             <TabsContent value="preview">

@@ -16,6 +16,7 @@ import { Loader2 } from "lucide-react"
 import { marked } from "marked"
 import DOMPurify from "dompurify"
 import { generateSlugFromTitle } from "@/lib/utils"
+import { MarkdownToolbar } from "@/components/markdown-toolbar"
 
 // Type for an author document
 interface Author {
@@ -36,6 +37,7 @@ export default function NewArticlePage() {
   const [slug, setSlug] = useState("")
   const [creating, setCreating] = useState(false)
   const [previewHtml, setPreviewHtml] = useState("")
+  const contentRef = useRef<HTMLTextAreaElement>(null!)
 
   // Author autocomplete state
   const [authorName, setAuthorName] = useState("")
@@ -123,6 +125,23 @@ export default function NewArticlePage() {
 
     generatePreview()
   }, [content])
+  
+  const handleMarkdownInsert = (textToInsert: string) => {
+    const textarea = contentRef.current
+    if (!textarea) return
+
+    const start = textarea.selectionStart
+    const end = textarea.selectionEnd
+    const newContent = `${content.substring(0, start)}${textToInsert}${content.substring(end)}`
+    setContent(newContent)
+
+    // Focus and set cursor position after the inserted text
+    setTimeout(() => {
+      textarea.focus()
+      const newCursorPosition = start + textToInsert.length
+      textarea.setSelectionRange(newCursorPosition, newCursorPosition)
+    }, 0)
+  }
 
   const handleSave = async () => {
     if (!title.trim()) {
@@ -288,11 +307,13 @@ export default function NewArticlePage() {
               <TabsTrigger value="preview">Preview</TabsTrigger>
             </TabsList>
             <TabsContent value="write">
+              <MarkdownToolbar textareaRef={contentRef} onInsert={handleMarkdownInsert} />
               <Textarea
+                ref={contentRef}
                 value={content}
                 onChange={(e) => setContent(e.target.value)}
                 placeholder="Write your article content in Markdown..."
-                className="min-h-[400px] font-mono"
+                className="min-h-[400px] font-mono border-t-0 rounded-t-none"
               />
             </TabsContent>
             <TabsContent value="preview">
@@ -406,4 +427,3 @@ export default function NewArticlePage() {
     </div>
   )
 }
-

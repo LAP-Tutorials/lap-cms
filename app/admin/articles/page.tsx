@@ -240,13 +240,13 @@ export default function ArticlesPage() {
                     <tr key={articleData.id} className="hover:bg-white/5">
                       {/* Thumbnail */}
                       <td className="p-4 whitespace-nowrap">
-                        <div className="w-16 h-16 overflow-hidden">
+                        <div className="w-28 h-16 overflow-hidden">
                           <img
-                            src={articleData.img || "/placeholder.svg?height=64&width=64"}
+                            src={articleData.img || "/images/articles/preview/an-indestructible-hope.jpg"}
                             alt={articleData.title}
                             className="w-full h-full object-cover"
                             onError={(e) => {
-                              e.currentTarget.src = "/placeholder.svg?height=64&width=64"
+                              e.currentTarget.src = "/images/articles/preview/an-indestructible-hope.jpg"
                             }}
                           />
                         </div>
