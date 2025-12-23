@@ -1,13 +1,61 @@
 import type React from "react"
 import "./globals.css"
 import type { Metadata } from "next"
+import localFont from "next/font/local"
 import { Toaster } from "@/components/ui/toaster"
 import { Providers } from "./providers"
 
+const generalSans = localFont({
+  src: [
+    {
+      path: "../public/fonts/general-sans/GeneralSans-Regular.woff2",
+      weight: "400",
+      style: "normal",
+    },
+    {
+      path: "../public/fonts/general-sans/GeneralSans-Medium.woff2",
+      weight: "500",
+      style: "normal",
+    },
+    {
+      path: "../public/fonts/general-sans/GeneralSans-Semibold.woff2",
+      weight: "600",
+      style: "normal",
+    },
+  ],
+  variable: "--font-general-sans",
+  display: "swap",
+})
+
 export const metadata: Metadata = {
-  title: "L.A.P CMS",
+  metadataBase: new URL("https://lap-cms.vercel.app"),
+  title: {
+    default: "L.A.P CMS",
+    template: "%s | L.A.P CMS",
+  },
   description: "Getting things done on L.A.P Docs",
   generator: "v0.dev",
+  openGraph: {
+    title: "L.A.P CMS",
+    description: "Getting things done on L.A.P Docs",
+    url: "https://lap-cms.vercel.app", // Assuming a URL or leaving generic
+    siteName: "L.A.P CMS",
+    images: [
+      {
+        url: "/logos/LAP-Logo-Color.png",
+        width: 800,
+        height: 600,
+      },
+    ],
+    locale: "en_US",
+    type: "website",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "L.A.P CMS",
+    description: "Getting things done on L.A.P Docs",
+    images: ["/logos/LAP-Logo-Color.png"],
+  },
 }
 
 export const viewport = {
@@ -29,7 +77,7 @@ export default function RootLayout({
         <link rel="icon" href="/logos/LAP-Logo-Color.png" type="image/x-icon" />
         <meta name="robots" content="noindex, nofollow" />
       </head>
-      <body>
+      <body className={`${generalSans.variable} font-sans`}>
         <Providers>
           {children}
           <Toaster />

@@ -1,6 +1,10 @@
 @import url("https://cdnjs.cloudflare.com/ajax/libs/github-markdown-css/5.2.0/github-markdown-dark.min.css");
 @import "tailwindcss";
 
+@theme {
+  --font-sans: var(--font-general-sans), ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+}
+
 iframe[aria-hidden="true"] {
   display: none !important;
 }
@@ -75,23 +79,28 @@ iframe[aria-hidden="true"] {
     font-weight: 600;
     line-height: 2.4rem;
   }
+
   .podcast-title {
     font-weight: 600;
     font-size: clamp(1rem, 0.8997rem + 3.3439vw, 6.25rem);
     text-transform: uppercase;
   }
+
   .text-blog-subheading {
     font-weight: 600;
     font-size: clamp(3rem, 2.7857rem + 1.0714vw, 4.5rem);
   }
+
   .text-blog-quote {
     font-weight: 600;
     font-size: clamp(2rem, 1.8571rem + 0.7143vw, 3rem);
   }
+
   .text-blog-summary {
     font-weight: 500;
     font-size: 1.375rem;
   }
+
   .text-subheading {
     font-weight: 600;
     /* font-size: clamp(3.25rem, 2.4853rem + 3.8235vw, 6.5rem); */
@@ -99,12 +108,15 @@ iframe[aria-hidden="true"] {
     text-transform: uppercase;
     line-height: 1;
   }
+
   .text-subtitle {
     line-height: 1;
   }
+
   .text-footer-title {
     color: #ffffff;
   }
+
   .text-subtitle,
   .text-footer-title {
     font-size: clamp(2.625rem, 1.9917rem + 3.1667vw, 5rem);
@@ -113,29 +125,7 @@ iframe[aria-hidden="true"] {
   }
 }
 
-@font-face {
-  font-family: "General Sans";
-  font-weight: 400;
-  font-style: normal;
-  src: url("/fonts/general-sans/GeneralSans-Regular.woff2"), format("woff2");
-  font-display: swap;
-}
 
-@font-face {
-  font-family: "General Sans";
-  font-weight: 500;
-  font-style: normal;
-  src: url("/fonts/general-sans/GeneralSans-Medium.woff2"), format("woff2");
-  font-display: swap;
-}
-
-@font-face {
-  font-family: "General Sans";
-  font-weight: 600;
-  font-style: normal;
-  src: url("/fonts/general-sans/GeneralSans-Semibold.woff2"), format("woff2");
-  font-display: swap;
-}
 
 /* Text selection */
 ::selection {
@@ -425,6 +415,7 @@ iframe {
   margin-bottom: 4rem;
   margin-top: 4rem;
 }
+
 @media (max-width: 768px) {
   iframe {
     height: 14rem !important;
@@ -454,4 +445,3 @@ iframe {
     -webkit-overflow-scrolling: touch;
   }
 }
-
