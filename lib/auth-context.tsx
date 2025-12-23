@@ -35,6 +35,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       try {
         const { userRole, lastAuthenticated } = JSON.parse(storedAuth)
         // Only use stored data if it's less than 1 hour old
+        // SECURITY NOTE: This is for UI responsiveness only. Backend rules must always verify auth token/claims.
+        // A knowledgeable user can modify localStorage to spoof 'admin' role in the Client UI, but 
+        // they will fail at the database level if rules are correct.
         if (lastAuthenticated && Date.now() - lastAuthenticated < 60 * 60 * 1000) {
           setAuthState((prev) => ({ ...prev, userRole }))
         }

@@ -1,0 +1,43 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Helper function to check if user is authenticated
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    // Helper function to check if user has admin/super role
+    // NOTE: This assumes custom claims are set OR we check a user document.
+    // Since custom claims are better for security but require backend setup,
+    // we'll check the 'authors' collection for role as per the app's structure.
+    function isAdmin() {
+      return isAuthenticated() && 
+        exists(/databases/$(database)/documents/authors/$(request.auth.uid)) &&
+        (get(/databases/$(database)/documents/authors/$(request.auth.uid)).data.role in ['admin', 'super']);
+    }
+
+    // Default: Deny all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+    
+    // Articles: Public read, Admin write
+    match /articles/{articleId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+    
+    // News: Public read, Admin write
+    match /news/{newsId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+    
+    // Authors/Team: Public read, Admin write (or self update - optional)
+    match /authors/{userId} {
+      allow read: if true;
+      allow write: if isAdmin() || (isAuthenticated() && request.auth.uid == userId);
+    }
+  }
+}

@@ -1,5 +1,5 @@
-@import "tailwindcss";
 @import url("https://cdnjs.cloudflare.com/ajax/libs/github-markdown-css/5.2.0/github-markdown-dark.min.css");
+@import "tailwindcss";
 
 iframe[aria-hidden="true"] {
   display: none !important;
