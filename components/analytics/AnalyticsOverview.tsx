@@ -57,10 +57,14 @@ export function AnalyticsOverview() {
       return (
         <div className="bg-[#0a0a0a] border border-neutral-800 p-3 text-sm rounded-none shadow-xl">
           <p className="text-neutral-400 mb-2 font-medium">{formattedDate}</p>
-          <div className="flex flex-col gap-1">
-              <span className="text-white font-bold flex items-center gap-2">
-                <div className="w-2 h-2 bg-[#8a2be2] rounded-full" />
-                {payload[0].value} Users
+          <div className="flex flex-col gap-2">
+              <span className="font-bold flex items-center gap-2" style={{ color: '#8a2be2' }}>
+                <div className="w-2 h-2 rounded-full" style={{ backgroundColor: '#8a2be2' }} />
+                {payload.find((p: any) => p.dataKey === 'users')?.value} Users
+              </span>
+              <span className="font-bold flex items-center gap-2" style={{ color: '#3b82f6' }}>
+                <div className="w-2 h-2 rounded-full" style={{ backgroundColor: '#3b82f6' }} />
+                {payload.find((p: any) => p.dataKey === 'views')?.value} Page Views
               </span>
           </div>
         </div>
@@ -106,6 +110,10 @@ export function AnalyticsOverview() {
                         <stop offset="5%" stopColor="#8a2be2" stopOpacity={0.3} />
                         <stop offset="95%" stopColor="#8a2be2" stopOpacity={0} />
                     </linearGradient>
+                    <linearGradient id="colorViewsSummary" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3} />
+                        <stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
+                    </linearGradient>
                 </defs>
               <XAxis 
                 dataKey="date" 
@@ -125,10 +133,19 @@ export function AnalyticsOverview() {
               <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(255,255,255,0.1)" />
               <Area
                 type="monotone"
+                dataKey="views"
+                stroke="#3b82f6"
+                fill="url(#colorViewsSummary)"
+                strokeWidth={2}
+                stackId="1"
+              />
+              <Area
+                type="monotone"
                 dataKey="users"
                 stroke="#8a2be2"
                 fill="url(#colorUsersSummary)"
                 strokeWidth={2}
+                stackId="2"
               />
             </AreaChart>
           </ResponsiveContainer>
