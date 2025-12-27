@@ -72,6 +72,12 @@ type AnalyticsData = {
       userType: string;
       users: number;
   }[];
+  summary: {
+    users: number;
+    views: number;
+    sessions: number;
+    engagementDuration: number;
+  };
 };
 
 
@@ -99,15 +105,15 @@ export function AnalyticsDashboard() {
   });
 
   const totalUsers = useMemo(() => {
-    return data?.timeline.reduce((acc, curr) => acc + curr.users, 0) || 0;
+    return data?.summary?.users || 0;
   }, [data]);
 
   const totalViews = useMemo(() => {
-    return data?.timeline.reduce((acc, curr) => acc + curr.views, 0) || 0;
+    return data?.summary?.views || 0;
   }, [data]);
 
   const totalSessions = useMemo(() => {
-    return data?.timeline.reduce((acc, curr) => acc + curr.sessions, 0) || 0;
+    return data?.summary?.sessions || 0;
   }, [data]);
 
   const avgViewsPerUser = useMemo(() => {
@@ -124,7 +130,7 @@ export function AnalyticsDashboard() {
     }, [data]);
 
     const avgEngagementTime = useMemo(() => {
-        const totalDuration = data?.timeline.reduce((acc, curr) => acc + (curr.engagementDuration || 0), 0) || 0;
+        const totalDuration = data?.summary?.engagementDuration || 0;
         if (totalUsers === 0) return "0s";
         const avgSeconds = totalDuration / totalUsers;
         const minutes = Math.floor(avgSeconds / 60);

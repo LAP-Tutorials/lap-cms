@@ -38,7 +38,8 @@ export async function getAnalyticsData(days = 7, customRange?: { startDate: stri
         cityRes,
         browserRes,
         osRes,
-        newVsReturningRes
+        newVsReturningRes,
+        summaryRes
     ] = await Promise.all([
         // 1. Timeline (Users, Views, Sessions)
         analyticsDataClient.runReport({
@@ -120,6 +121,17 @@ export async function getAnalyticsData(days = 7, customRange?: { startDate: stri
              dateRanges: [dateRange],
              dimensions: [{ name: 'newVsReturning' }],
              metrics: [{ name: 'activeUsers' }],
+        }),
+        // 10. Summary (Total Users, Views, Sessions, Engagement)
+        analyticsDataClient.runReport({
+            property: `properties/${propertyId}`,
+            dateRanges: [dateRange],
+            metrics: [
+                { name: 'activeUsers' },
+                { name: 'screenPageViews' },
+                { name: 'sessions' },
+                { name: 'userEngagementDuration' }
+            ],
         })
     ]);
 
@@ -183,6 +195,15 @@ export async function getAnalyticsData(days = 7, customRange?: { startDate: stri
         users: parseInt(row.metricValues?.[0]?.value || '0', 10)
     })) || [];
 
+    // Extract summary
+    const summaryRow = formatResponse(summaryRes).rows?.[0];
+    const summary = {
+        users: parseInt(summaryRow?.metricValues?.[0]?.value || '0', 10),
+        views: parseInt(summaryRow?.metricValues?.[1]?.value || '0', 10),
+        sessions: parseInt(summaryRow?.metricValues?.[2]?.value || '0', 10),
+        engagementDuration: parseInt(summaryRow?.metricValues?.[3]?.value || '0', 10),
+    };
+
     return {
       timeline,
       topPages,
@@ -192,7 +213,8 @@ export async function getAnalyticsData(days = 7, customRange?: { startDate: stri
       cities,
       browsers,
       operatingSystems,
-      newVsReturning
+      newVsReturning,
+      summary
     };
   } catch (error) {
     console.error('Error fetching analytics data:', error);
