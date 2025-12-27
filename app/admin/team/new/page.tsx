@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/input"
 import { useToast } from "@/hooks/use-toast"
 import { Breadcrumb } from "@/components/breadcrumb"
 import { Loader2, AlertTriangle, RefreshCw, Plus, X, UserCircle } from "lucide-react"
-import { generateSlugFromTitle } from "@/lib/utils"
+import { generateSlugFromTitle, sanitizeUrl } from "@/lib/utils"
 
 export default function NewTeamMemberPage() {
   const [role, setRole] = useState("")
@@ -268,7 +268,7 @@ export default function NewTeamMemberPage() {
                 <div className="w-40 h-40 rounded-none overflow-hidden flex items-center justify-center border border-white/20">
                   {avatar ? (
                     <img
-                      src={avatar || "/placeholder.svg"}
+                      src={sanitizeUrl(avatar) || "/placeholder.svg"}
                       alt={imgAlt || "Profile preview"}
                       className="w-full h-full object-cover"
                       onError={(e) => {

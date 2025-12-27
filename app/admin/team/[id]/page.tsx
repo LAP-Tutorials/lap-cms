@@ -13,6 +13,7 @@ import { Input } from "@/components/ui/input"
 import { useToast } from "@/hooks/use-toast"
 import { Breadcrumb } from "@/components/breadcrumb"
 import { Loader2, AlertTriangle, RefreshCw, Plus, X } from "lucide-react"
+import { sanitizeUrl } from "@/lib/utils"
 
 interface Member {
   name: string
@@ -304,7 +305,7 @@ export default function EditTeamMemberPage() {
                 <div className="w-40 h-40 rounded-none overflow-hidden flex items-center justify-center border border-white/20">
                   {avatarPreview ? (
                     <img
-                      src={avatarPreview || "/placeholder.svg"}
+                      src={sanitizeUrl(avatarPreview) || "/placeholder.svg"}
                       alt={member.imgAlt || member.name}
                       className="w-full h-full object-cover"
                       onError={(e) => {

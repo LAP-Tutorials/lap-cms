@@ -13,7 +13,7 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { useToast } from "@/hooks/use-toast"
 import { Breadcrumb } from "@/components/breadcrumb"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { formatDate } from "@/lib/utils"
+import { formatDate, sanitizeUrl } from "@/lib/utils"
 import { Loader2, AlertTriangle } from "lucide-react"
 import { MarkdownToolbar } from "@/components/markdown-toolbar"
 import { Switch } from "@/components/ui/switch"
@@ -323,7 +323,7 @@ export default function EditArticlePage() {
             <div className="mt-4">
               <p className="font-medium mb-2">Image Preview:</p>
               <img
-                src={img || "/placeholder.svg"}
+                src={sanitizeUrl(img) || "/placeholder.svg"}
                 alt={imgAlt || "Image Preview"}
                 className="max-h-64 object-contain border border-white/20"
                 onError={(e) => {

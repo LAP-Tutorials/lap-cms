@@ -38,3 +38,20 @@ export function generateSlugFromTitle(title: string): string {
     .trim()
 }
 
+export function sanitizeUrl(url: string): string {
+  if (!url) return ""
+  const trimmed = url.trim()
+  
+  // Allow relative paths
+  if (trimmed.startsWith("/") || trimmed.startsWith("./") || trimmed.startsWith("../")) {
+    return trimmed
+  }
+
+  try {
+    const parsed = new URL(trimmed)
+    return ["http:", "https:"].includes(parsed.protocol) ? trimmed : ""
+  } catch {
+    return ""
+  }
+}
+
