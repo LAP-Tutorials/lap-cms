@@ -54,12 +54,21 @@ type AnalyticsData = {
     users: number;
     sessions: number;
   }[];
+  browsers: {
+      browser: string;
+      users: number;
+  }[];
+  operatingSystems: {
+      os: string;
+      users: number;
+  }[];
   acquisition: {
       source: string;
       users: number;
       sessions: number;
   }[];
 };
+
 
 export function AnalyticsDashboard() {
   const [days, setDays] = useState("7");
@@ -138,9 +147,9 @@ export function AnalyticsDashboard() {
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h2 className="text-3xl font-bold tracking-tight">Analytics Dashboard</h2> 
+          <h2 className="text-3xl font-bold tracking-tight">Docs Analytics Dashboard</h2> 
           <p className="text-muted-foreground">
-            Overview of your website performance and audience. 
+            Overview of L.A.P Docs performance and audience. 
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -320,24 +329,73 @@ export function AnalyticsDashboard() {
         </TabsContent>
 
         <TabsContent value="audience" className="space-y-4 pt-4">
+            <Card className="border border-neutral-800 bg-transparent shadow-none">
+                <CardHeader>
+                    <CardTitle>Devices</CardTitle>
+                </CardHeader>
+                <CardContent>
+                    <div className="h-[300px]">
+                        <ResponsiveContainer width="100%" height="100%">
+                            <BarChart data={data.devices} layout="vertical" margin={{ top: 0, right: 30, left: 0, bottom: 0 }}>
+                                <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="rgba(255,255,255,0.1)" />
+                                <XAxis type="number" hide />
+                                <YAxis dataKey="device" type="category" width={150} tick={{fill: '#888888', fontSize: 12}} axisLine={false} tickLine={false} />
+                                <Tooltip 
+                                    cursor={{fill: 'rgba(255,255,255,0.05)'}} 
+                                    content={({ active, payload, label }) => {
+                                        if (active && payload && payload.length) {
+                                            return (
+                                                <div className="bg-[#1a1a1a] border border-white/20 p-3 rounded-lg shadow-xl text-sm">
+                                                    <p className="text-white font-medium mb-2">{label}</p>
+                                                    <div className="flex items-center gap-2">
+                                                        <div className="w-2 h-2 rounded-full bg-[#8884d8]" />
+                                                        <span className="text-neutral-400">Users:</span>
+                                                        <span className="text-white font-medium">{payload[0].value?.toLocaleString()}</span>
+                                                    </div>
+                                                </div>
+                                            );
+                                        }
+                                        return null;
+                                    }}
+                                />
+                                <Bar dataKey="users" fill="#8884d8" radius={[0, 4, 4, 0]} barSize={30} />
+                            </BarChart>
+                        </ResponsiveContainer>
+                    </div>
+                </CardContent>
+            </Card>
+
             <div className="grid gap-4 md:grid-cols-2">
                 <Card className="border border-neutral-800 bg-transparent shadow-none">
                     <CardHeader>
-                        <CardTitle>Devices</CardTitle>
+                        <CardTitle>Top Cities</CardTitle>
                     </CardHeader>
                     <CardContent>
-                        <div className="h-[300px]">
+                        <div className="h-[600px]">
                             <ResponsiveContainer width="100%" height="100%">
-                                <BarChart data={data.devices} layout="vertical">
+                                <BarChart data={data.cities} layout="vertical" margin={{ top: 0, right: 30, left: 0, bottom: 0 }}>
                                     <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="rgba(255,255,255,0.1)" />
                                     <XAxis type="number" hide />
-                                    <YAxis dataKey="device" type="category" width={80} tick={{fill: '#888888'}} axisLine={false} tickLine={false} />
+                                    <YAxis dataKey="city" type="category" width={150} tick={{fill: '#888888', fontSize: 12}} axisLine={false} tickLine={false} />
                                     <Tooltip 
                                         cursor={{fill: 'rgba(255,255,255,0.05)'}} 
-                                        contentStyle={{ backgroundColor: '#0a0a0a', border: '1px solid #262626', borderRadius: '8px' }}
-                                        itemStyle={{ color: '#fff' }}
+                                        content={({ active, payload, label }) => {
+                                            if (active && payload && payload.length) {
+                                                return (
+                                                    <div className="bg-[#1a1a1a] border border-white/20 p-3 rounded-lg shadow-xl text-sm">
+                                                        <p className="text-white font-medium mb-2">{label}</p>
+                                                        <div className="flex items-center gap-2">
+                                                            <div className="w-2 h-2 rounded-full bg-[#3b82f6]" />
+                                                            <span className="text-neutral-400">Users:</span>
+                                                            <span className="text-white font-medium">{payload[0].value?.toLocaleString()}</span>
+                                                        </div>
+                                                    </div>
+                                                );
+                                            }
+                                            return null;
+                                        }}
                                     />
-                                    <Bar dataKey="users" fill="#8884d8" radius={[0, 4, 4, 0]} />
+                                    <Bar dataKey="users" fill="#3b82f6" radius={[0, 4, 4, 0]} barSize={20} />
                                 </BarChart>
                             </ResponsiveContainer>
                         </div>
@@ -348,18 +406,104 @@ export function AnalyticsDashboard() {
                         <CardTitle>Top Countries</CardTitle>
                     </CardHeader>
                     <CardContent>
-                         <div className="h-[300px]">
+                         <div className="h-[600px]">
                             <ResponsiveContainer width="100%" height="100%">
-                                <BarChart data={data.countries} layout="vertical">
+                                <BarChart data={data.countries} layout="vertical" margin={{ top: 0, right: 30, left: 0, bottom: 0 }}>
                                     <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="rgba(255,255,255,0.1)" />
                                     <XAxis type="number" hide />
-                                    <YAxis dataKey="country" type="category" width={100} tick={{fill: '#888888'}} axisLine={false} tickLine={false} />
+                                    <YAxis dataKey="country" type="category" width={150} tick={{fill: '#888888', fontSize: 12}} axisLine={false} tickLine={false} />
                                     <Tooltip 
                                         cursor={{fill: 'rgba(255,255,255,0.05)'}} 
-                                        contentStyle={{ backgroundColor: '#0a0a0a', border: '1px solid #262626', borderRadius: '8px' }}
-                                        itemStyle={{ color: '#fff' }}
+                                        content={({ active, payload, label }) => {
+                                            if (active && payload && payload.length) {
+                                                return (
+                                                    <div className="bg-[#1a1a1a] border border-white/20 p-3 rounded-lg shadow-xl text-sm">
+                                                        <p className="text-white font-medium mb-2">{label}</p>
+                                                        <div className="flex items-center gap-2">
+                                                            <div className="w-2 h-2 rounded-full bg-[#8a2be2]" />
+                                                            <span className="text-neutral-400">Users:</span>
+                                                            <span className="text-white font-medium">{payload[0].value?.toLocaleString()}</span>
+                                                        </div>
+                                                    </div>
+                                                );
+                                            }
+                                            return null;
+                                        }}
                                     />
-                                    <Bar dataKey="users" fill="#82ca9d" radius={[0, 4, 4, 0]} />
+                                    <Bar dataKey="users" fill="#8a2be2" radius={[0, 4, 4, 0]} barSize={20} />
+                                </BarChart>
+                            </ResponsiveContainer>
+                        </div>
+                    </CardContent>
+                </Card>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-2">
+                <Card className="border border-neutral-800 bg-transparent shadow-none">
+                    <CardHeader>
+                        <CardTitle>Top Browsers</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                        <div className="h-[400px]">
+                            <ResponsiveContainer width="100%" height="100%">
+                                <BarChart data={data.browsers} layout="vertical" margin={{ top: 0, right: 30, left: 0, bottom: 0 }}>
+                                    <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="rgba(255,255,255,0.1)" />
+                                    <XAxis type="number" hide />
+                                    <YAxis dataKey="browser" type="category" width={150} tick={{fill: '#888888', fontSize: 12}} axisLine={false} tickLine={false} />
+                                    <Tooltip 
+                                        cursor={{fill: 'rgba(255,255,255,0.05)'}} 
+                                        content={({ active, payload, label }) => {
+                                            if (active && payload && payload.length) {
+                                                return (
+                                                    <div className="bg-[#1a1a1a] border border-white/20 p-3 rounded-lg shadow-xl text-sm">
+                                                        <p className="text-white font-medium mb-2">{label}</p>
+                                                        <div className="flex items-center gap-2">
+                                                            <div className="w-2 h-2 rounded-full bg-[#2eb886]" />
+                                                            <span className="text-neutral-400">Users:</span>
+                                                            <span className="text-white font-medium">{payload[0].value?.toLocaleString()}</span>
+                                                        </div>
+                                                    </div>
+                                                );
+                                            }
+                                            return null;
+                                        }}
+                                    />
+                                    <Bar dataKey="users" fill="#2eb886" radius={[0, 4, 4, 0]} barSize={20} />
+                                </BarChart>
+                            </ResponsiveContainer>
+                        </div>
+                    </CardContent>
+                </Card>
+                 <Card className="border border-neutral-800 bg-transparent shadow-none">
+                    <CardHeader>
+                        <CardTitle>Operating Systems</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                         <div className="h-[400px]">
+                            <ResponsiveContainer width="100%" height="100%">
+                                <BarChart data={data.operatingSystems} layout="vertical" margin={{ top: 0, right: 30, left: 0, bottom: 0 }}>
+                                    <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="rgba(255,255,255,0.1)" />
+                                    <XAxis type="number" hide />
+                                    <YAxis dataKey="os" type="category" width={150} tick={{fill: '#888888', fontSize: 12}} axisLine={false} tickLine={false} />
+                                    <Tooltip 
+                                        cursor={{fill: 'rgba(255,255,255,0.05)'}} 
+                                        content={({ active, payload, label }) => {
+                                            if (active && payload && payload.length) {
+                                                return (
+                                                    <div className="bg-[#1a1a1a] border border-white/20 p-3 rounded-lg shadow-xl text-sm">
+                                                        <p className="text-white font-medium mb-2">{label}</p>
+                                                        <div className="flex items-center gap-2">
+                                                            <div className="w-2 h-2 rounded-full bg-[#f59e0b]" />
+                                                            <span className="text-neutral-400">Users:</span>
+                                                            <span className="text-white font-medium">{payload[0].value?.toLocaleString()}</span>
+                                                        </div>
+                                                    </div>
+                                                );
+                                            }
+                                            return null;
+                                        }}
+                                    />
+                                    <Bar dataKey="users" fill="#f59e0b" radius={[0, 4, 4, 0]} barSize={20} />
                                 </BarChart>
                             </ResponsiveContainer>
                         </div>

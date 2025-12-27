@@ -35,7 +35,9 @@ export async function getAnalyticsData(days = 7, customRange?: { startDate: stri
         deviceRes,
         countryRes,
         acquisitionRes,
-        cityRes
+        cityRes,
+        browserRes,
+        osRes
     ] = await Promise.all([
         // 1. Timeline (Users, Views, Sessions)
         analyticsDataClient.runReport({
@@ -91,6 +93,24 @@ export async function getAnalyticsData(days = 7, customRange?: { startDate: stri
             metrics: [{ name: 'activeUsers' }],
             limit: 100, // Limit for fetching city data
             orderBys: [{ metric: { metricName: 'activeUsers' }, desc: true }]
+        }),
+        // 7. Browser
+        analyticsDataClient.runReport({
+            property: `properties/${propertyId}`,
+            dateRanges: [dateRange],
+            dimensions: [{ name: 'browser' }],
+            metrics: [{ name: 'activeUsers' }],
+            limit: 10,
+            orderBys: [{ metric: { metricName: 'activeUsers' }, desc: true }]
+        }),
+        // 8. Operating System
+        analyticsDataClient.runReport({
+            property: `properties/${propertyId}`,
+            dateRanges: [dateRange],
+            dimensions: [{ name: 'operatingSystem' }],
+            metrics: [{ name: 'activeUsers' }],
+            limit: 10,
+            orderBys: [{ metric: { metricName: 'activeUsers' }, desc: true }]
         })
     ]);
 
@@ -135,13 +155,27 @@ export async function getAnalyticsData(days = 7, customRange?: { startDate: stri
         users: parseInt(row.metricValues?.[0]?.value || '0', 10)
     })) || [];
 
+    // Helper to extract browsers
+    const browsers = formatResponse(browserRes).rows?.map((row: any) => ({
+        browser: row.dimensionValues?.[0]?.value,
+        users: parseInt(row.metricValues?.[0]?.value || '0', 10)
+    })) || [];
+
+    // Helper to extract OS
+    const operatingSystems = formatResponse(osRes).rows?.map((row: any) => ({
+        os: row.dimensionValues?.[0]?.value,
+        users: parseInt(row.metricValues?.[0]?.value || '0', 10)
+    })) || [];
+
     return {
       timeline,
       topPages,
       devices,
       countries,
       acquisition,
-      cities
+      cities,
+      browsers,
+      operatingSystems
     };
   } catch (error) {
     console.error('Error fetching analytics data:', error);
