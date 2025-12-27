@@ -301,25 +301,20 @@ export function AnalyticsDashboard() {
                     <CardDescription>Most visited content</CardDescription>
                 </CardHeader>
                 <CardContent>
-                    <Table>
-                        <TableHeader>
-                            <TableRow className="border-neutral-800 hover:bg-neutral-900/50">
-                                <TableHead className="text-neutral-400">Page</TableHead>
-                                <TableHead className="text-right text-neutral-400">Views</TableHead>
-                            </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                            {data.topPages.map((page) => (
-                                <TableRow key={page.path} className="border-neutral-800 hover:bg-neutral-900/50">
-                                    <TableCell className="font-medium truncate max-w-[300px]" title={page.title || page.path}>
-                                        {page.title || page.path}
-                                        <div className="text-xs text-muted-foreground">{page.path}</div>
-                                    </TableCell>
-                                    <TableCell className="text-right">{page.views.toLocaleString()}</TableCell>
-                                </TableRow>
-                            ))}
-                        </TableBody>
-                    </Table>
+                    <div className="space-y-0">
+                        {data.topPages.map((page) => (
+                            <div key={page.path} className="flex items-center justify-between border-b border-white/20 py-5 last:border-0">
+                                <div className="space-y-1">
+                                    <p className="font-semibold text-lg">{page.title || page.path}</p>
+                                    <p className="text-sm text-white/50">{page.path}</p>
+                                </div>
+                                <div className="text-right">
+                                    <p className="font-bold text-xl">{page.views.toLocaleString()}</p>
+                                    <p className="text-xs text-white/50">Views</p>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
                 </CardContent>
             </Card>
         </TabsContent>
