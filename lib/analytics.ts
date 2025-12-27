@@ -37,7 +37,8 @@ export async function getAnalyticsData(days = 7, customRange?: { startDate: stri
         acquisitionRes,
         cityRes,
         browserRes,
-        osRes
+        osRes,
+        newVsReturningRes
     ] = await Promise.all([
         // 1. Timeline (Users, Views, Sessions)
         analyticsDataClient.runReport({
@@ -47,7 +48,8 @@ export async function getAnalyticsData(days = 7, customRange?: { startDate: stri
             metrics: [
                 { name: 'activeUsers' },
                 { name: 'screenPageViews' },
-                { name: 'sessions' }
+                { name: 'sessions' },
+                { name: 'userEngagementDuration' }
             ],
             orderBys: [{ dimension: { dimensionName: 'date' } }]
         }),
@@ -111,6 +113,13 @@ export async function getAnalyticsData(days = 7, customRange?: { startDate: stri
             metrics: [{ name: 'activeUsers' }],
             limit: 10,
             orderBys: [{ metric: { metricName: 'activeUsers' }, desc: true }]
+        }),
+        // 9. New vs Returning
+        analyticsDataClient.runReport({
+             property: `properties/${propertyId}`,
+             dateRanges: [dateRange],
+             dimensions: [{ name: 'newVsReturning' }],
+             metrics: [{ name: 'activeUsers' }],
         })
     ]);
 
@@ -122,6 +131,7 @@ export async function getAnalyticsData(days = 7, customRange?: { startDate: stri
         users: parseInt(row.metricValues?.[0]?.value || '0', 10),
         views: parseInt(row.metricValues?.[1]?.value || '0', 10),
         sessions: parseInt(row.metricValues?.[2]?.value || '0', 10),
+        engagementDuration: parseInt(row.metricValues?.[3]?.value || '0', 10),
     })) || [];
 
     // Helper to extract top pages
@@ -167,6 +177,12 @@ export async function getAnalyticsData(days = 7, customRange?: { startDate: stri
         users: parseInt(row.metricValues?.[0]?.value || '0', 10)
     })) || [];
 
+    // Helper to extract new vs returning
+    const newVsReturning = formatResponse(newVsReturningRes).rows?.map((row: any) => ({
+        userType: row.dimensionValues?.[0]?.value,
+        users: parseInt(row.metricValues?.[0]?.value || '0', 10)
+    })) || [];
+
     return {
       timeline,
       topPages,
@@ -175,7 +191,8 @@ export async function getAnalyticsData(days = 7, customRange?: { startDate: stri
       acquisition,
       cities,
       browsers,
-      operatingSystems
+      operatingSystems,
+      newVsReturning
     };
   } catch (error) {
     console.error('Error fetching analytics data:', error);

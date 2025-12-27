@@ -2,9 +2,9 @@
 
 import { useState, useEffect, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis, BarChart, Bar } from "recharts";
+import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis, BarChart, Bar, PieChart, Pie, Cell } from "recharts";
 import { motion } from "framer-motion";
-import { Loader2, TrendingUp, Users, Eye, MousePointerClick, Globe, MapPin } from "lucide-react";
+import { Loader2, TrendingUp, Users, Eye, MousePointerClick, Globe, MapPin, Clock } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
@@ -32,6 +32,7 @@ type AnalyticsData = {
     users: number;
     views: number;
     sessions: number;
+    engagementDuration: number;
   }[];
   topPages: {
     path: string;
@@ -66,6 +67,10 @@ type AnalyticsData = {
       source: string;
       users: number;
       sessions: number;
+  }[];
+  newVsReturning: {
+      userType: string;
+      users: number;
   }[];
 };
 
@@ -118,6 +123,15 @@ export function AnalyticsDashboard() {
         return data?.cities?.length || 0;
     }, [data]);
 
+    const avgEngagementTime = useMemo(() => {
+        const totalDuration = data?.timeline.reduce((acc, curr) => acc + (curr.engagementDuration || 0), 0) || 0;
+        if (totalUsers === 0) return "0s";
+        const avgSeconds = totalDuration / totalUsers;
+        const minutes = Math.floor(avgSeconds / 60);
+        const seconds = Math.floor(avgSeconds % 60);
+        return `${minutes}m ${seconds}s`;
+    }, [data, totalUsers]);
+
 
   if (isLoading) {
     return (
@@ -157,7 +171,7 @@ export function AnalyticsDashboard() {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 lg:grid-cols-5 border border-neutral-800 rounded-none overflow-hidden divide-y md:divide-y-0 md:divide-x divide-neutral-800">
+      <div className="grid grid-cols-2 lg:grid-cols-3 border border-neutral-800 rounded-none overflow-hidden gap-px bg-neutral-800">
         <MetricItem
           title="Total Users"
           value={totalUsers.toLocaleString()}
@@ -187,6 +201,12 @@ export function AnalyticsDashboard() {
           value={totalCities.toLocaleString()}
           icon={MapPin}
           trend="Local Reach"
+        />
+        <MetricItem
+            title="Avg. Engagement Time"
+            value={avgEngagementTime}
+            icon={Clock}
+            trend="Per User"
         />
       </div>
 
@@ -329,41 +349,100 @@ export function AnalyticsDashboard() {
         </TabsContent>
 
         <TabsContent value="audience" className="space-y-4 pt-4">
-            <Card className="border border-neutral-800 bg-transparent shadow-none">
-                <CardHeader>
-                    <CardTitle>Devices</CardTitle>
-                </CardHeader>
-                <CardContent>
-                    <div className="h-[300px]">
-                        <ResponsiveContainer width="100%" height="100%">
-                            <BarChart data={data.devices} layout="vertical" margin={{ top: 0, right: 30, left: 0, bottom: 0 }}>
-                                <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="rgba(255,255,255,0.1)" />
-                                <XAxis type="number" hide />
-                                <YAxis dataKey="device" type="category" width={150} tick={{fill: '#888888', fontSize: 12}} axisLine={false} tickLine={false} />
-                                <Tooltip 
-                                    cursor={{fill: 'rgba(255,255,255,0.05)'}} 
-                                    content={({ active, payload, label }) => {
-                                        if (active && payload && payload.length) {
-                                            return (
-                                                <div className="bg-[#1a1a1a] border border-white/20 p-3 rounded-lg shadow-xl text-sm">
-                                                    <p className="text-white font-medium mb-2">{label}</p>
-                                                    <div className="flex items-center gap-2">
-                                                        <div className="w-2 h-2 rounded-full bg-[#8884d8]" />
-                                                        <span className="text-neutral-400">Users:</span>
-                                                        <span className="text-white font-medium">{payload[0].value?.toLocaleString()}</span>
+            <div className="grid gap-4 md:grid-cols-2">
+                <Card className="border border-neutral-800 bg-transparent shadow-none">
+                    <CardHeader>
+                        <CardTitle>Devices</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                        <div className="h-[300px]">
+                            <ResponsiveContainer width="100%" height="100%">
+                                <BarChart data={data.devices} layout="vertical" margin={{ top: 0, right: 30, left: 0, bottom: 0 }}>
+                                    <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="rgba(255,255,255,0.1)" />
+                                    <XAxis type="number" hide />
+                                    <YAxis dataKey="device" type="category" width={150} tick={{fill: '#888888', fontSize: 12}} axisLine={false} tickLine={false} />
+                                    <Tooltip 
+                                        cursor={{fill: 'rgba(255,255,255,0.05)'}} 
+                                        content={({ active, payload, label }) => {
+                                            if (active && payload && payload.length) {
+                                                return (
+                                                    <div className="bg-[#1a1a1a] border border-white/20 p-3 rounded-lg shadow-xl text-sm">
+                                                        <p className="text-white font-medium mb-2">{label}</p>
+                                                        <div className="flex items-center gap-2">
+                                                            <div className="w-2 h-2 rounded-full bg-[#8884d8]" />
+                                                            <span className="text-neutral-400">Users:</span>
+                                                            <span className="text-white font-medium">{payload[0].value?.toLocaleString()}</span>
+                                                        </div>
                                                     </div>
-                                                </div>
-                                            );
-                                        }
-                                        return null;
-                                    }}
-                                />
-                                <Bar dataKey="users" fill="#8884d8" radius={[0, 4, 4, 0]} barSize={30} />
-                            </BarChart>
-                        </ResponsiveContainer>
-                    </div>
-                </CardContent>
-            </Card>
+                                                );
+                                            }
+                                            return null;
+                                        }}
+                                    />
+                                    <Bar dataKey="users" fill="#8884d8" radius={[0, 4, 4, 0]} barSize={30} />
+                                </BarChart>
+                            </ResponsiveContainer>
+                        </div>
+                    </CardContent>
+                </Card>
+
+                <Card className="border border-neutral-800 bg-transparent shadow-none">
+                    <CardHeader>
+                        <CardTitle>New vs Returning</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                         <div className="flex flex-col h-[300px]">
+                            <div className="flex-1 min-h-0">
+                                <ResponsiveContainer width="100%" height="100%">
+                                    <PieChart>
+                                        <Pie
+                                            data={data.newVsReturning}
+                                            cx="50%"
+                                            cy="50%"
+                                            innerRadius={60}
+                                            outerRadius={80}
+                                            paddingAngle={5}
+                                            dataKey="users"
+                                            nameKey="userType"
+                                        >
+                                            {data.newVsReturning?.map((entry, index) => (
+                                                <Cell key={`cell-${index}`} fill={index === 0 ? '#3b82f6' : '#8a2be2'} />
+                                            ))}
+                                        </Pie>
+                                        <Tooltip
+                                            content={({ active, payload }) => {
+                                                if (active && payload && payload.length) {
+                                                    return (
+                                                         <div className="bg-[#1a1a1a] border border-white/20 p-3 rounded-lg shadow-xl text-sm">
+                                                            <p className="text-white font-medium mb-2">{payload[0].name === 'new' ? 'New Users' : 'Returning Users'}</p>
+                                                            <div className="flex items-center gap-2">
+                                                                <div className="w-2 h-2 rounded-full" style={{ backgroundColor: payload[0].payload.fill }} />
+                                                                <span className="text-neutral-400">Users:</span>
+                                                                <span className="text-white font-medium">{payload[0].value?.toLocaleString()}</span>
+                                                            </div>
+                                                        </div>
+                                                    )
+                                                }
+                                                return null;
+                                            }}
+                                        />
+                                    </PieChart>
+                                </ResponsiveContainer>
+                            </div>
+                             <div className="flex justify-center gap-4 p-4">
+                                <div className="flex items-center gap-2">
+                                    <div className="w-3 h-3 rounded-full bg-[#3b82f6]" />
+                                    <span className="text-sm font-medium text-[#3b82f6]">New</span>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    <div className="w-3 h-3 rounded-full bg-[#8a2be2]" />
+                                    <span className="text-sm font-medium text-[#8a2be2]">Returning</span>
+                                </div>
+                            </div>
+                        </div>
+                    </CardContent>
+                </Card>
+            </div>
 
             <div className="grid gap-4 md:grid-cols-2">
                 <Card className="border border-neutral-800 bg-transparent shadow-none">
@@ -546,7 +625,7 @@ export function AnalyticsDashboard() {
 
 function MetricItem({ title, value, icon: Icon, trend }: { title: string; value: string; icon: any; trend: string }) {
   return (
-    <div className="flex flex-col p-6 bg-transparent">
+    <div className="flex flex-col p-6 bg-black border border-neutral-800">
         <div className="flex items-center justify-between gap-4 mb-2">
             <h3 className="text-sm font-medium text-muted-foreground">{title}</h3>
             <Icon className="h-4 w-4 text-muted-foreground opacity-50" />
