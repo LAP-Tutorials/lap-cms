@@ -121,6 +121,7 @@ export function AnalyticsOverview() {
                 fontSize={12}
                 tickLine={false}
                 axisLine={false}
+                interval="preserveStartEnd"
                 tickFormatter={(value) => {
                     if (!value) return '';
                     const d = new Date(value.substring(0,4) + '-' + value.substring(4,6) + '-' + value.substring(6,8));
@@ -128,7 +129,14 @@ export function AnalyticsOverview() {
                 }}
                 dy={10}
               />
-              <YAxis hide />
+              <YAxis
+                stroke="#888888"
+                fontSize={12}
+                tickLine={false}
+                axisLine={false}
+                tickFormatter={(value) => `${value}`}
+                width={40}
+              />
               <Tooltip content={<CustomTooltip />} cursor={{ stroke: 'rgba(255,255,255,0.1)', strokeWidth: 1 }} />
               <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(255,255,255,0.1)" />
               <Area

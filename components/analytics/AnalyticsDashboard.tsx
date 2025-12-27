@@ -134,20 +134,13 @@ export function AnalyticsDashboard() {
     )
   }
 
-  // Calculate totals (these are now memoized above)
-  // const totalUsers = data.timeline.reduce((acc, curr) => acc + curr.users, 0);
-  // const totalViews = data.timeline.reduce((acc, curr) => acc + curr.views, 0);
-  // const avgViewsPerUser = totalUsers > 0 ? (totalViews / totalUsers).toFixed(1) : "0";
-  // const totalCountries = data.countries.length;
-  // const totalCities = data.cities?.length || 0;
-
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h2 className="text-3xl font-bold tracking-tight">Analytics Dashboard</h2> {/* Updated text */}
+          <h2 className="text-3xl font-bold tracking-tight">Analytics Dashboard</h2> 
           <p className="text-muted-foreground">
-            Overview of your website performance and audience. {/* Updated text */}
+            Overview of your website performance and audience. 
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -204,31 +197,33 @@ export function AnalyticsDashboard() {
                     Traffic trends over the selected period
                 </CardDescription>
             </CardHeader>
-            <CardContent className="pl-2">
-                <div className="h-[350px] w-full">
+            <CardContent className="pt-6">
+                <div className="h-[350px] w-full -ml-2">
                 <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={data.timeline}>
+                <AreaChart data={data.timeline} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
                     <defs>
                     <linearGradient id="colorViews" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#8884d8" stopOpacity={0.3} />
-                        <stop offset="95%" stopColor="#8884d8" stopOpacity={0} />
+                        <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3} />
+                        <stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
                     </linearGradient>
                     <linearGradient id="colorUsers" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#82ca9d" stopOpacity={0.3} />
-                        <stop offset="95%" stopColor="#82ca9d" stopOpacity={0} />
+                        <stop offset="5%" stopColor="#8a2be2" stopOpacity={0.3} />
+                        <stop offset="95%" stopColor="#8a2be2" stopOpacity={0} />
                     </linearGradient>
                     </defs>
                     <XAxis
                     dataKey="date"
-                    stroke="#888888"
+                    stroke="rgba(255,255,255,0.3)"
                     fontSize={12}
                     tickLine={false}
                     axisLine={false}
+                    interval="preserveStartEnd"
                     tickFormatter={(value) => {
                         if (!value) return '';
                         const d = new Date(value.substring(0,4) + '-' + value.substring(4,6) + '-' + value.substring(6,8));
                         return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
                     }}
+                    dy={10}
                     />
                     <YAxis
                     stroke="#888888"
@@ -236,17 +231,50 @@ export function AnalyticsDashboard() {
                     tickLine={false}
                     axisLine={false}
                     tickFormatter={(value) => `${value}`}
+                    width={40}
                     />
                     <Tooltip 
-                        contentStyle={{ backgroundColor: '#0a0a0a', border: '1px solid #262626', borderRadius: '8px', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
-                        itemStyle={{ color: '#fff' }}
-                        labelStyle={{ color: '#888888' }}
+                        cursor={{ stroke: 'rgba(255,255,255,0.1)', strokeWidth: 1 }}
+                        content={({ active, payload, label }) => {
+                            if (active && payload && payload.length) {
+                                // Format date from YYYYMMDD
+                                const dateStr = label ? String(label) : '';
+                                let formattedDate = label;
+                                if (dateStr.length === 8) {
+                                    const d = new Date(dateStr.substring(0,4) + '-' + dateStr.substring(4,6) + '-' + dateStr.substring(6,8));
+                                    formattedDate = d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
+                                }
+
+                                return (
+                                    <div className="bg-[#1a1a1a] border border-white/20 p-3 rounded-lg shadow-xl text-sm">
+                                        <p className="text-white font-medium mb-2">{formattedDate}</p>
+                                        <div className="flex flex-col gap-1.5">
+                                            {payload.map((entry: any) => (
+                                                <div key={entry.name} className="flex items-center gap-2">
+                                                    <div 
+                                                        className="w-2 h-2 rounded-full" 
+                                                        style={{ backgroundColor: entry.color }}
+                                                    />
+                                                    <span className="text-neutral-400 capitalize">
+                                                        {entry.name}:
+                                                    </span>
+                                                    <span className="text-white font-medium">
+                                                        {entry.value.toLocaleString()}
+                                                    </span>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                );
+                            }
+                            return null;
+                        }}
                     />
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(255,255,255,0.1)" />
                     <Area
                     type="monotone"
                     dataKey="views"
-                    stroke="#8884d8"
+                    stroke="#3b82f6"
                     fillOpacity={1}
                     fill="url(#colorViews)"
                     strokeWidth={2}
@@ -254,7 +282,7 @@ export function AnalyticsDashboard() {
                     <Area
                     type="monotone"
                     dataKey="users"
-                    stroke="#82ca9d"
+                    stroke="#8a2be2"
                     fillOpacity={1}
                     fill="url(#colorUsers)"
                     strokeWidth={2}
