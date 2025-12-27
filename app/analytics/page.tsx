@@ -16,13 +16,14 @@ export default function AnalyticsPage() {
         </PageTitle>
       </div>
 
-      <div className="w-full md:w-[95%] mx-auto mb-20">
-         <div className="space-y-0.5 mb-8">
+      <div className="w-full md:w-[95%] mx-auto mb-20 mt-10">
+         {/* <div className="space-y-0.5 mb-8">
             <h2 className="text-2xl font-bold tracking-tight">Dashboard</h2>
             <p className="text-muted-foreground">
             Real-time insights and performance metrics.
             </p>
-        </div>
+        </div> */}
+
         <AnalyticsDashboard />
       </div>
     </div>

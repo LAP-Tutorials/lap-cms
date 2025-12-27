@@ -1,10 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis, BarChart, Bar } from "recharts";
 import { motion } from "framer-motion";
-import { Loader2, TrendingUp, Users, Eye, MousePointerClick } from "lucide-react";
+import { Loader2, TrendingUp, Users, Eye, MousePointerClick, Globe, MapPin } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
@@ -22,6 +22,9 @@ import {
     TableHeader,
     TableRow,
 } from "@/components/ui/table";
+import { DateRange } from "react-day-picker";
+import { DatePickerWithRange } from "@/components/ui/date-range-picker";
+import { subDays } from "date-fns";
 
 type AnalyticsData = {
   timeline: {
@@ -34,32 +37,78 @@ type AnalyticsData = {
     path: string;
     title: string;
     views: number;
+    sessions: number;
   }[];
   devices: {
     device: string;
     users: number;
+    sessions: number;
   }[];
   countries: {
     country: string;
     users: number;
+    sessions: number;
+  }[];
+  cities: {
+    city: string;
+    users: number;
+    sessions: number;
   }[];
   acquisition: {
       source: string;
       users: number;
+      sessions: number;
   }[];
 };
 
 export function AnalyticsDashboard() {
   const [days, setDays] = useState("7");
+  const [dateRange, setDateRange] = useState<DateRange | undefined>({
+    from: subDays(new Date(), 7),
+    to: new Date(),
+  });
 
   const { data, isLoading, error } = useQuery<AnalyticsData>({
-    queryKey: ["analytics", days],
+    queryKey: ["analytics", dateRange],
     queryFn: async () => {
-      const res = await fetch(`/api/analytics?days=${days}`);
+      let queryParams = "";
+      if (dateRange?.from && dateRange?.to) {
+        queryParams = `?from=${dateRange.from.toISOString()}&to=${dateRange.to.toISOString()}`;
+      } else {
+         queryParams = `?days=7`;
+      }
+
+      const res = await fetch(`/api/analytics${queryParams}`);
       if (!res.ok) throw new Error("Failed to fetch analytics");
       return res.json();
     },
   });
+
+  const totalUsers = useMemo(() => {
+    return data?.timeline.reduce((acc, curr) => acc + curr.users, 0) || 0;
+  }, [data]);
+
+  const totalViews = useMemo(() => {
+    return data?.timeline.reduce((acc, curr) => acc + curr.views, 0) || 0;
+  }, [data]);
+
+  const totalSessions = useMemo(() => {
+    return data?.timeline.reduce((acc, curr) => acc + curr.sessions, 0) || 0;
+  }, [data]);
+
+  const avgViewsPerUser = useMemo(() => {
+    if (totalUsers === 0) return "0"; 
+    return (totalViews / totalUsers).toFixed(1); 
+  }, [totalViews, totalUsers]);
+
+    const totalCountries = useMemo(() => {
+        return data?.countries?.length || 0;
+    }, [data]);
+
+    const totalCities = useMemo(() => {
+        return data?.cities?.length || 0;
+    }, [data]);
+
 
   if (isLoading) {
     return (
@@ -85,63 +134,70 @@ export function AnalyticsDashboard() {
     )
   }
 
-  // Calculate totals
-  const totalUsers = data.timeline.reduce((acc, curr) => acc + curr.users, 0);
-  const totalViews = data.timeline.reduce((acc, curr) => acc + curr.views, 0);
-  const avgViewsPerUser = totalUsers > 0 ? (totalViews / totalUsers).toFixed(1) : "0";
+  // Calculate totals (these are now memoized above)
+  // const totalUsers = data.timeline.reduce((acc, curr) => acc + curr.users, 0);
+  // const totalViews = data.timeline.reduce((acc, curr) => acc + curr.views, 0);
+  // const avgViewsPerUser = totalUsers > 0 ? (totalViews / totalUsers).toFixed(1) : "0";
+  // const totalCountries = data.countries.length;
+  // const totalCities = data.cities?.length || 0;
 
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h2 className="text-3xl font-bold tracking-tight">Analytics Overview</h2>
+          <h2 className="text-3xl font-bold tracking-tight">Analytics Dashboard</h2> {/* Updated text */}
           <p className="text-muted-foreground">
-            Monitor your website performance and audience growth.
+            Overview of your website performance and audience. {/* Updated text */}
           </p>
         </div>
-        <Select value={days} onValueChange={setDays}>
-          <SelectTrigger className="w-[180px]">
-            <SelectValue placeholder="Select period" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="7">Last 7 days</SelectItem>
-            <SelectItem value="28">Last 28 days</SelectItem>
-            <SelectItem value="90">Last 90 days</SelectItem>
-          </SelectContent>
-        </Select>
+        <div className="flex items-center gap-2">
+            <DatePickerWithRange date={dateRange} setDate={setDateRange} />
+        </div>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-        <MetricCard
+      <div className="grid grid-cols-2 lg:grid-cols-5 border border-neutral-800 rounded-none overflow-hidden divide-y md:divide-y-0 md:divide-x divide-neutral-800">
+        <MetricItem
           title="Total Users"
           value={totalUsers.toLocaleString()}
           icon={Users}
           trend="+12% from last period"
         />
-        <MetricCard
+        <MetricItem
           title="Page Views"
           value={totalViews.toLocaleString()}
           icon={Eye}
           trend="+8% from last period"
         />
-        <MetricCard
+        <MetricItem
           title="Views Per User"
           value={avgViewsPerUser}
           icon={MousePointerClick}
           trend="Stable"
         />
+         <MetricItem
+          title="Total Countries"
+          value={totalCountries.toLocaleString()}
+          icon={Globe}
+          trend="Global Reach"
+        />
+         <MetricItem
+          title="Total Cities"
+          value={totalCities.toLocaleString()}
+          icon={MapPin}
+          trend="Local Reach"
+        />
       </div>
 
       <Tabs defaultValue="overview" className="space-y-4">
-        <TabsList>
-          <TabsTrigger value="overview">Overview</TabsTrigger>
-          <TabsTrigger value="content">Top Content</TabsTrigger>
-          <TabsTrigger value="audience">Audience</TabsTrigger>
-          <TabsTrigger value="acquisition">Acquisition</TabsTrigger>
+        <TabsList className="bg-transparent border-b border-neutral-800 w-full justify-start rounded-none h-auto p-0">
+          <TabsTrigger value="overview" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none h-10 px-4">Overview</TabsTrigger>
+          <TabsTrigger value="content" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none h-10 px-4">Top Content</TabsTrigger>
+          <TabsTrigger value="audience" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none h-10 px-4">Audience</TabsTrigger>
+          <TabsTrigger value="acquisition" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none h-10 px-4">Acquisition</TabsTrigger>
         </TabsList>
         
-        <TabsContent value="overview" className="space-y-4">
-            <Card className="shadow-sm hover:shadow-md transition-shadow duration-200">
+        <TabsContent value="overview" className="space-y-4 pt-4">
+            <Card className="border border-neutral-800 bg-transparent shadow-none">
             <CardHeader>
                 <CardTitle>Traffic Overview</CardTitle>
                 <CardDescription>
@@ -182,9 +238,11 @@ export function AnalyticsDashboard() {
                     tickFormatter={(value) => `${value}`}
                     />
                     <Tooltip 
-                        contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
+                        contentStyle={{ backgroundColor: '#0a0a0a', border: '1px solid #262626', borderRadius: '8px', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
+                        itemStyle={{ color: '#fff' }}
+                        labelStyle={{ color: '#888888' }}
                     />
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" />
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(255,255,255,0.1)" />
                     <Area
                     type="monotone"
                     dataKey="views"
@@ -208,8 +266,8 @@ export function AnalyticsDashboard() {
             </Card>
         </TabsContent>
 
-        <TabsContent value="content" className="space-y-4">
-             <Card className="col-span-3 shadow-sm hover:shadow-md transition-shadow duration-200">
+        <TabsContent value="content" className="space-y-4 pt-4">
+             <Card className="col-span-3 border border-neutral-800 bg-transparent shadow-none">
                 <CardHeader>
                     <CardTitle>Top Pages</CardTitle>
                     <CardDescription>Most visited content</CardDescription>
@@ -217,14 +275,14 @@ export function AnalyticsDashboard() {
                 <CardContent>
                     <Table>
                         <TableHeader>
-                            <TableRow>
-                                <TableHead>Page</TableHead>
-                                <TableHead className="text-right">Views</TableHead>
+                            <TableRow className="border-neutral-800 hover:bg-neutral-900/50">
+                                <TableHead className="text-neutral-400">Page</TableHead>
+                                <TableHead className="text-right text-neutral-400">Views</TableHead>
                             </TableRow>
                         </TableHeader>
                         <TableBody>
                             {data.topPages.map((page) => (
-                                <TableRow key={page.path}>
+                                <TableRow key={page.path} className="border-neutral-800 hover:bg-neutral-900/50">
                                     <TableCell className="font-medium truncate max-w-[300px]" title={page.title || page.path}>
                                         {page.title || page.path}
                                         <div className="text-xs text-muted-foreground">{page.path}</div>
@@ -238,9 +296,9 @@ export function AnalyticsDashboard() {
             </Card>
         </TabsContent>
 
-        <TabsContent value="audience" className="space-y-4">
+        <TabsContent value="audience" className="space-y-4 pt-4">
             <div className="grid gap-4 md:grid-cols-2">
-                <Card>
+                <Card className="border border-neutral-800 bg-transparent shadow-none">
                     <CardHeader>
                         <CardTitle>Devices</CardTitle>
                     </CardHeader>
@@ -248,17 +306,21 @@ export function AnalyticsDashboard() {
                         <div className="h-[300px]">
                             <ResponsiveContainer width="100%" height="100%">
                                 <BarChart data={data.devices} layout="vertical">
-                                    <CartesianGrid strokeDasharray="3 3" horizontal={false} />
+                                    <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="rgba(255,255,255,0.1)" />
                                     <XAxis type="number" hide />
-                                    <YAxis dataKey="device" type="category" width={80} />
-                                    <Tooltip cursor={{fill: 'transparent'}} />
+                                    <YAxis dataKey="device" type="category" width={80} tick={{fill: '#888888'}} axisLine={false} tickLine={false} />
+                                    <Tooltip 
+                                        cursor={{fill: 'rgba(255,255,255,0.05)'}} 
+                                        contentStyle={{ backgroundColor: '#0a0a0a', border: '1px solid #262626', borderRadius: '8px' }}
+                                        itemStyle={{ color: '#fff' }}
+                                    />
                                     <Bar dataKey="users" fill="#8884d8" radius={[0, 4, 4, 0]} />
                                 </BarChart>
                             </ResponsiveContainer>
                         </div>
                     </CardContent>
                 </Card>
-                 <Card>
+                 <Card className="border border-neutral-800 bg-transparent shadow-none">
                     <CardHeader>
                         <CardTitle>Top Countries</CardTitle>
                     </CardHeader>
@@ -266,10 +328,14 @@ export function AnalyticsDashboard() {
                          <div className="h-[300px]">
                             <ResponsiveContainer width="100%" height="100%">
                                 <BarChart data={data.countries} layout="vertical">
-                                    <CartesianGrid strokeDasharray="3 3" horizontal={false} />
+                                    <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="rgba(255,255,255,0.1)" />
                                     <XAxis type="number" hide />
-                                    <YAxis dataKey="country" type="category" width={100} />
-                                    <Tooltip cursor={{fill: 'transparent'}} />
+                                    <YAxis dataKey="country" type="category" width={100} tick={{fill: '#888888'}} axisLine={false} tickLine={false} />
+                                    <Tooltip 
+                                        cursor={{fill: 'rgba(255,255,255,0.05)'}} 
+                                        contentStyle={{ backgroundColor: '#0a0a0a', border: '1px solid #262626', borderRadius: '8px' }}
+                                        itemStyle={{ color: '#fff' }}
+                                    />
                                     <Bar dataKey="users" fill="#82ca9d" radius={[0, 4, 4, 0]} />
                                 </BarChart>
                             </ResponsiveContainer>
@@ -279,8 +345,8 @@ export function AnalyticsDashboard() {
             </div>
         </TabsContent>
         
-        <TabsContent value="acquisition" className="space-y-4">
-             <Card>
+        <TabsContent value="acquisition" className="space-y-4 pt-4">
+             <Card className="border border-neutral-800 bg-transparent shadow-none">
                 <CardHeader>
                     <CardTitle>Traffic Sources</CardTitle>
                     <CardDescription>Where are your users coming from?</CardDescription>
@@ -288,14 +354,14 @@ export function AnalyticsDashboard() {
                 <CardContent>
                      <Table>
                         <TableHeader>
-                            <TableRow>
-                                <TableHead>Source / Medium</TableHead>
-                                <TableHead className="text-right">Users</TableHead>
+                            <TableRow className="border-neutral-800 hover:bg-neutral-900/50">
+                                <TableHead className="text-neutral-400">Source / Medium</TableHead>
+                                <TableHead className="text-right text-neutral-400">Users</TableHead>
                             </TableRow>
                         </TableHeader>
                         <TableBody>
                             {data.acquisition?.map((source) => (
-                                <TableRow key={source.source}>
+                                <TableRow key={source.source} className="border-neutral-800 hover:bg-neutral-900/50">
                                     <TableCell className="font-medium">{source.source}</TableCell>
                                     <TableCell className="text-right">{source.users.toLocaleString()}</TableCell>
                                 </TableRow>
@@ -311,17 +377,17 @@ export function AnalyticsDashboard() {
   );
 }
 
-function MetricCard({ title, value, icon: Icon, trend }: { title: string; value: string; icon: any; trend: string }) {
+function MetricItem({ title, value, icon: Icon, trend }: { title: string; value: string; icon: any; trend: string }) {
   return (
-    <Card className="shadow-sm hover:shadow-md transition-shadow duration-200">
-      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-        <CardTitle className="text-sm font-medium">{title}</CardTitle>
-        <Icon className="h-4 w-4 text-muted-foreground" />
-      </CardHeader>
-      <CardContent>
-        <div className="text-2xl font-bold">{value}</div>
-        <p className="text-xs text-muted-foreground">{trend}</p>
-      </CardContent>
-    </Card>
+    <div className="flex flex-col p-6 bg-transparent">
+        <div className="flex items-center justify-between gap-4 mb-2">
+            <h3 className="text-sm font-medium text-muted-foreground">{title}</h3>
+            <Icon className="h-4 w-4 text-muted-foreground opacity-50" />
+        </div>
+        <div className="mt-1">
+            <div className="text-2xl font-semibold tracking-tight">{value}</div>
+            <p className="text-xs text-muted-foreground mt-1">{trend}</p>
+        </div>
+    </div>
   );
 }

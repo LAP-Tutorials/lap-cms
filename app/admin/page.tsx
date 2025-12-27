@@ -88,7 +88,7 @@ export default function AdminDashboardPage() {
 
   // Skeleton for a summary card
   const SummaryCardSkeleton = () => (
-    <div className="p-4 border border-white rounded animate-pulse">
+    <div className="p-4 border border-neutral-800 rounded animate-pulse">
       <div className="h-6 bg-gray-700 rounded w-1/2 mb-2"></div>
       <div className="h-8 bg-gray-700 rounded w-1/3"></div>
     </div>
@@ -96,7 +96,7 @@ export default function AdminDashboardPage() {
 
   // Skeleton for a list item (article) with thumbnail
   const ListItemSkeleton = () => (
-    <div className="flex items-center gap-4 border-b border-white/20 py-5 animate-pulse">
+    <div className="flex items-center gap-4 border-b border-neutral-800 py-5 animate-pulse">
       <div className="w-16 h-16 bg-gray-700 rounded"></div>
       <div className="flex-1">
         <div className="h-6 bg-gray-700 rounded w-3/4 mb-1"></div>

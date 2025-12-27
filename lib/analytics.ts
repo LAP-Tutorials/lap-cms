@@ -13,13 +13,16 @@ const analyticsDataClient = (process.env.GA_CLIENT_EMAIL && process.env.GA_PRIVA
     })
   : null;
 
-export async function getAnalyticsData(days = 7) {
+export async function getAnalyticsData(days = 7, customRange?: { startDate: string, endDate: string }) {
   if (!analyticsDataClient || !propertyId) {
     console.warn("Google Analytics credentials or Property ID missing.");
     return null;
   }
 
-  const dateRange = {
+  const dateRange = customRange ? {
+    startDate: customRange.startDate,
+    endDate: customRange.endDate,
+  } : {
     startDate: `${days}daysAgo`,
     endDate: 'today',
   };
@@ -31,7 +34,8 @@ export async function getAnalyticsData(days = 7) {
         topPagesRes,
         deviceRes,
         countryRes,
-        acquisitionRes
+        acquisitionRes,
+        cityRes
     ] = await Promise.all([
         // 1. Timeline (Users, Views, Sessions)
         analyticsDataClient.runReport({
@@ -67,7 +71,7 @@ export async function getAnalyticsData(days = 7) {
             dateRanges: [dateRange],
             dimensions: [{ name: 'country' }],
             metrics: [{ name: 'activeUsers' }],
-            limit: 5,
+            limit: 100, // Increased limit to get total count
             orderBys: [{ metric: { metricName: 'activeUsers' }, desc: true }]
         }),
         // 5. Acquisition (Source/Medium)
@@ -77,6 +81,15 @@ export async function getAnalyticsData(days = 7) {
             dimensions: [{ name: 'sessionSourceMedium' }],
             metrics: [{ name: 'activeUsers' }],
             limit: 5,
+            orderBys: [{ metric: { metricName: 'activeUsers' }, desc: true }]
+        }),
+        // 6. City
+        analyticsDataClient.runReport({
+            property: `properties/${propertyId}`,
+            dateRanges: [dateRange],
+            dimensions: [{ name: 'city' }],
+            metrics: [{ name: 'activeUsers' }],
+            limit: 100, // Limit for fetching city data
             orderBys: [{ metric: { metricName: 'activeUsers' }, desc: true }]
         })
     ]);
@@ -116,12 +129,19 @@ export async function getAnalyticsData(days = 7) {
         users: parseInt(row.metricValues?.[0]?.value || '0', 10)
     })) || [];
 
+    // Helper to extract cities
+    const cities = formatResponse(cityRes).rows?.map((row: any) => ({
+        city: row.dimensionValues?.[0]?.value,
+        users: parseInt(row.metricValues?.[0]?.value || '0', 10)
+    })) || [];
+
     return {
       timeline,
       topPages,
       devices,
       countries,
-      acquisition
+      acquisition,
+      cities
     };
   } catch (error) {
     console.error('Error fetching analytics data:', error);
