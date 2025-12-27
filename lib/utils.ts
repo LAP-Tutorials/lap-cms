@@ -52,9 +52,8 @@ export function sanitizeUrl(url: string | null | undefined): string {
   // 1. / (absolute path)
   // 2. ./ or ../ (relative path)
   // 3. http:// or https:// (absolute URL)
-  // 4. mailto: (email)
-  const safePattern = /^(\/|\.\/|\.\.\/|https?:\/\/|mailto:)/i
-  
+  const safePattern = /^(\/|\.\/|\.\.\/|https?:\/\/)/i
+
   if (safePattern.test(trimmed)) {
     return trimmed
   }
