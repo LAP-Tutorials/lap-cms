@@ -1,3 +1,5 @@
+"use client"
+
 import * as React from "react"
 import { format, subDays, startOfMonth, endOfMonth, startOfYear, endOfYear } from "date-fns"
 import { Calendar as CalendarIcon } from "lucide-react"
@@ -27,6 +29,8 @@ export function DatePickerWithRange({
   const [tempDate, setTempDate] = React.useState<DateRange | undefined>(date)
   const [activeInput, setActiveInput] = React.useState<'start' | 'end' | null>(null)
 
+  const [numberOfMonths, setNumberOfMonths] = React.useState(2)
+
   // Sync tempDate when popover opens
   React.useEffect(() => {
     if (isOpen) {
@@ -34,6 +38,15 @@ export function DatePickerWithRange({
         setActiveInput(null)
     }
   }, [isOpen, date])
+
+  React.useEffect(() => {
+    const handleResize = () => {
+      setNumberOfMonths(window.innerWidth < 768 ? 1 : 2)
+    }
+    handleResize()
+    window.addEventListener("resize", handleResize)
+    return () => window.removeEventListener("resize", handleResize)
+  }, [])
 
   const handleSelect = (range: DateRange | undefined, selectedDay: Date) => {
     if (activeInput === 'start') {
@@ -92,7 +105,7 @@ export function DatePickerWithRange({
             id="date"
             variant={"outline"}
             className={cn(
-              "w-[260px] justify-start text-left font-normal border-neutral-800 bg-transparent hover:bg-neutral-900 text-white rounded-none",
+              "w-full md:w-[260px] justify-start text-left font-normal border-neutral-800 bg-transparent hover:bg-neutral-900 text-white rounded-none",
               !date && "text-muted-foreground"
             )}
           >
@@ -111,8 +124,12 @@ export function DatePickerWithRange({
             )}
           </Button>
         </PopoverTrigger>
-        <PopoverContent className="w-auto p-0 bg-[#0a0a0a] border-neutral-800 rounded-none z-[1001] flex" align="end">
-            <div className="border-r border-neutral-800 w-[180px] p-2 space-y-1">
+        <PopoverContent className="w-[calc(100vw-2rem)] md:w-auto p-0 bg-[#0a0a0a] border-neutral-800 rounded-none z-[1001] flex max-w-[100vw] overflow-hidden" align="center" sideOffset={8}>
+            <div className="flex flex-col md:flex-row w-full">
+                <div 
+                    className="w-full md:w-[180px] border-b md:border-b-0 md:border-r border-neutral-800 p-2 md:space-y-1 flex md:block overflow-x-auto gap-2 md:gap-0 [&::-webkit-scrollbar]:hidden"
+                    style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
+                >
                 {presets.map((preset) => (
                     <button
                         key={preset.label}
@@ -120,43 +137,45 @@ export function DatePickerWithRange({
                             setTempDate(preset.getValue());
                             setActiveInput(null); 
                         }}
-                        className="w-full text-left px-3 py-2 text-sm text-neutral-400 hover:bg-neutral-900 hover:text-white rounded-sm transition-colors"
+                        className="whitespace-nowrap px-3 py-2 text-sm text-neutral-400 hover:bg-neutral-900 hover:text-white rounded-sm transition-colors text-left w-auto md:w-full flex-shrink-0"
                     >
                         {preset.label}
                     </button>
                 ))}
-            </div>
+                </div>
 
-            <div className="flex flex-col">
-                <div className="flex items-center justify-between p-3 border-b border-neutral-800 space-x-4">
-                    <div 
-                        className="flex flex-col space-y-1 cursor-pointer group"
-                        onClick={() => setActiveInput('start')}
-                    >
-                        <span className={cn(
-                            "text-xs uppercase font-semibold transition-colors",
-                            activeInput === 'start' ? "text-[#8a2be2]" : "text-neutral-500 group-hover:text-neutral-300"
-                        )}>Start Date</span>
-                        <div className={cn(
-                            "text-sm font-medium text-white bg-neutral-900 px-3 py-1.5 border min-w-[120px] transition-colors",
-                            activeInput === 'start' ? "border-[#8a2be2]" : "border-neutral-800 group-hover:border-neutral-700"
-                        )}>
-                            {tempDate?.from ? format(tempDate.from, "MMM dd, yyyy") : "Select date"}
+            <div className="flex flex-col w-full">
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between p-3 border-b border-neutral-800 gap-3 sm:gap-4 w-full">
+                    <div className="flex flex-col w-full gap-3 sm:flex-row sm:w-auto sm:gap-4">
+                        <div 
+                            className="flex flex-col space-y-1 cursor-pointer group w-full sm:w-auto"
+                            onClick={() => setActiveInput('start')}
+                        >
+                            <span className={cn(
+                                "text-xs uppercase font-semibold transition-colors",
+                                activeInput === 'start' ? "text-[#8a2be2]" : "text-neutral-500 group-hover:text-neutral-300"
+                            )}>Start Date</span>
+                            <div className={cn(
+                                "text-sm font-medium text-white bg-neutral-900 px-3 py-1.5 border min-w-[120px] transition-colors truncate",
+                                activeInput === 'start' ? "border-[#8a2be2]" : "border-neutral-800 group-hover:border-neutral-700"
+                            )}>
+                                {tempDate?.from ? format(tempDate.from, "MMM dd, yyyy") : "Select date"}
+                            </div>
                         </div>
-                    </div>
-                    <div 
-                        className="flex flex-col space-y-1 cursor-pointer group"
-                        onClick={() => setActiveInput('end')}
-                    >
-                        <span className={cn(
-                            "text-xs uppercase font-semibold transition-colors",
-                            activeInput === 'end' ? "text-[#8a2be2]" : "text-neutral-500 group-hover:text-neutral-300"
-                        )}>End Date</span>
-                        <div className={cn(
-                            "text-sm font-medium text-white bg-neutral-900 px-3 py-1.5 border min-w-[120px] transition-colors",
-                            activeInput === 'end' ? "border-[#8a2be2]" : "border-neutral-800 group-hover:border-neutral-700"
-                        )}>
-                            {tempDate?.to ? format(tempDate.to, "MMM dd, yyyy") : "Select date"}
+                        <div 
+                            className="flex flex-col space-y-1 cursor-pointer group w-full sm:w-auto"
+                            onClick={() => setActiveInput('end')}
+                        >
+                            <span className={cn(
+                                "text-xs uppercase font-semibold transition-colors",
+                                activeInput === 'end' ? "text-[#8a2be2]" : "text-neutral-500 group-hover:text-neutral-300"
+                            )}>End Date</span>
+                            <div className={cn(
+                                "text-sm font-medium text-white bg-neutral-900 px-3 py-1.5 border min-w-[120px] transition-colors truncate",
+                                activeInput === 'end' ? "border-[#8a2be2]" : "border-neutral-800 group-hover:border-neutral-700"
+                            )}>
+                                {tempDate?.to ? format(tempDate.to, "MMM dd, yyyy") : "Select date"}
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -166,7 +185,7 @@ export function DatePickerWithRange({
                     defaultMonth={tempDate?.from}
                     selected={tempDate}
                     onSelect={handleSelect}
-                    numberOfMonths={2}
+                    numberOfMonths={numberOfMonths}
                 />
                 <div className="p-3 border-t border-neutral-800 flex justify-end gap-2">
                     <Button variant="ghost" size="sm" onClick={cancelChanges} className="text-neutral-400 hover:text-white">
@@ -176,6 +195,7 @@ export function DatePickerWithRange({
                         Apply
                     </Button>
                 </div>
+            </div>
             </div>
         </PopoverContent>
       </Popover>

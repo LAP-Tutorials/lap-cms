@@ -217,11 +217,14 @@ export function AnalyticsDashboard() {
       </div>
 
       <Tabs defaultValue="overview" className="space-y-4">
-        <TabsList className="bg-transparent border-b border-neutral-800 w-full justify-start rounded-none h-auto p-0">
-          <TabsTrigger value="overview" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none h-10 px-4">Overview</TabsTrigger>
-          <TabsTrigger value="content" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none h-10 px-4">Top Content</TabsTrigger>
-          <TabsTrigger value="audience" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none h-10 px-4">Audience</TabsTrigger>
-          <TabsTrigger value="acquisition" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none h-10 px-4">Acquisition</TabsTrigger>
+        <TabsList 
+            className="bg-transparent border-b border-neutral-800 w-full justify-start rounded-none h-auto p-0 overflow-x-auto flex-nowrap [&::-webkit-scrollbar]:hidden"
+            style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
+        >
+          <TabsTrigger value="overview" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none h-10 px-4 flex-shrink-0">Overview</TabsTrigger>
+          <TabsTrigger value="content" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none h-10 px-4 flex-shrink-0">Top Content</TabsTrigger>
+          <TabsTrigger value="audience" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none h-10 px-4 flex-shrink-0">Audience</TabsTrigger>
+          <TabsTrigger value="acquisition" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none h-10 px-4 flex-shrink-0">Acquisition</TabsTrigger>
         </TabsList>
         
         <TabsContent value="overview" className="space-y-4 pt-4">
