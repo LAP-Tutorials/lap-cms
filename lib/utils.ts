@@ -38,20 +38,27 @@ export function generateSlugFromTitle(title: string): string {
     .trim()
 }
 
-export function sanitizeUrl(url: string): string {
+export function sanitizeUrl(url: string | null | undefined): string {
   if (!url) return ""
   const trimmed = url.trim()
   
-  // Allow relative paths
-  if (trimmed.startsWith("/") || trimmed.startsWith("./") || trimmed.startsWith("../")) {
+  // Explicitly reject javascript: protocol (case insensitive)
+  if (/^javascript:/i.test(trimmed)) {
+    return ""
+  }
+
+  // Allow http/https and relative paths
+  // Matches:
+  // 1. / (absolute path)
+  // 2. ./ or ../ (relative path)
+  // 3. http:// or https:// (absolute URL)
+  // 4. mailto: (email)
+  const safePattern = /^(\/|\.\/|\.\.\/|https?:\/\/|mailto:)/i
+  
+  if (safePattern.test(trimmed)) {
     return trimmed
   }
 
-  try {
-    const parsed = new URL(trimmed)
-    return ["http:", "https:"].includes(parsed.protocol) ? trimmed : ""
-  } catch {
-    return ""
-  }
+  return ""
 }
 
