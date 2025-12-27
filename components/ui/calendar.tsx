@@ -9,7 +9,6 @@ import {
 import {
   DayPicker,
   getDefaultClassNames,
-  type DayButton,
 } from "react-day-picker"
 
 import { cn } from "@/lib/utils"
@@ -47,12 +46,12 @@ function Calendar({
       classNames={{
         root: cn("w-fit", defaultClassNames.root),
         months: cn(
-          "flex gap-4 flex-col md:flex-row relative pb-10", // Added pb-10
+          "flex gap-4 flex-col md:flex-row relative pb-10",
           defaultClassNames.months
         ),
         month: cn("flex flex-col w-full gap-4", defaultClassNames.month),
         nav: cn(
-          "absolute bottom-0 w-full flex justify-between px-4 inset-x-0 pointer-events-none z-10", // Moved to bottom
+          "absolute bottom-0 w-full flex justify-between px-4 inset-x-0 pointer-events-none z-10",
           defaultClassNames.nav
         ),
         button_previous: cn(
@@ -82,7 +81,7 @@ function Calendar({
           defaultClassNames.dropdown
         ),
         caption_label: cn(
-          "select-none font-medium text-sm text-white", // Fixed text white
+          "select-none font-medium text-sm text-white",
           captionLayout === "label"
             ? "text-sm text-white"
             : "rounded-md pl-2 pr-1 flex items-center gap-1 text-sm h-8 text-white [&>svg]:text-white [&>svg]:size-3.5",
@@ -91,7 +90,7 @@ function Calendar({
         table: "w-full border-collapse",
         weekdays: cn("flex", defaultClassNames.weekdays),
         weekday: cn(
-          "text-neutral-400 rounded-md flex-1 font-normal text-[0.8rem] select-none", // Fixed text-neutral-400
+          "text-neutral-400 rounded-md flex-1 font-normal text-[0.8rem] select-none",
           defaultClassNames.weekday
         ),
         week: cn("flex w-full mt-2", defaultClassNames.week),
@@ -104,30 +103,33 @@ function Calendar({
           defaultClassNames.week_number
         ),
         day: cn(
-          "relative w-full h-full p-0 text-center [&:last-child[data-selected=true]_button]:rounded-r-md group/day aspect-square select-none",
-          props.showWeekNumber
-            ? "[&:nth-child(2)[data-selected=true]_button]:rounded-l-md"
-            : "[&:first-child[data-selected=true]_button]:rounded-l-md",
+          "h-9 w-9 p-0 font-normal aria-selected:opacity-100",
           defaultClassNames.day
         ),
-        range_start: cn(
-          "rounded-l-md bg-[#8a2be2] text-white", // Fixed bg-[#8a2be2]
-          defaultClassNames.range_start
+        day_button: cn(
+          buttonVariants({ variant: "ghost" }),
+          "h-full w-full p-0 font-normal hover:bg-neutral-800 hover:text-white transition-colors",
+          // General Selection (Single or Range) - Purple
+          "aria-selected:bg-[#8a2be2] aria-selected:text-white aria-selected:hover:bg-[#8a2be2] aria-selected:hover:text-white",
+          // Range Middle - Transparent Purple
+           // Note: data-range-middle might be on the button itself in v9 if configured, but let's assume it might not and we rely on modifiers via classNames mostly.
+           // However, if we put valid styles here that get merged, it's safer.
+           "data-[range-middle]:!bg-[#8a2be2]/30 data-[range-middle]:text-white data-[range-middle]:rounded-none",
+           // Range Start/End - Solid Purple
+           "data-[range-start]:!bg-[#8a2be2] data-[range-start]:text-white data-[range-start]:rounded-l-md",
+           "data-[range-end]:!bg-[#8a2be2] data-[range-end]:text-white data-[range-end]:rounded-r-md",
+           // Today
+           "[&:not([aria-selected])]:data-[today]:bg-accent [&:not([aria-selected])]:data-[today]:text-accent-foreground",
+          defaultClassNames.day_button
         ),
-        range_middle: cn(
-          "rounded-none bg-[#8a2be2]/30 text-white", // Fixed bg-[#8a2be2]/30
-          defaultClassNames.range_middle
-        ),
-        range_end: cn(
-          "rounded-r-md bg-[#8a2be2] text-white", // Fixed bg-[#8a2be2]
-          defaultClassNames.range_end
-        ),
-        today: cn(
-          "bg-accent text-accent-foreground rounded-md data-[selected=true]:rounded-none",
-          defaultClassNames.today
-        ),
+        // Explicit modifiers mapping to classes - react-day-picker v9 uses these keys if they match modifier names
+        range_start: "bg-[#8a2be2] text-white rounded-l-md hover:bg-[#8a2be2] hover:text-white",
+        range_end: "bg-[#8a2be2] text-white rounded-r-md hover:bg-[#8a2be2] hover:text-white",
+        range_middle: "bg-[#8a2be2]/30 text-white rounded-none hover:bg-[#8a2be2]/30 hover:text-white",
+        selected: "bg-[#8a2be2] text-white hover:bg-[#8a2be2] hover:text-white",
+        today: "bg-accent text-accent-foreground",
         outside: cn(
-          "text-neutral-500 aria-selected:text-neutral-400", // Fixed text-neutral
+          "day-outside text-neutral-500 aria-selected:bg-transparent aria-selected:text-neutral-400",
           defaultClassNames.outside
         ),
         disabled: cn(
@@ -137,24 +139,20 @@ function Calendar({
         hidden: cn("invisible", defaultClassNames.hidden),
         ...classNames,
       }}
+      modifiersClassNames={{
+        range_start: "bg-[#8a2be2] text-white rounded-l-md hover:bg-[#8a2be2] hover:text-white",
+        range_end: "bg-[#8a2be2] text-white rounded-r-md hover:bg-[#8a2be2] hover:text-white",
+        range_middle: "bg-[#8a2be2]/30 text-white rounded-none hover:bg-[#8a2be2]/30 hover:text-white",
+        selected: "bg-[#8a2be2] text-white hover:bg-[#8a2be2] hover:text-white",
+        today: "bg-accent text-accent-foreground"
+      }}
       components={{
-        Root: ({ className, rootRef, ...props }) => {
-          return (
-            <div
-              data-slot="calendar"
-              ref={rootRef}
-              className={cn(className)}
-              {...props}
-            />
-          )
-        },
         Chevron: ({ className, orientation, ...props }) => {
           if (orientation === "left") {
             return (
               <ChevronLeftIcon className={cn("size-4", className)} {...props} />
             )
           }
-
           if (orientation === "right") {
             return (
               <ChevronRightIcon
@@ -163,12 +161,10 @@ function Calendar({
               />
             )
           }
-
           return (
             <ChevronDownIcon className={cn("size-4", className)} {...props} />
           )
         },
-        DayButton: CalendarDayButton,
         WeekNumber: ({ children, ...props }) => {
           return (
             <td {...props}>
@@ -185,42 +181,4 @@ function Calendar({
   )
 }
 
-function CalendarDayButton({
-  className,
-  day,
-  modifiers,
-  ...props
-}: React.ComponentProps<typeof DayButton>) {
-  const defaultClassNames = getDefaultClassNames()
-
-  const ref = React.useRef<HTMLButtonElement>(null)
-  React.useEffect(() => {
-    if (modifiers.focused) ref.current?.focus()
-  }, [modifiers.focused])
-
-  return (
-    <Button
-      ref={ref}
-      variant="ghost"
-      size="icon"
-      data-day={day.date.toLocaleDateString()}
-      data-selected-single={
-        modifiers.selected &&
-        !modifiers.range_start &&
-        !modifiers.range_end &&
-        !modifiers.range_middle
-      }
-      data-range-start={modifiers.range_start}
-      data-range-end={modifiers.range_end}
-      data-range-middle={modifiers.range_middle}
-      className={cn(
-        "data-[selected-single=true]:bg-[#8a2be2] data-[selected-single=true]:text-white data-[range-middle=true]:bg-[#8a2be2]/30 data-[range-middle=true]:text-white data-[range-start=true]:bg-[#8a2be2] data-[range-start=true]:text-white data-[range-end=true]:bg-[#8a2be2] data-[range-end=true]:text-white group-data-[focused=true]/day:border-ring group-data-[focused=true]/day:ring-ring/50 text-neutral-300 hover:text-white dark:hover:text-white flex aspect-square size-auto w-full min-w-(--cell-size) flex-col gap-1 leading-none font-normal group-data-[focused=true]/day:relative group-data-[focused=true]/day:z-10 group-data-[focused=true]/day:ring-[3px] data-[range-end=true]:rounded-md data-[range-end=true]:rounded-r-md data-[range-middle=true]:rounded-none data-[range-start=true]:rounded-md data-[range-start=true]:rounded-l-md [&>span]:text-xs [&>span]:opacity-70",
-        defaultClassNames.day,
-        className
-      )}
-      {...props}
-    />
-  )
-}
-
-export { Calendar, CalendarDayButton }
+export { Calendar }

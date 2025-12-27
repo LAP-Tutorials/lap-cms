@@ -35,63 +35,29 @@ export function DatePickerWithRange({
     }
   }, [isOpen, date])
 
-  const handleSelect = (newDate: DateRange | undefined) => {
-    if (!newDate) {
-        setTempDate(undefined)
-        return
-    }
-
+  const handleSelect = (range: DateRange | undefined, selectedDay: Date) => {
     if (activeInput === 'start') {
-        // If editing start date
-        // If user picked a range (start+end), use that new range's start
-        // Ideally they pick a single date.
-        // If we only possess 'from' from the new selection, use it.
-        // We want to keep existing 'to'.
-        
-        // However, react-day-picker 'range' mode always returns a range object.
-        // If we clicked one day, it might be { from: D, to: undefined } or { from: D, to: D } depending.
-        // Let's assume user ignores the range drag behavior if they explicitly clicked "Start Date" box.
-        
-        let newStart = newDate.from
-        // If new start is after existing end, we might need to reset end or swap.
-        // Simple logic: Update Start. If Start > End, clear End.
-        
         const currentEnd = tempDate?.to
-        
-        if (newStart && currentEnd && newStart > currentEnd) {
-             setTempDate({ from: newStart, to: undefined })
+        if (currentEnd && selectedDay > currentEnd) {
+             setTempDate({ from: selectedDay, to: undefined })
         } else {
-             setTempDate({ from: newStart, to: currentEnd })
+             setTempDate({ from: selectedDay, to: currentEnd })
         }
     } else if (activeInput === 'end') {
-        // Editing end date
-        // Use new date as end.
-        // If user selects a range, we typically allow standard behavior, but here we want strict 'end' updates?
-        // Actually, allowing standard react-day-picker behavior is usually best unless specific constraint.
-        // But user asked "have them be able to click on what they want to change".
-        
-        // If I click a date while "End Date" is active:
-        // New date should becomes 'to'. 'from' stays same.
-        
-        // newDate.from is usually the clicked date if it's a single click.
-        const pickedDate = newDate.to || newDate.from // Determine what was likely clicked
-        
         const currentStart = tempDate?.from
-        
-        if (pickedDate && currentStart) {
-             if (pickedDate < currentStart) {
-                 // If picked end date is before start, maybe swap? Or just set start?
-                 // Let's set it as start and clear end to be safe/standard
-                  setTempDate({ from: pickedDate, to: undefined })
-             } else {
-                 setTempDate({ from: currentStart, to: pickedDate })
-             }
+        if (currentStart) {
+            if (selectedDay < currentStart) {
+                 setTempDate({ from: selectedDay, to: undefined })
+                 setActiveInput('start') 
+            } else {
+                 setTempDate({ from: currentStart, to: selectedDay })
+            }
         } else {
-             setTempDate(newDate)
+            setTempDate({ from: selectedDay, to: undefined })
+            setActiveInput('start')
         }
     } else {
-        // Standard behavior
-        setTempDate(newDate)
+        setTempDate(range)
     }
   }
 
@@ -146,14 +112,13 @@ export function DatePickerWithRange({
           </Button>
         </PopoverTrigger>
         <PopoverContent className="w-auto p-0 bg-[#0a0a0a] border-neutral-800 rounded-none z-[1001] flex" align="end">
-            {/* Sidebar Presets */}
             <div className="border-r border-neutral-800 w-[180px] p-2 space-y-1">
                 {presets.map((preset) => (
                     <button
                         key={preset.label}
                         onClick={() => {
                             setTempDate(preset.getValue());
-                            setActiveInput(null); // Reset active input on preset click
+                            setActiveInput(null); 
                         }}
                         className="w-full text-left px-3 py-2 text-sm text-neutral-400 hover:bg-neutral-900 hover:text-white rounded-sm transition-colors"
                     >
@@ -162,7 +127,6 @@ export function DatePickerWithRange({
                 ))}
             </div>
 
-            {/* Calendar Area */}
             <div className="flex flex-col">
                 <div className="flex items-center justify-between p-3 border-b border-neutral-800 space-x-4">
                     <div 
