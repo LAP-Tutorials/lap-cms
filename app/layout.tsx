@@ -56,6 +56,10 @@ export const metadata: Metadata = {
     description: "Getting things done on L.A.P Docs",
     images: ["/logos/LAP-Logo-Color.png"],
   },
+  robots: {
+    index: false,
+    follow: false,
+  },
 }
 
 export const viewport = {
@@ -75,7 +79,6 @@ export default function RootLayout({
     <html lang="en" className="scroll-smooth">
       <head>
         <link rel="icon" href="/logos/LAP-Logo-Color.png" type="image/x-icon" />
-        <meta name="robots" content="noindex, nofollow" />
       </head>
       <body className={`${generalSans.variable} font-sans`}>
         <Providers>
