@@ -5,6 +5,7 @@ import PageTitle from "@/components/PageTitle"
 import { collection, getDocs, query, orderBy, limit, where, Timestamp } from "firebase/firestore"
 import { db } from "@/lib/firebase"
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts"
+import { AnalyticsOverview } from "@/components/analytics/AnalyticsOverview"
 
 export default function AdminDashboardPage() {
   const [articlesCount, setArticlesCount] = useState(0)
@@ -119,7 +120,13 @@ export default function AdminDashboardPage() {
       </div>
 
       {/* Responsive Summary cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 mb-19 mt-10 w-full md:w-[70%] mx-auto">
+      {/* Analytics Overview - Full Width */ }
+      <div className="mb-8 mt-10 w-full md:w-[95%] mx-auto">
+        <AnalyticsOverview /> 
+      </div>
+
+      {/* Responsive Summary cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-19 w-full md:w-[95%] mx-auto">
         {loading ? (
           <>
             <SummaryCardSkeleton />
@@ -128,15 +135,15 @@ export default function AdminDashboardPage() {
           </>
         ) : (
           <>
-            <div className="p-4 border border-white">
+            <div className="p-4 border border-neutral-800">
               <h2 className="text-lg font-bold">Articles</h2>
               <p className="text-xl">{articlesCount}</p>
             </div>
-            <div className="p-4 border border-white">
+            <div className="p-4 border border-neutral-800">
               <h2 className="text-lg font-bold">Members</h2>
               <p className="text-xl">{teamCount}</p>
             </div>
-            <div className="p-4 border border-white">
+            <div className="p-4 border border-neutral-800">
               <h2 className="text-lg font-bold">News Items</h2>
               <p className="text-xl">{newsCount}</p>
             </div>
