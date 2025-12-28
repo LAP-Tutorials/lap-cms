@@ -243,7 +243,7 @@ export function AssetManager() {
                                 </span>
                                 
                                 <div 
-                                    className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 has-[[data-state=open]]:opacity-100 transition-opacity" 
+                                    className="absolute top-2 right-2 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 group-focus-within:opacity-100 has-[[data-state=open]]:opacity-100 transition-opacity" 
                                     onClick={(e) => e.stopPropagation()}
                                 >
                                     <DropdownMenu>
@@ -296,11 +296,12 @@ export function AssetManager() {
                                 )}
                                 
                                 {/* Overlay Actions */}
-                                <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2 backdrop-blur-sm">
+                                {/* Overlay Actions - Hidden on mobile, visible on hover for desktop */}
+                                <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity hidden sm:flex items-center justify-center gap-2 backdrop-blur-sm">
                                     <Button 
                                         size="icon" 
                                         variant="secondary" 
-                                        className="h-9 w-9 rounded-full bg-white text-black hover:bg-gray-200"
+                                        className="h-9 w-9 rounded-full bg-black/50 text-white border border-white/20 hover:bg-black/70 hover:scale-105 transition-all"
                                         onClick={() => window.open(asset.url, '_blank')}
                                         title="View"
                                     >
@@ -309,7 +310,7 @@ export function AssetManager() {
                                     <Button 
                                         size="icon" 
                                         variant="secondary" 
-                                        className="h-9 w-9 rounded-full bg-white text-black hover:bg-gray-200"
+                                        className="h-9 w-9 rounded-full bg-black/50 text-white border border-white/20 hover:bg-black/70 hover:scale-105 transition-all"
                                         onClick={() => handleCopyLink(asset.url!)}
                                         title="Copy Link"
                                     >
@@ -335,6 +336,9 @@ export function AssetManager() {
                                             </Button>
                                         </DropdownMenuTrigger>
                                         <DropdownMenuContent align="end" className="bg-[#121212] border-white/10 text-white">
+                                            <DropdownMenuItem onClick={() => window.open(asset.url, '_blank')} className="focus:bg-white/5">
+                                            <ImageIcon className="mr-2 h-4 w-4" /> View
+                                            </DropdownMenuItem>
                                             <DropdownMenuItem onClick={() => handleCopyLink(asset.url!)} className="focus:bg-white/5">
                                             <LinkIcon className="mr-2 h-4 w-4" /> Copy Link
                                             </DropdownMenuItem>
