@@ -39,5 +39,11 @@ service cloud.firestore {
       allow read: if true;
       allow write: if isAdmin() || (isAuthenticated() && request.auth.uid == userId);
     }
+
+    // Assets: Authenticated users can read/write
+    match /assets/{assetId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
+    }
   }
 }

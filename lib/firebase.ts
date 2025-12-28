@@ -1,5 +1,6 @@
 import { initializeApp } from "firebase/app"
 import { getAuth } from "firebase/auth"
+import { getStorage } from "firebase/storage"
 import {
   getFirestore,
   enableMultiTabIndexedDbPersistence,
@@ -19,7 +20,9 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig)
 
+// Initialize and export auth and storage
 export const auth = getAuth(app)
+export const storage = getStorage(app)
 
 // Initialize Firestore with settings BEFORE creating the instance
 export const db =
