@@ -82,6 +82,12 @@ export function AssetManager() {
   }
 
   const navigateToFolder = (folderName: string) => {
+    // If we are in overview and the folder is a root folder (exists as a tab), switch to that tab
+    if (activeTab === "overview" && rootFolders.some(f => f.name === folderName)) {
+        setActiveTab(folderName)
+        setSubPath([])
+        return
+    }
     setSubPath([...subPath, folderName])
   }
 
@@ -133,6 +139,7 @@ export function AssetManager() {
                 <TabsList className="w-full justify-start overflow-x-auto bg-transparent p-0">
                     <TabsTrigger 
                         value="overview" 
+                        onClick={() => setSubPath([])}
                         className="flex items-center data-[state=active]:bg-white/10 data-[state=active]:text-white rounded-md px-4 py-2"
                     >
                         <Home className="w-4 h-4 mr-2" /> Overview
@@ -159,7 +166,7 @@ export function AssetManager() {
             </Button>
           )}
           <h2 className="text-xl font-bold flex items-center gap-2">
-            <span className="opacity-50">{activeTab === 'overview' ? 'Root' : activeTab}</span>
+            <span className="opacity-50">{activeTab === 'overview' ? 'Overview' : activeTab}</span>
             {subPath.length > 0 && (
                 <>
                     <span className="opacity-30">/</span>
@@ -235,7 +242,10 @@ export function AssetManager() {
                                 {folder.name}
                                 </span>
                                 
-                                <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity" onClick={(e) => e.stopPropagation()}>
+                                <div 
+                                    className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 has-[[data-state=open]]:opacity-100 transition-opacity" 
+                                    onClick={(e) => e.stopPropagation()}
+                                >
                                     <DropdownMenu>
                                         <DropdownMenuTrigger asChild>
                                         <Button variant="ghost" size="icon" className="h-6 w-6 hover:bg-white/10">
