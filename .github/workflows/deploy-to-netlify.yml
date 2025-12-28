@@ -3,6 +3,8 @@ name: Deploy to Netlify
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - 'functions/**'
 
 jobs:
   deploy:
