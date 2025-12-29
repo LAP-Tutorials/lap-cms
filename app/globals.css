@@ -2,7 +2,8 @@
 @import "tailwindcss";
 
 @theme {
-  --font-sans: var(--font-general-sans), ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+  --font-sans: var(--font-general-sans), ui-sans-serif, system-ui, sans-serif,
+    "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
 }
 
 iframe[aria-hidden="true"] {
@@ -125,8 +126,6 @@ iframe[aria-hidden="true"] {
   }
 }
 
-
-
 /* Text selection */
 ::selection {
   background: #892be280;
@@ -146,7 +145,8 @@ iframe[aria-hidden="true"] {
 
 /* Safe area insets for mobile devices */
 body {
-  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  padding: env(safe-area-inset-top) env(safe-area-inset-right)
+    env(safe-area-inset-bottom) env(safe-area-inset-left);
   position: relative;
   z-index: 0;
 }
@@ -210,27 +210,27 @@ select:-webkit-autofill {
 /* Markdown Styles */
 .markdown-body {
   color: #fff !important;
+  background-color: transparent !important;
+  font-family: var(--font-general-sans), ui-sans-serif, system-ui, sans-serif !important;
 }
 
 /* Heading */
 .markdown-body h1 {
   font-weight: 600;
-  font-size: clamp(3rem, 2.7857rem + 1.0714vw, 4.5rem);
+  font-size: clamp(2rem, 1.8rem + 1vw, 3rem);
   margin-bottom: 0.5em !important;
-  border-bottom: 1px solid #ffffff5b !important;
-  padding-bottom: 0.1em !important;
+  margin-bottom: 0.5em !important;
 }
 
 .markdown-body h2 {
-  font-size: clamp(2.2rem, 2.0857rem + 0.6714vw, 3.3rem);
+  font-size: clamp(1.5rem, 1.3rem + 0.8vw, 2.25rem);
   font-weight: 600;
   margin-bottom: 0.5em !important;
-  border-bottom: 1px solid #ffffff5b !important;
-  padding-bottom: 0.3em !important;
+  margin-bottom: 0.5em !important;
 }
 
 .markdown-body h3 {
-  font-size: clamp(1.9rem, 1.8857rem + 0.4714vw, 2.8rem);
+  font-size: clamp(1.2rem, 1.1rem + 0.5vw, 1.75rem);
   font-weight: 600;
   margin-bottom: 0.5em !important;
 }
