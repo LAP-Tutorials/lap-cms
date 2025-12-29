@@ -12,10 +12,9 @@ import {
   LayoutDashboard,
   FileText,
   Users,
-  Newspaper,
   User,
   LogOut,
-  FolderOpen
+  FolderOpen,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/button";
@@ -89,11 +88,7 @@ export default function AdminSidebar() {
       icon: <FolderOpen className="h-5 w-5" />,
     },
     { href: "/admin/team", label: "Team", icon: <Users className="h-5 w-5" /> },
-    {
-      href: "/admin/news",
-      label: "News",
-      icon: <Newspaper className="h-5 w-5" />,
-    },
+
     {
       href: "/admin/profile",
       label: "Profile",

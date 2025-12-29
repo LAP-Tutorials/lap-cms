@@ -257,6 +257,20 @@ export function AssetManager() {
 
   // Folder Stats State
   const [folderStats, setFolderStats] = useState<{ [key: string]: number }>({});
+  const [totalPersistenceSize, setTotalPersistenceSize] = useState<number>(0);
+
+  // Fetch total storage size on mount
+  useEffect(() => {
+    const fetchTotalSize = async () => {
+      try {
+        const stats = await getFolderStats("");
+        setTotalPersistenceSize(stats.size);
+      } catch (e) {
+        console.error("Failed to fetch total storage size", e);
+      }
+    };
+    fetchTotalSize();
+  }, [getFolderStats]);
 
   useEffect(() => {
     const loadFolderStats = async () => {
@@ -679,6 +693,16 @@ export function AssetManager() {
               </TabsList>
             </Tabs>
           )}
+        </div>
+
+        {/* Global Stats Bar */}
+        <div className="flex items-center justify-between px-1 mb-4">
+          <div className="text-sm text-white/50">
+            Total Storage Used:{" "}
+            <span className="text-white font-medium">
+              {formatBytes(totalPersistenceSize)}
+            </span>
+          </div>
         </div>
 
         {/* Action Bar */}

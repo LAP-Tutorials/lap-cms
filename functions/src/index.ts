@@ -365,3 +365,58 @@ export const manageAssets = onCall(
     return results;
   }
 );
+
+export const updateYouTubeSubscribers = onSchedule(
+  {
+    schedule: "every 12 hours",
+    region: "europe-west1",
+  },
+  async (event) => {
+    logger.info("Starting updateYouTubeSubscribers function");
+
+    const channelId = process.env.YOUTUBE_CHANNEL_ID;
+    const apiKey = process.env.YOUTUBE_API_KEY;
+
+    if (!channelId || !apiKey) {
+      logger.error("Missing YouTube Channel ID or API Key");
+      return;
+    }
+
+    try {
+      const url = `https://www.googleapis.com/youtube/v3/channels?part=statistics&id=${channelId}&key=${apiKey}`;
+      const response = await fetch(url);
+      const data = (await response.json()) as any;
+
+      if (data.items && data.items.length > 0) {
+        const stats = data.items[0].statistics;
+        const subscriberCount = parseInt(stats.subscriberCount, 10);
+        const videoCount = parseInt(stats.videoCount, 10);
+        const viewCount = parseInt(stats.viewCount, 10);
+
+        const db = getDb();
+        await db
+          .collection("meta")
+          .doc("stats")
+          .set(
+            {
+              youtube: {
+                subscriberCount,
+                videoCount,
+                viewCount,
+                updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+              },
+            },
+            { merge: true }
+          );
+
+        logger.info(
+          `Successfully updated YouTube stats: ${subscriberCount} subscribers`
+        );
+      } else {
+        logger.warn("No YouTube channel data found for ID:", channelId);
+      }
+    } catch (error) {
+      logger.error("Error fetching YouTube stats", error);
+    }
+  }
+);
