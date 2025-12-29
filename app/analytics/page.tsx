@@ -7,29 +7,6 @@ import { doc, getDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 
 export default function AnalyticsPage() {
-  const [subscriberCount, setSubscriberCount] = useState<number | null>(null);
-  const [videoCount, setVideoCount] = useState<number | null>(null);
-  const [viewCount, setViewCount] = useState<number | null>(null);
-
-  useEffect(() => {
-    const fetchYouTubeStats = async () => {
-      try {
-        const statsDoc = await getDoc(doc(db, "meta", "stats"));
-        if (statsDoc.exists()) {
-          const data = statsDoc.data();
-          if (data.youtube) {
-            setSubscriberCount(data.youtube.subscriberCount || 0);
-            setVideoCount(data.youtube.videoCount || 0);
-            setViewCount(data.youtube.viewCount || 0);
-          }
-        }
-      } catch (error) {
-        console.error("Error fetching stats:", error);
-      }
-    };
-
-    fetchYouTubeStats();
-  }, []);
   return (
     <div>
       <div className="mt-10 md:-mt-8">
@@ -50,9 +27,7 @@ export default function AnalyticsPage() {
             </p>
         </div> */}
 
-        <AnalyticsDashboard
-          youtubeStats={{ subscriberCount, videoCount, viewCount }}
-        />
+        <AnalyticsDashboard />
       </div>
     </div>
   );

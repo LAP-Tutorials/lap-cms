@@ -1,5 +1,6 @@
 "use client";
 
+import { BarChart3, Users, FileText, Youtube } from "lucide-react";
 import { useEffect, useState } from "react";
 import PageTitle from "@/components/PageTitle";
 import {
@@ -193,7 +194,10 @@ export default function AdminDashboardPage() {
               <p className="text-xl">{teamCount}</p>
             </div>
             <div className="w-full sm:w-[calc(50%-0.5rem)] lg:w-[calc(33.33%-0.75rem)] p-4 border border-neutral-800">
-              <h2 className="text-lg font-bold">Subscribers</h2>
+              <h2 className="text-lg font-bold flex items-center gap-2">
+                <Youtube className="w-5 h-5 text-[#FF0000]" />
+                Subscribers
+              </h2>
               <p className="text-xl">
                 {subscriberCount !== null
                   ? subscriberCount.toLocaleString()
@@ -202,13 +206,19 @@ export default function AdminDashboardPage() {
             </div>
             {/* Second Row - Centered */}
             <div className="w-full sm:w-[calc(50%-0.5rem)] lg:w-[calc(33.33%-0.75rem)] p-4 border border-neutral-800">
-              <h2 className="text-lg font-bold">Total Views</h2>
+              <h2 className="text-lg font-bold flex items-center gap-2">
+                <Youtube className="w-5 h-5 text-[#FF0000]" />
+                Total Views
+              </h2>
               <p className="text-xl">
                 {viewCount !== null ? viewCount.toLocaleString() : "..."}
               </p>
             </div>
             <div className="w-full sm:w-[calc(50%-0.5rem)] lg:w-[calc(33.33%-0.75rem)] p-4 border border-neutral-800">
-              <h2 className="text-lg font-bold">Total Videos</h2>
+              <h2 className="text-lg font-bold flex items-center gap-2">
+                <Youtube className="w-5 h-5 text-[#FF0000]" />
+                Total Videos
+              </h2>
               <p className="text-xl">
                 {videoCount !== null ? videoCount.toLocaleString() : "..."}
               </p>

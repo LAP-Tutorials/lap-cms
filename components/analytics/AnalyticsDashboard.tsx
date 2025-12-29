@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
+
 import { useQuery } from "@tanstack/react-query";
 import {
   Area,
@@ -34,7 +35,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Youtube, Video, PlayCircle } from "lucide-react";
+import { Video, PlayCircle } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Select,
@@ -109,17 +110,7 @@ type AnalyticsData = {
   };
 };
 
-type YouTubeStats = {
-  subscriberCount: number | null;
-  videoCount: number | null;
-  viewCount: number | null;
-};
-
-export function AnalyticsDashboard({
-  youtubeStats,
-}: {
-  youtubeStats?: YouTubeStats;
-}) {
+export function AnalyticsDashboard() {
   const [days, setDays] = useState("7");
   const [dateRange, setDateRange] = useState<DateRange | undefined>({
     from: subDays(new Date(), 7),
@@ -284,12 +275,6 @@ export function AnalyticsDashboard({
             className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none h-10 px-4 flex-shrink-0"
           >
             Acquisition
-          </TabsTrigger>
-          <TabsTrigger
-            value="youtube"
-            className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none h-10 px-4 flex-shrink-0"
-          >
-            YouTube
           </TabsTrigger>
         </TabsList>
 
@@ -925,78 +910,6 @@ export function AnalyticsDashboard({
               </Table>
             </CardContent>
           </Card>
-        </TabsContent>
-
-        <TabsContent value="youtube" className="space-y-4 pt-4">
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-            <Card className="border border-neutral-800 bg-transparent shadow-none">
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">
-                  Subscribers
-                </CardTitle>
-                <Youtube className="h-4 w-4 text-red-500" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">
-                  {youtubeStats?.subscriberCount?.toLocaleString() || "..."}
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  Total YouTube Subscribers
-                </p>
-              </CardContent>
-            </Card>
-            <Card className="border border-neutral-800 bg-transparent shadow-none">
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">
-                  Total Views
-                </CardTitle>
-                <Eye className="h-4 w-4 text-blue-500" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">
-                  {youtubeStats?.viewCount?.toLocaleString() || "..."}
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  Lifetime Channel Views
-                </p>
-              </CardContent>
-            </Card>
-            <Card className="border border-neutral-800 bg-transparent shadow-none">
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">
-                  Total Videos
-                </CardTitle>
-                <Video className="h-4 w-4 text-green-500" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">
-                  {youtubeStats?.videoCount?.toLocaleString() || "..."}
-                </div>
-                <p className="text-xs text-muted-foreground">Videos Uploaded</p>
-              </CardContent>
-            </Card>
-
-            <Card className="border border-neutral-800 bg-transparent shadow-none">
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">
-                  Avg. Views / Video
-                </CardTitle>
-                <PlayCircle className="h-4 w-4 text-purple-500" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">
-                  {youtubeStats?.viewCount && youtubeStats?.videoCount
-                    ? Math.round(
-                        youtubeStats.viewCount / youtubeStats.videoCount
-                      ).toLocaleString()
-                    : "..."}
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  Average engagement per video
-                </p>
-              </CardContent>
-            </Card>
-          </div>
         </TabsContent>
       </Tabs>
     </div>
