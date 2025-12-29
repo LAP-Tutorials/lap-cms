@@ -219,16 +219,14 @@ select:-webkit-autofill {
   font-weight: 600;
   font-size: clamp(2rem, 1.8rem + 1vw, 3rem);
   margin-bottom: 0.5em !important;
-  border-bottom: 1px solid #ffffff5b !important;
-  padding-bottom: 0.1em !important;
+  margin-bottom: 0.5em !important;
 }
 
 .markdown-body h2 {
   font-size: clamp(1.5rem, 1.3rem + 0.8vw, 2.25rem);
   font-weight: 600;
   margin-bottom: 0.5em !important;
-  border-bottom: 1px solid #ffffff5b !important;
-  padding-bottom: 0.3em !important;
+  margin-bottom: 0.5em !important;
 }
 
 .markdown-body h3 {

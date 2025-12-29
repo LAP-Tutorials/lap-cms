@@ -375,10 +375,9 @@ export default function EditArticlePage() {
               <h3 className="font-semibold text-white/90">Publishing</h3>
               <div className="flex items-center space-x-2">
                 <Switch
-                  id="publish-status"
                   checked={isPublished}
                   onCheckedChange={setIsPublished}
-                  className="data-[state=checked]:bg-[#8a2be2] data-[state=unchecked]:bg-[#333333] border border-white/20"
+                  className="data-[state=checked]:bg-[#8a2be2] data-[state=unchecked]:bg-zinc-600 border border-white/20"
                 />
                 <Label
                   htmlFor="publish-status"

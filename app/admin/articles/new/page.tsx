@@ -549,7 +549,7 @@ export default function NewArticlePage() {
                   id="publish-status"
                   checked={isPublished}
                   onCheckedChange={setIsPublished}
-                  className="data-[state=checked]:bg-[#8a2be2] data-[state=unchecked]:bg-[#333333] border border-white/20"
+                  className="data-[state=checked]:bg-[#8a2be2] data-[state=unchecked]:bg-zinc-600 border border-white/20"
                 />
                 <label
                   htmlFor="publish-status"
