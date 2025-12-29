@@ -1,9 +1,16 @@
-import type React from "react"
-import "./globals.css"
-import type { Metadata } from "next"
-import localFont from "next/font/local"
-import { Toaster } from "@/components/ui/toaster"
-import { Providers } from "./providers"
+import type React from "react";
+import "./globals.css";
+import type { Metadata } from "next";
+import localFont from "next/font/local";
+import { Fira_Code } from "next/font/google";
+import { Toaster } from "@/components/ui/toaster";
+import { Providers } from "./providers";
+
+const firaCode = Fira_Code({
+  subsets: ["latin"],
+  variable: "--font-fira-code",
+  display: "swap",
+});
 
 const generalSans = localFont({
   src: [
@@ -25,7 +32,7 @@ const generalSans = localFont({
   ],
   variable: "--font-general-sans",
   display: "swap",
-})
+});
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://lap-cms.vercel.app"),
@@ -60,7 +67,7 @@ export const metadata: Metadata = {
     index: false,
     follow: false,
   },
-}
+};
 
 export const viewport = {
   width: "device-width",
@@ -68,24 +75,26 @@ export const viewport = {
   maximumScale: 1,
   viewportFit: "cover",
   themeColor: "#121212",
-}
+};
 
 export default function RootLayout({
   children,
 }: {
-  children: React.ReactNode
+  children: React.ReactNode;
 }) {
   return (
     <html lang="en" className="scroll-smooth">
       <head>
         <link rel="icon" href="/logos/LAP-Logo-Color.png" type="image/x-icon" />
       </head>
-      <body className={`${generalSans.variable} font-sans`}>
+      <body
+        className={`${generalSans.variable} ${firaCode.variable} font-sans`}
+      >
         <Providers>
           {children}
           <Toaster />
         </Providers>
       </body>
     </html>
-  )
+  );
 }

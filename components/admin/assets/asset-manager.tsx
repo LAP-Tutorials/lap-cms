@@ -521,7 +521,7 @@ export function AssetManager({ rootPath = "" }: { rootPath?: string }) {
     }
 
     return (
-      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+      <div className="grid grid-cols-[repeat(auto-fill,minmax(130px,1fr))] gap-4">
         {filteredAssets.map((asset) => (
           <div
             key={asset.id}
@@ -962,7 +962,7 @@ export function AssetManager({ rootPath = "" }: { rootPath?: string }) {
                     <h3 className="text-sm font-medium text-white/50 mb-4 uppercase tracking-wider">
                       Folders
                     </h3>
-                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
+                    <div className="grid grid-cols-[repeat(auto-fill,minmax(130px,1fr))] gap-4">
                       {filteredFolders.map((folder) => (
                         <div
                           key={folder.id}
