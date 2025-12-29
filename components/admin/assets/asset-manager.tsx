@@ -707,12 +707,13 @@ export function AssetManager() {
 
         {/* Action Bar */}
         {(selectedAssets.size > 0 || clipboard) && (
-          <div className="sticky top-4 z-50 flex items-center justify-between bg-[#1A1A1A] border border-purple-500/20 p-3 rounded-lg shadow-2xl mb-6 backdrop-blur-md mx-1">
-            <div className="flex items-center gap-4">
+          <div className="sticky top-20 z-50 flex items-center justify-between bg-[#1A1A1A] border border-purple-500/20 p-2 sm:p-3 rounded-lg shadow-2xl mb-6 backdrop-blur-md mx-1">
+            <div className="flex items-center gap-2 sm:gap-4">
               {selectedAssets.size > 0 && (
                 <div className="flex flex-col">
                   <span className="text-sm font-medium text-purple-200">
-                    {selectedAssets.size} selected
+                    {selectedAssets.size}{" "}
+                    <span className="hidden sm:inline">selected</span>
                   </span>
                   <span className="text-xs text-white/40">
                     {formatBytes(totalSelectedSize)}
@@ -722,12 +723,13 @@ export function AssetManager() {
               {clipboard && (
                 <span className="text-sm text-white/50 flex items-center gap-2">
                   <ClipboardPaste className="h-4 w-4" />
-                  {clipboard.assets.length} items to {clipboard.type}
+                  {clipboard.assets.length} items
+                  <span className="hidden sm:inline"> to {clipboard.type}</span>
                 </span>
               )}
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1 sm:gap-2">
               {selectedAssets.size > 0 && (
                 <>
                   <Button
@@ -735,56 +737,73 @@ export function AssetManager() {
                     variant="ghost"
                     onClick={() => setSelectedAssets(new Set())}
                     title="Clear Selection"
+                    className="px-2"
                   >
                     <X className="h-4 w-4" />
                   </Button>
-                  <div className="h-4 w-px bg-white/10 mx-2" />
+                  <div className="h-4 w-px bg-white/10 mx-1 sm:mx-2" />
                   {selectedAssets.size === 1 && (
-                    <Button size="sm" variant="ghost" onClick={handleRename}>
-                      <Edit className="h-4 w-4 mr-2" /> Rename
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={handleRename}
+                      className="px-2 sm:px-4"
+                    >
+                      <Edit className="h-4 w-4 sm:mr-2" />{" "}
+                      <span className="hidden sm:inline">Rename</span>
                     </Button>
                   )}
                   <Button
                     size="sm"
                     variant="ghost"
                     onClick={() => handleCopy(false)}
+                    className="px-2 sm:px-4"
                   >
-                    <Copy className="h-4 w-4 mr-2" /> Copy
+                    <Copy className="h-4 w-4 sm:mr-2" />{" "}
+                    <span className="hidden sm:inline">Copy</span>
                   </Button>
                   <Button
                     size="sm"
                     variant="ghost"
                     onClick={() => handleCopy(true)}
+                    className="px-2 sm:px-4"
                   >
-                    <Scissors className="h-4 w-4 mr-2" /> Cut
+                    <Scissors className="h-4 w-4 sm:mr-2" />{" "}
+                    <span className="hidden sm:inline">Cut</span>
                   </Button>
                   <Button
                     size="sm"
                     variant="ghost"
-                    className="text-red-400 hover:text-red-300"
+                    className="text-red-400 hover:text-red-300 px-2 sm:px-4"
                     onClick={handleDeleteSelected}
                   >
-                    <Trash className="h-4 w-4 mr-2" /> Delete
+                    <Trash className="h-4 w-4 sm:mr-2" />{" "}
+                    <span className="hidden sm:inline">Delete</span>
                   </Button>
                 </>
               )}
 
               {clipboard && (
                 <>
-                  <div className="h-4 w-px bg-white/10 mx-2" />
+                  <div className="h-4 w-px bg-white/10 mx-1 sm:mx-2" />
                   <Button
                     size="sm"
                     variant="ghost"
                     onClick={() => setClipboard(null)}
+                    className="px-2 sm:px-4"
                   >
-                    Cancel
+                    <span className="hidden sm:inline">Cancel</span>
+                    <span className="sm:hidden">
+                      <X className="h-4 w-4" />
+                    </span>
                   </Button>
                   <Button
                     size="sm"
-                    className="bg-purple-600 hover:bg-purple-700"
+                    className="bg-purple-600 hover:bg-purple-700 px-2 sm:px-4"
                     onClick={handlePaste}
                   >
-                    <ClipboardPaste className="h-4 w-4 mr-2" /> Paste Here
+                    <ClipboardPaste className="h-4 w-4 sm:mr-2" />{" "}
+                    <span className="hidden sm:inline">Paste Here</span>
                   </Button>
                 </>
               )}
