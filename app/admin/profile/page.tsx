@@ -1,28 +1,35 @@
-"use client";
+"use client"
 
-import { useEffect, useState } from "react";
-import { doc, getDoc, updateDoc } from "firebase/firestore";
-import { auth, db } from "@/lib/firebase";
-import { onAuthStateChanged, updatePassword, GoogleAuthProvider, linkWithPopup } from "firebase/auth";
-import PageTitle from "@/components/PageTitle";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import { useToast } from "@/hooks/use-toast";
-import { Breadcrumb } from "@/components/breadcrumb";
-import { Eye, EyeOff, Loader2, AlertTriangle, Plus, X } from "lucide-react";
-import { FcGoogle } from "react-icons/fc";
+import { useEffect, useState } from "react"
+import { doc, getDoc, updateDoc } from "firebase/firestore"
+import { auth, db, storage } from "@/lib/firebase"
+import {
+  onAuthStateChanged,
+  updatePassword,
+  GoogleAuthProvider,
+  linkWithPopup,
+} from "firebase/auth"
+import { ref, uploadBytes, getDownloadURL } from "firebase/storage"
+import PageTitle from "@/components/PageTitle"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Textarea } from "@/components/ui/textarea"
+import { useToast } from "@/hooks/use-toast"
+import { Breadcrumb } from "@/components/breadcrumb"
+import { Eye, EyeOff, Loader2, AlertTriangle, Plus, X, Camera } from "lucide-react"
+import { FcGoogle } from "react-icons/fc"
+import { AvatarCropper } from "@/components/profile/avatar-cropper"
 
 interface ProfileData {
-  avatar: string;
-  name: string;
-  city: string;
-  job: string;
+  avatar: string
+  name: string
+  city: string
+  job: string
   biography: {
-    body: string;
-    summary: string;
-  };
-  socials: Record<string, string>;
+    body: string
+    summary: string
+  }
+  socials: Record<string, string>
 }
 
 export default function ProfilePage() {
@@ -33,20 +40,25 @@ export default function ProfilePage() {
     job: "",
     biography: { body: "", summary: "" },
     socials: {},
-  });
+  })
 
-  const [password, setPassword] = useState("");
-  const [showPassword, setShowPassword] = useState(false);
-  const [socialPlatform, setSocialPlatform] = useState("");
-  const [socialLink, setSocialLink] = useState("");
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [changingPassword, setChangingPassword] = useState(false);
-  const [linkingGoogle, setLinkingGoogle] = useState(false);
-  const [isGoogleLinked, setIsGoogleLinked] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [password, setPassword] = useState("")
+  const [showPassword, setShowPassword] = useState(false)
+  const [socialPlatform, setSocialPlatform] = useState("")
+  const [socialLink, setSocialLink] = useState("")
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [changingPassword, setChangingPassword] = useState(false)
+  const [linkingGoogle, setLinkingGoogle] = useState(false)
+  const [isGoogleLinked, setIsGoogleLinked] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
-  const { toast } = useToast();
+  // Cropper state
+  const [isCropperOpen, setIsCropperOpen] = useState(false)
+  const [selectedImageFile, setSelectedImageFile] = useState<File | null>(null)
+  const [uploadingAvatar, setUploadingAvatar] = useState(false)
+
+  const { toast } = useToast()
   const platforms = [
     "twitter",
     "linkedin",
@@ -57,24 +69,26 @@ export default function ProfilePage() {
     "tiktok",
     "patreon",
     "link",
-  ];
+  ]
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
-      setLoading(true);
-      setError(null);
+      setLoading(true)
+      setError(null)
 
       if (user) {
         // Check if Google is a linked provider
-        const isLinked = user.providerData.some((provider) => provider.providerId === GoogleAuthProvider.PROVIDER_ID);
-        setIsGoogleLinked(isLinked);
+        const isLinked = user.providerData.some(
+          (provider) => provider.providerId === GoogleAuthProvider.PROVIDER_ID
+        )
+        setIsGoogleLinked(isLinked)
 
         try {
-          const ref = doc(db, "authors", user.uid);
-          const snap = await getDoc(ref);
+          const ref = doc(db, "authors", user.uid)
+          const snap = await getDoc(ref)
 
           if (snap.exists()) {
-            const data = snap.data();
+            const data = snap.data()
             setProfile({
               avatar: data.avatar || "",
               name: data.name || "",
@@ -82,24 +96,24 @@ export default function ProfilePage() {
               job: data.job || "",
               biography: data.biography || { body: "", summary: "" },
               socials: data.socials || {},
-            });
+            })
           } else {
-            setError("Profile not found");
+            setError("Profile not found")
           }
         } catch (err) {
-          console.error("Error fetching profile:", err);
-          setError("Failed to load profile data");
+          console.error("Error fetching profile:", err)
+          setError("Failed to load profile data")
         } finally {
-          setLoading(false);
+          setLoading(false)
         }
       } else {
-        setError("Not authenticated");
-        setLoading(false);
+        setError("Not authenticated")
+        setLoading(false)
       }
-    });
+    })
 
-    return () => unsubscribe();
-  }, []);
+    return () => unsubscribe()
+  }, [])
 
   const handleLinkGoogle = async () => {
     if (!auth.currentUser) {
@@ -107,36 +121,36 @@ export default function ProfilePage() {
         title: "Not authenticated",
         description: "You must be logged in to link an account.",
         variant: "destructive",
-      });
-      return;
+      })
+      return
     }
 
-    setLinkingGoogle(true);
-    const provider = new GoogleAuthProvider();
+    setLinkingGoogle(true)
+    const provider = new GoogleAuthProvider()
 
     try {
-      await linkWithPopup(auth.currentUser, provider);
-      setIsGoogleLinked(true);
+      await linkWithPopup(auth.currentUser, provider)
+      setIsGoogleLinked(true)
       toast({
         title: "Account Linked",
         description: "Your Google account has been successfully linked.",
         variant: "success",
-      });
+      })
     } catch (err: any) {
-      console.error("Error linking Google account:", err);
-      let description = "Failed to link Google account.";
+      console.error("Error linking Google account:", err)
+      let description = "Failed to link Google account."
       if (err.code === "auth/credential-already-in-use") {
-        description = "This Google account is already linked to another user.";
+        description = "This Google account is already linked to another user."
       }
       toast({
         title: "Error",
         description,
         variant: "destructive",
-      });
+      })
     } finally {
-      setLinkingGoogle(false);
+      setLinkingGoogle(false)
     }
-  };
+  }
 
   const handleSave = async () => {
     if (!auth.currentUser) {
@@ -144,14 +158,14 @@ export default function ProfilePage() {
         title: "Authentication error",
         description: "You must be logged in to update your profile",
         variant: "destructive",
-      });
-      return;
+      })
+      return
     }
 
-    setSaving(true);
+    setSaving(true)
 
     try {
-      const ref = doc(db, "authors", auth.currentUser.uid);
+      const ref = doc(db, "authors", auth.currentUser.uid)
       await updateDoc(ref, {
         avatar: profile.avatar,
         name: profile.name,
@@ -159,24 +173,24 @@ export default function ProfilePage() {
         job: profile.job,
         biography: profile.biography,
         socials: profile.socials,
-      });
+      })
 
       toast({
         title: "Profile updated",
         description: "Your profile has been successfully updated",
         variant: "success",
-      });
+      })
     } catch (err) {
-      console.error("Error updating profile:", err);
+      console.error("Error updating profile:", err)
       toast({
         title: "Error",
         description: "Failed to update profile",
         variant: "destructive",
-      });
+      })
     } finally {
-      setSaving(false);
+      setSaving(false)
     }
-  };
+  }
 
   const handleChangePassword = async () => {
     if (!auth.currentUser || !password) {
@@ -184,8 +198,8 @@ export default function ProfilePage() {
         title: "Error",
         description: "Please enter a new password",
         variant: "destructive",
-      });
-      return;
+      })
+      return
     }
 
     if (password.length < 6) {
@@ -193,31 +207,31 @@ export default function ProfilePage() {
         title: "Password too short",
         description: "Password must be at least 6 characters long",
         variant: "destructive",
-      });
-      return;
+      })
+      return
     }
 
-    setChangingPassword(true);
+    setChangingPassword(true)
 
     try {
-      await updatePassword(auth.currentUser, password);
+      await updatePassword(auth.currentUser, password)
       toast({
         title: "Password updated",
         description: "Your password has been successfully changed",
         variant: "success",
-      });
-      setPassword("");
+      })
+      setPassword("")
     } catch (err: any) {
-      console.error("Error updating password:", err);
+      console.error("Error updating password:", err)
       toast({
         title: "Error",
         description: err.message || "Failed to update password",
         variant: "destructive",
-      });
+      })
     } finally {
-      setChangingPassword(false);
+      setChangingPassword(false)
     }
-  };
+  }
 
   const handleAddSocial = () => {
     if (!socialPlatform || !socialLink) {
@@ -225,8 +239,8 @@ export default function ProfilePage() {
         title: "Missing information",
         description: "Please select a platform and enter a link",
         variant: "destructive",
-      });
-      return;
+      })
+      return
     }
 
     setProfile({
@@ -235,36 +249,83 @@ export default function ProfilePage() {
         ...profile.socials,
         [socialPlatform]: socialLink,
       },
-    });
+    })
 
-    setSocialPlatform("");
-    setSocialLink("");
+    setSocialPlatform("")
+    setSocialLink("")
 
     toast({
       title: "Social link added",
       description: `Added ${socialPlatform} to your profile`,
       variant: "success",
-    });
-  };
+    })
+  }
 
   const handleRemoveSocial = (platform: string) => {
-    const { [platform]: _, ...rest } = profile.socials;
+    const { [platform]: _, ...rest } = profile.socials
     setProfile({
       ...profile,
       socials: rest,
-    });
+    })
 
     toast({
       title: "Social link removed",
       description: `Removed ${platform} from your profile`,
       variant: "default",
-    });
-  };
+    })
+  }
+
+  const onSelectFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files.length > 0) {
+      setSelectedImageFile(e.target.files[0])
+      setIsCropperOpen(true)
+      // Reset input value to allow selecting the same file again
+      e.target.value = ""
+    }
+  }
+
+  const onCropComplete = async (croppedBlob: Blob) => {
+    if (!auth.currentUser) return
+
+    setUploadingAvatar(true)
+    try {
+      // Create a slug from the name for the file path
+      const nameSlug = profile.name
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/(^-|-$)+/g, '') || auth.currentUser.uid
+
+      const storageRef = ref(storage, `avatars/team/${nameSlug}.webp`)
+      const uploadTask = await uploadBytes(storageRef, croppedBlob)
+      const downloadURL = await getDownloadURL(uploadTask.ref)
+
+      setProfile((prev) => ({ ...prev, avatar: downloadURL }))
+      
+      // Auto-save the profile with new avatar
+      const userRef = doc(db, "authors", auth.currentUser.uid)
+      await updateDoc(userRef, { avatar: downloadURL })
+
+      toast({
+        title: "Avatar updated",
+        description: "Your profile picture has been updated successfully",
+        variant: "success",
+      })
+    } catch (error) {
+      console.error("Error uploading avatar:", error)
+      toast({
+        title: "Error",
+        description: "Failed to upload avatar",
+        variant: "destructive",
+      })
+    } finally {
+      setUploadingAvatar(false)
+    }
+  }
 
   const breadcrumbItems = [
     { label: "Dashboard", href: "/admin" },
     { label: "Profile" },
-  ];
+  ]
 
   if (loading) {
     return (
@@ -272,7 +333,7 @@ export default function ProfilePage() {
         <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-[#8a2be2]"></div>
         <span className="ml-3">Loading profile...</span>
       </div>
-    );
+    )
   }
 
   if (error) {
@@ -284,7 +345,7 @@ export default function ProfilePage() {
           <p className="text-white/70">{error}</p>
         </div>
       </div>
-    );
+    )
   }
 
   return (
@@ -308,29 +369,51 @@ export default function ProfilePage() {
             <div className="mb-6">
               <label className="block mb-2 font-medium">Avatar:</label>
               <div className="flex flex-col items-center space-y-4">
-                {profile.avatar ? (
-                  <img
-                    src={profile.avatar || "/placeholder.svg"}
-                    alt="Avatar Preview"
-                    className="w-40 h-40 object-cover border border-white/20"
-                    onError={(e) => {
-                      e.currentTarget.src =
-                        "/placeholder.svg?height=160&width=160";
-                    }}
-                  />
-                ) : (
-                  <div className="w-40 h-40 border border-white/20 flex items-center justify-center bg-white/5">
-                    No Avatar
+                <div className="relative group cursor-pointer">
+                  {profile.avatar ? (
+                    <img
+                      src={profile.avatar}
+                      alt="Avatar Preview"
+                      className="w-40 h-40 object-cover border border-white/20 rounded-full"
+                      onError={(e) => {
+                        e.currentTarget.src =
+                          "/placeholder.svg?height=160&width=160"
+                      }}
+                    />
+                  ) : (
+                    <div className="w-40 h-40 border border-white/20 flex items-center justify-center bg-white/5 rounded-full">
+                      No Avatar
+                    </div>
+                  )}
+                  
+                  {/* Overlay for upload */}
+                  <div 
+                    className="absolute inset-0 bg-black/60 rounded-full flex flex-col items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                    onClick={() => document.getElementById("avatar-upload")?.click()}
+                  >
+                    <Camera className="h-8 w-8 text-white mb-2" />
+                    <span className="text-xs text-white uppercase font-bold tracking-wider">Change</span>
                   </div>
-                )}
-                <Input
-                  placeholder="Avatar URL"
-                  value={profile.avatar}
-                  onChange={(e) =>
-                    setProfile({ ...profile, avatar: e.target.value })
-                  }
-                  className="w-full"
+
+                  {uploadingAvatar && (
+                     <div className="absolute inset-0 bg-black/60 rounded-full flex items-center justify-center">
+                        <Loader2 className="h-8 w-8 text-white animate-spin" />
+                     </div>
+                  )}
+                </div>
+
+                <input
+                  id="avatar-upload"
+                  type="file"
+                  accept="image/*"
+                  onChange={onSelectFile}
+                  className="hidden"
                 />
+                
+                <p className="text-xs text-white/50 text-center">
+                  Click on the image to update.<br/>
+                  JPG, PNG or WEBP.
+                </p>
               </div>
             </div>
           </div>
@@ -457,17 +540,17 @@ export default function ProfilePage() {
                 {Object.entries(profile.socials).map(([platform, link]) => (
                   <li
                     key={platform}
-                    className="flex justify-between items-center p-4"
+                    className="flex justify-between items-center p-4 gap-4"
                   >
-                    <div className="flex-1">
-                      <span className="font-medium capitalize block">
+                    <div className="flex-1 min-w-0">
+                      <span className="font-medium capitalize block truncate">
                         {platform}
                       </span>
                       <a
                         href={link as string}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="text-sm text-white/60 hover:text-white truncate block max-w-xs"
+                        className="text-sm text-white/60 hover:text-white truncate block"
                       >
                         {String(link)}
                       </a>
@@ -475,6 +558,7 @@ export default function ProfilePage() {
                     <Button
                       variant="outline"
                       size="icon"
+                      className="shrink-0"
                       onClick={() => handleRemoveSocial(platform)}
                     >
                       <X className="h-4 w-4" />
@@ -513,7 +597,12 @@ export default function ProfilePage() {
               Google Account Linked
             </Button>
           ) : (
-            <Button onClick={handleLinkGoogle} disabled={linkingGoogle} variant="outline" className="w-full">
+            <Button
+              onClick={handleLinkGoogle}
+              disabled={linkingGoogle}
+              variant="outline"
+              className="w-full"
+            >
               {linkingGoogle ? (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               ) : (
@@ -569,6 +658,13 @@ export default function ProfilePage() {
           </Button>
         </div>
       </div>
+
+      <AvatarCropper
+        isOpen={isCropperOpen}
+        onClose={() => setIsCropperOpen(false)}
+        imageFile={selectedImageFile}
+        onCropComplete={onCropComplete}
+      />
     </div>
-  );
+  )
 }

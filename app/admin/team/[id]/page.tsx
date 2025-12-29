@@ -1,102 +1,126 @@
-"use client"
+"use client";
 
-import type React from "react"
+import type React from "react";
 
-import { useState, useEffect } from "react"
-import { db } from "@/lib/firebase"
-import { doc, getDoc, updateDoc, deleteDoc } from "firebase/firestore"
-import { useParams, useRouter } from "next/navigation"
-import { onAuthStateChanged } from "firebase/auth"
-import { auth } from "@/lib/firebase"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { useToast } from "@/hooks/use-toast"
-import { Breadcrumb } from "@/components/breadcrumb"
-import { Loader2, AlertTriangle, RefreshCw, Plus, X } from "lucide-react"
-import { sanitizeUrl } from "@/lib/utils"
+import { useState, useEffect } from "react";
+import { db, storage } from "@/lib/firebase";
+import { doc, getDoc, updateDoc, deleteDoc } from "firebase/firestore";
+import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
+import { useParams, useRouter } from "next/navigation";
+import { onAuthStateChanged } from "firebase/auth";
+import { auth } from "@/lib/firebase";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { useToast } from "@/hooks/use-toast";
+import { Breadcrumb } from "@/components/breadcrumb";
+import {
+  Loader2,
+  AlertTriangle,
+  RefreshCw,
+  Plus,
+  X,
+  Camera,
+} from "lucide-react";
+import { sanitizeUrl } from "@/lib/utils";
+import { AvatarCropper } from "@/components/profile/avatar-cropper";
 
 interface Member {
-  name: string
-  city: string
-  job: string
-  slug: string
-  avatar: string
-  imgAlt: string
-  socials: Record<string, string>
-  role?: string
+  name: string;
+  city: string;
+  job: string;
+  slug: string;
+  avatar: string;
+  imgAlt: string;
+  socials: Record<string, string>;
+  role?: string;
 }
 
 export default function EditTeamMemberPage() {
-  const [member, setMember] = useState<Member | null>(null)
-  const [currentUserRole, setCurrentUserRole] = useState("")
-  const [socialPlatform, setSocialPlatform] = useState("")
-  const [socialLink, setSocialLink] = useState("")
-  const [socials, setSocials] = useState<Record<string, string>>({})
-  const [avatarPreview, setAvatarPreview] = useState("")
-  const [loading, setLoading] = useState(true)
-  const [saving, setSaving] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [member, setMember] = useState<Member | null>(null);
+  const [currentUserRole, setCurrentUserRole] = useState("");
+  const [socialPlatform, setSocialPlatform] = useState("");
+  const [socialLink, setSocialLink] = useState("");
+  const [socials, setSocials] = useState<Record<string, string>>({});
+  const [avatarPreview, setAvatarPreview] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const params = useParams()
-  const router = useRouter()
-  const { toast } = useToast()
-  const id = typeof params.id === "string" ? params.id : ""
+  // Cropper state
+  const [isCropperOpen, setIsCropperOpen] = useState(false);
+  const [selectedImageFile, setSelectedImageFile] = useState<File | null>(null);
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
+
+  const params = useParams();
+  const router = useRouter();
+  const { toast } = useToast();
+  const id = typeof params.id === "string" ? params.id : "";
 
   // Available social media platforms
-  const platforms = ["twitter", "linkedin", "instagram", "github", "facebook", "youtube", "tiktok", "patreon", "link"]
+  const platforms = [
+    "twitter",
+    "linkedin",
+    "instagram",
+    "github",
+    "facebook",
+    "youtube",
+    "tiktok",
+    "patreon",
+    "link",
+  ];
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       if (user) {
         try {
-          const ref = doc(db, "authors", user.uid)
-          const snap = await getDoc(ref)
+          const ref = doc(db, "authors", user.uid);
+          const snap = await getDoc(ref);
 
           if (snap.exists()) {
-            setCurrentUserRole(snap.data().role)
+            setCurrentUserRole(snap.data().role);
           }
         } catch (err) {
-          console.error("Error fetching user role:", err)
+          console.error("Error fetching user role:", err);
         }
       }
-    })
+    });
 
-    return () => unsubscribe()
-  }, [])
+    return () => unsubscribe();
+  }, []);
 
   useEffect(() => {
     const fetchMember = async () => {
-      setLoading(true)
-      setError(null)
+      setLoading(true);
+      setError(null);
 
       if (!id) {
-        setError("Invalid member ID")
-        setLoading(false)
-        return
+        setError("Invalid member ID");
+        setLoading(false);
+        return;
       }
 
       try {
-        const ref = doc(db, "authors", id)
-        const snap = await getDoc(ref)
+        const ref = doc(db, "authors", id);
+        const snap = await getDoc(ref);
 
         if (snap.exists()) {
-          const data = snap.data()
-          setMember(data as Member)
-          setSocials(data.socials || {})
-          setAvatarPreview(data.avatar || "")
+          const data = snap.data();
+          setMember(data as Member);
+          setSocials(data.socials || {});
+          setAvatarPreview(data.avatar || "");
         } else {
-          setError("Member not found")
+          setError("Member not found");
         }
       } catch (err) {
-        console.error("Error fetching member:", err)
-        setError("Failed to load member data")
+        console.error("Error fetching member:", err);
+        setError("Failed to load member data");
       } finally {
-        setLoading(false)
+        setLoading(false);
       }
-    }
+    };
 
-    fetchMember()
-  }, [id])
+    fetchMember();
+  }, [id]);
 
   const handleUpdate = async () => {
     if (!id) {
@@ -104,8 +128,8 @@ export default function EditTeamMemberPage() {
         title: "Error",
         description: "No ID provided",
         variant: "destructive",
-      })
-      return
+      });
+      return;
     }
 
     if (!member) {
@@ -113,8 +137,8 @@ export default function EditTeamMemberPage() {
         title: "Error",
         description: "No member data available",
         variant: "destructive",
-      })
-      return
+      });
+      return;
     }
 
     if (!member.name.trim()) {
@@ -122,43 +146,43 @@ export default function EditTeamMemberPage() {
         title: "Missing name",
         description: "Please enter a name for the team member",
         variant: "destructive",
-      })
-      return
+      });
+      return;
     }
 
-    setSaving(true)
+    setSaving(true);
 
     try {
-      const ref = doc(db, "authors", id)
+      const ref = doc(db, "authors", id);
       await updateDoc(ref, {
         name: member.name,
         city: member.city,
         job: member.job,
         slug: member.slug,
         avatar: member.avatar,
-        imgAlt: member.imgAlt,
+        imgAlt: `${member.name} profile pic, a member of L.A.P`,
         socials: socials,
         // Only super can change role
         ...(currentUserRole === "super" && { role: member.role }),
-      })
+      });
 
       toast({
         title: "Member updated",
         description: "Team member has been successfully updated",
         variant: "success",
-      })
+      });
 
-      router.push("/admin/team")
+      router.push("/admin/team");
     } catch (error) {
-      console.error("Error updating member:", error)
+      console.error("Error updating member:", error);
       toast({
         title: "Error",
         description: "Failed to update team member",
         variant: "destructive",
-      })
-      setSaving(false)
+      });
+      setSaving(false);
     }
-  }
+  };
 
   const handleDelete = async () => {
     if (currentUserRole !== "super") {
@@ -166,30 +190,30 @@ export default function EditTeamMemberPage() {
         title: "Permission denied",
         description: "Only super admin can delete team members",
         variant: "destructive",
-      })
-      return
+      });
+      return;
     }
 
     try {
-      const ref = doc(db, "authors", id)
-      await deleteDoc(ref)
+      const ref = doc(db, "authors", id);
+      await deleteDoc(ref);
 
       toast({
         title: "Member deleted",
         description: "Team member has been permanently removed",
         variant: "success",
-      })
+      });
 
-      router.push("/admin/team")
+      router.push("/admin/team");
     } catch (error) {
-      console.error("Error deleting member:", error)
+      console.error("Error deleting member:", error);
       toast({
         title: "Error",
         description: "Failed to delete team member",
         variant: "destructive",
-      })
+      });
     }
-  }
+  };
 
   const handleAddSocial = () => {
     if (!socialPlatform || !socialLink) {
@@ -197,44 +221,104 @@ export default function EditTeamMemberPage() {
         title: "Missing information",
         description: "Please select a platform and enter a link",
         variant: "destructive",
-      })
-      return
+      });
+      return;
     }
 
     setSocials({
       ...socials,
       [socialPlatform]: socialLink,
-    })
+    });
 
-    setSocialPlatform("")
-    setSocialLink("")
+    setSocialPlatform("");
+    setSocialLink("");
 
     toast({
       title: "Social link added",
       description: `Added ${socialPlatform} to the member's profile`,
       variant: "success",
-    })
-  }
+    });
+  };
 
   const handleRemoveSocial = (platform: string) => {
-    const updatedSocials = { ...socials }
-    delete updatedSocials[platform]
-    setSocials(updatedSocials)
+    const updatedSocials = { ...socials };
+    delete updatedSocials[platform];
+    setSocials(updatedSocials);
 
     toast({
       title: "Social link removed",
       description: `Removed ${platform} from the member's profile`,
       variant: "default",
-    })
-  }
+    });
+  };
 
   const handleAvatarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const avatarUrl = e.target.value
+    const avatarUrl = e.target.value;
     if (member) {
-      setMember({ ...member, avatar: avatarUrl })
+      setMember({ ...member, avatar: avatarUrl });
     }
-    setAvatarPreview(avatarUrl)
-  }
+    setAvatarPreview(avatarUrl);
+  };
+
+  const onSelectFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files.length > 0) {
+      setSelectedImageFile(e.target.files[0]);
+      setIsCropperOpen(true);
+      // Reset input value to allow selecting the same file again
+      e.target.value = "";
+    }
+  };
+
+  const onCropComplete = async (croppedBlob: Blob) => {
+    if (!member) return;
+
+    setUploadingAvatar(true);
+    try {
+      // Create a slug from the name for the file path
+      const nameSlug =
+        member.name
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, "-")
+          .replace(/(^-|-$)+/g, "") || "unknown-member";
+
+      const storageRef = ref(storage, `avatars/team/${nameSlug}.webp`);
+      const uploadTask = await uploadBytes(storageRef, croppedBlob);
+      const downloadURL = await getDownloadURL(uploadTask.ref);
+
+      const newImgAlt = `${member.name} profile pic, a member of L.A.P`;
+
+      // Update local state
+      setMember((prev) =>
+        prev ? { ...prev, avatar: downloadURL, imgAlt: newImgAlt } : null
+      );
+      setAvatarPreview(downloadURL);
+
+      // Auto-save to Firestore
+      if (id) {
+        const ref = doc(db, "authors", id);
+        await updateDoc(ref, {
+          avatar: downloadURL,
+          imgAlt: newImgAlt,
+        });
+      }
+
+      toast({
+        title: "Avatar updated",
+        description:
+          "Your team member's profile picture has been updated successfully",
+        variant: "success",
+      });
+    } catch (error) {
+      console.error("Error uploading avatar:", error);
+      toast({
+        title: "Error",
+        description: "Failed to upload avatar",
+        variant: "destructive",
+      });
+    } finally {
+      setUploadingAvatar(false);
+    }
+  };
 
   // Generate slug based on name
   const generateSlug = () => {
@@ -242,22 +326,22 @@ export default function EditTeamMemberPage() {
       const slug = member.name
         .toLowerCase()
         .replace(/[^\w ]+/g, "")
-        .replace(/ +/g, "-")
-      setMember({ ...member, slug })
+        .replace(/ +/g, "-");
+      setMember({ ...member, slug });
 
       toast({
         title: "Slug generated",
         description: "Created slug from member name",
         variant: "default",
-      })
+      });
     }
-  }
+  };
 
   const breadcrumbItems = [
     { label: "Dashboard", href: "/admin" },
     { label: "Team", href: "/admin/team" },
     { label: "Edit Member" },
-  ]
+  ];
 
   if (loading) {
     return (
@@ -265,7 +349,7 @@ export default function EditTeamMemberPage() {
         <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-[#8a2be2]"></div>
         <span className="ml-3">Loading member data...</span>
       </div>
-    )
+    );
   }
 
   if (error) {
@@ -280,11 +364,11 @@ export default function EditTeamMemberPage() {
           </Button>
         </div>
       </div>
-    )
+    );
   }
 
   if (!member) {
-    return null
+    return null;
   }
 
   return (
@@ -302,32 +386,56 @@ export default function EditTeamMemberPage() {
             <div className="mb-6">
               <label className="block mb-2 font-medium">Avatar:</label>
               <div className="flex flex-col items-center space-y-4">
-                <div className="w-40 h-40 rounded-none overflow-hidden flex items-center justify-center border border-white/20">
-                  {avatarPreview ? (
-                    <img
-                      src={sanitizeUrl(avatarPreview) || "/placeholder.svg"}
-                      alt={member.imgAlt || member.name}
-                      className="w-full h-full object-cover"
-                      onError={(e) => {
-                        e.currentTarget.src = "/placeholder.svg?height=160&width=160"
-                      }}
-                    />
-                  ) : (
-                    <div className="text-white/50">No Avatar</div>
-                  )}
+                <div className="relative group cursor-pointer">
+                  <div className="w-40 h-40 rounded-none overflow-hidden flex items-center justify-center border border-white/20 relative">
+                    {avatarPreview ? (
+                      <img
+                        src={sanitizeUrl(avatarPreview) || "/placeholder.svg"}
+                        alt={member.imgAlt || member.name}
+                        className="w-full h-full object-cover"
+                        onError={(e) => {
+                          e.currentTarget.src =
+                            "/placeholder.svg?height=160&width=160";
+                        }}
+                      />
+                    ) : (
+                      <div className="text-white/50">No Avatar</div>
+                    )}
+
+                    {/* Overlay for upload */}
+                    <div
+                      className="absolute inset-0 bg-black/60 flex flex-col items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                      onClick={() =>
+                        document.getElementById("avatar-upload")?.click()
+                      }
+                    >
+                      <Camera className="h-8 w-8 text-white mb-2" />
+                      <span className="text-xs text-white uppercase font-bold tracking-wider">
+                        Change
+                      </span>
+                    </div>
+
+                    {uploadingAvatar && (
+                      <div className="absolute inset-0 bg-black/60 flex items-center justify-center">
+                        <Loader2 className="h-8 w-8 text-white animate-spin" />
+                      </div>
+                    )}
+                  </div>
                 </div>
-                <Input
-                  value={member.avatar || ""}
-                  onChange={handleAvatarChange}
-                  placeholder="Avatar URL"
-                  className="w-full"
+
+                <input
+                  id="avatar-upload"
+                  type="file"
+                  accept="image/*"
+                  onChange={onSelectFile}
+                  className="hidden"
                 />
-                <Input
-                  value={member.imgAlt || ""}
-                  onChange={(e) => setMember({ ...member, imgAlt: e.target.value })}
-                  placeholder="Image Alt Text"
-                  className="w-full"
-                />
+
+                <p className="text-xs text-white/50 text-center">
+                  Click on the image to update.
+                  <br />
+                  JPG, PNG or WEBP.
+                </p>
               </div>
             </div>
           </div>
@@ -339,7 +447,9 @@ export default function EditTeamMemberPage() {
                 <label className="block mb-2 font-medium">Name:</label>
                 <Input
                   value={member.name || ""}
-                  onChange={(e) => setMember({ ...member, name: e.target.value })}
+                  onChange={(e) =>
+                    setMember({ ...member, name: e.target.value })
+                  }
                   placeholder="Member name"
                 />
               </div>
@@ -349,22 +459,33 @@ export default function EditTeamMemberPage() {
                 <div className="flex gap-2">
                   <Input
                     value={member.slug || ""}
-                    onChange={(e) => setMember({ ...member, slug: e.target.value })}
+                    onChange={(e) =>
+                      setMember({ ...member, slug: e.target.value })
+                    }
                     placeholder="URL-friendly identifier"
                     className="flex-1"
                   />
-                  <Button onClick={generateSlug} variant="outline" title="Generate slug from name" className="px-3">
+                  <Button
+                    onClick={generateSlug}
+                    variant="outline"
+                    title="Generate slug from name"
+                    className="px-3"
+                  >
                     <RefreshCw className="h-4 w-4" />
                   </Button>
                 </div>
-                <p className="text-sm text-white/50 mt-1">Used in profile URLs</p>
+                <p className="text-sm text-white/50 mt-1">
+                  Used in profile URLs
+                </p>
               </div>
 
               <div>
                 <label className="block mb-2 font-medium">Country:</label>
                 <Input
                   value={member.city || ""}
-                  onChange={(e) => setMember({ ...member, city: e.target.value })}
+                  onChange={(e) =>
+                    setMember({ ...member, city: e.target.value })
+                  }
                   placeholder="Member country"
                 />
               </div>
@@ -373,7 +494,9 @@ export default function EditTeamMemberPage() {
                 <label className="block mb-2 font-medium">Job:</label>
                 <Input
                   value={member.job || ""}
-                  onChange={(e) => setMember({ ...member, job: e.target.value })}
+                  onChange={(e) =>
+                    setMember({ ...member, job: e.target.value })
+                  }
                   placeholder="Member job title"
                 />
               </div>
@@ -385,7 +508,9 @@ export default function EditTeamMemberPage() {
                   <select
                     className="w-full p-2 border border-white bg-[#121212] text-white"
                     value={member.role || ""}
-                    onChange={(e) => setMember({ ...member, role: e.target.value })}
+                    onChange={(e) =>
+                      setMember({ ...member, role: e.target.value })
+                    }
                   >
                     <option value="">Select role</option>
                     <option value="super">Super Admin</option>
@@ -422,11 +547,19 @@ export default function EditTeamMemberPage() {
 
             <div className="flex-1">
               <label className="block mb-2 font-medium">Link:</label>
-              <Input value={socialLink} onChange={(e) => setSocialLink(e.target.value)} placeholder="https://..." />
+              <Input
+                value={socialLink}
+                onChange={(e) => setSocialLink(e.target.value)}
+                placeholder="https://..."
+              />
             </div>
 
             <div className="flex items-end">
-              <Button onClick={handleAddSocial} className="h-10 whitespace-nowrap" variant="outline">
+              <Button
+                onClick={handleAddSocial}
+                className="h-10 whitespace-nowrap"
+                variant="outline"
+              >
                 <Plus className="h-4 w-4 mr-1" /> Add Link
               </Button>
             </div>
@@ -437,9 +570,14 @@ export default function EditTeamMemberPage() {
             {Object.keys(socials).length > 0 ? (
               <ul className="divide-y divide-white/10">
                 {Object.entries(socials).map(([platform, link]) => (
-                  <li key={platform} className="flex justify-between items-center p-4">
+                  <li
+                    key={platform}
+                    className="flex justify-between items-center p-4"
+                  >
                     <div className="flex-1">
-                      <span className="font-medium capitalize block">{platform}</span>
+                      <span className="font-medium capitalize block">
+                        {platform}
+                      </span>
                       <a
                         href={link}
                         target="_blank"
@@ -449,32 +587,42 @@ export default function EditTeamMemberPage() {
                         {link}
                       </a>
                     </div>
-                    <Button variant="outline" size="icon" onClick={() => handleRemoveSocial(platform)}>
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      onClick={() => handleRemoveSocial(platform)}
+                    >
                       <X className="h-4 w-4" />
                     </Button>
                   </li>
                 ))}
               </ul>
             ) : (
-              <div className="p-8 text-center text-white/50">No social media links added</div>
+              <div className="p-8 text-center text-white/50">
+                No social media links added
+              </div>
             )}
           </div>
         </div>
 
         {/* Action Buttons */}
         <div className="flex flex-wrap gap-4 mt-8">
-          <Button onClick={handleUpdate} disabled={saving}  variant="outline">
+          <Button onClick={handleUpdate} disabled={saving} variant="outline">
             {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
             {saving ? "Updating..." : "Update Member"}
           </Button>
 
           {currentUserRole === "super" && (
             <Button
-               variant="outline"
+              variant="outline"
               className="border-red-500 text-red-500"
               onClick={() => {
-                if (window.confirm("Are you sure you want to delete this team member? This action cannot be undone.")) {
-                  handleDelete()
+                if (
+                  window.confirm(
+                    "Are you sure you want to delete this team member? This action cannot be undone."
+                  )
+                ) {
+                  handleDelete();
                 }
               }}
               disabled={saving}
@@ -483,12 +631,22 @@ export default function EditTeamMemberPage() {
             </Button>
           )}
 
-          <Button variant="outline" onClick={() => router.push("/admin/team")} disabled={saving} className="ml-auto">
+          <Button
+            variant="outline"
+            onClick={() => router.push("/admin/team")}
+            disabled={saving}
+            className="ml-auto"
+          >
             Cancel
           </Button>
         </div>
       </div>
+      <AvatarCropper
+        isOpen={isCropperOpen}
+        onClose={() => setIsCropperOpen(false)}
+        imageFile={selectedImageFile}
+        onCropComplete={onCropComplete}
+      />
     </div>
-  )
+  );
 }
-

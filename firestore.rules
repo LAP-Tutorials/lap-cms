@@ -29,15 +29,24 @@ service cloud.firestore {
     }
     
     // News: Public read, Admin write
-    match /news/{newsId} {
-      allow read: if true;
-      allow write: if isAdmin();
-    }
+    // Removed as part of News functionality removal
     
     // Authors/Team: Public read, Admin write (or self update - optional)
     match /authors/{userId} {
       allow read: if true;
       allow write: if isAdmin() || (isAuthenticated() && request.auth.uid == userId);
+    }
+
+    // Assets: Authenticated users can read/write
+    match /assets/{assetId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
+    }
+
+    // Meta (Stats): Authenticated users can read
+    match /meta/{docId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
     }
   }
 }
