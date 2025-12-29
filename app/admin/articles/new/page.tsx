@@ -1,107 +1,121 @@
-"use client"
+"use client";
 
-import { useState, useEffect, useRef } from "react"
-import { useRouter } from "next/navigation"
-import { db, auth } from "@/lib/firebase"
-import { collection, setDoc, serverTimestamp, doc, getDocs } from "firebase/firestore"
-import { v4 as uuidv4 } from "uuid"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Textarea } from "@/components/ui/textarea"
-import { Checkbox } from "@/components/ui/checkbox"
-import { useToast } from "@/hooks/use-toast"
-import { Breadcrumb } from "@/components/breadcrumb"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Loader2 } from "lucide-react"
-import { marked } from "marked"
-import DOMPurify from "dompurify"
-import { generateSlugFromTitle, sanitizeUrl } from "@/lib/utils"
-import { MarkdownToolbar } from "@/components/markdown-toolbar"
+import { useState, useEffect, useRef } from "react";
+import { useRouter } from "next/navigation";
+import { db, auth } from "@/lib/firebase";
+import {
+  collection,
+  setDoc,
+  serverTimestamp,
+  doc,
+  getDocs,
+} from "firebase/firestore";
+import { v4 as uuidv4 } from "uuid";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Checkbox } from "@/components/ui/checkbox";
+import { useToast } from "@/hooks/use-toast";
+import { Breadcrumb } from "@/components/breadcrumb";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Loader2 } from "lucide-react";
+import { marked } from "marked";
+import DOMPurify from "dompurify";
+import { generateSlugFromTitle, sanitizeUrl } from "@/lib/utils";
+
+import { MarkdownToolbar } from "@/components/markdown-toolbar";
+import { AssetManager } from "@/components/admin/assets/asset-manager";
 
 // Type for an author document
 interface Author {
-  id: string
-  name: string
-  uid: string
+  id: string;
+  name: string;
+  uid: string;
 }
 
 export default function NewArticlePage() {
-  const [title, setTitle] = useState("")
-  const [content, setContent] = useState("")
-  const [description, setDescription] = useState("")
-  const [img, setImg] = useState("")
-  const [imgAlt, setImgAlt] = useState("")
-  const [label, setLabel] = useState("")
-  const [popularity, setPopularity] = useState(false)
-  const [readTime, setReadTime] = useState("")
-  const [slug, setSlug] = useState("")
-  const [creating, setCreating] = useState(false)
-  const [previewHtml, setPreviewHtml] = useState("")
-  const contentRef = useRef<HTMLTextAreaElement>(null!)
+  const [articleId] = useState(() => uuidv4());
+  const [title, setTitle] = useState("");
+  const [content, setContent] = useState("");
+  const [description, setDescription] = useState("");
+  const [img, setImg] = useState("");
+  const [imgAlt, setImgAlt] = useState("");
+  const [label, setLabel] = useState("");
+  const [popularity, setPopularity] = useState(false);
+  const [readTime, setReadTime] = useState("");
+  const [slug, setSlug] = useState("");
+  const [creating, setCreating] = useState(false);
+  const [previewHtml, setPreviewHtml] = useState("");
+  const contentRef = useRef<HTMLTextAreaElement>(null!);
 
   // Author autocomplete state
-  const [authorName, setAuthorName] = useState("")
-  const [selectedAuthor, setSelectedAuthor] = useState<Author | null>(null)
-  const [authors, setAuthors] = useState<Author[]>([])
-  const [showSuggestions, setShowSuggestions] = useState(false)
-  const suggestionsRef = useRef<HTMLDivElement>(null)
+  const [authorName, setAuthorName] = useState("");
+  const [selectedAuthor, setSelectedAuthor] = useState<Author | null>(null);
+  const [authors, setAuthors] = useState<Author[]>([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const suggestionsRef = useRef<HTMLDivElement>(null);
 
-  const router = useRouter()
-  const { toast } = useToast()
+  const router = useRouter();
+  const { toast } = useToast();
 
   // Fetch authors on mount
   useEffect(() => {
     const fetchAuthors = async () => {
       try {
-        const snap = await getDocs(collection(db, "authors"))
+        const snap = await getDocs(collection(db, "authors"));
         const docs = snap.docs.map((doc) => ({
           id: doc.id,
           ...doc.data(),
-        })) as Author[]
-        setAuthors(docs)
+        })) as Author[];
+        setAuthors(docs);
       } catch (error) {
-        console.error("Error fetching authors:", error)
+        console.error("Error fetching authors:", error);
         toast({
           title: "Error",
           description: "Failed to load authors",
           variant: "destructive",
-        })
+        });
       }
-    }
-    fetchAuthors()
-  }, [toast])
+    };
+    fetchAuthors();
+  }, [toast]);
 
   // Auto-generate slug from title
   useEffect(() => {
     if (title) {
-      setSlug(generateSlugFromTitle(title))
+      setSlug(generateSlugFromTitle(title));
     }
-  }, [title])
+  }, [title]);
 
   // Update selected author if input changes
   useEffect(() => {
     if (authorName.trim() === "") {
-      setSelectedAuthor(null)
-      return
+      setSelectedAuthor(null);
+      return;
     }
-    const match = authors.find((a) => a.name.toLowerCase().includes(authorName.toLowerCase()))
+    const match = authors.find((a) =>
+      a.name.toLowerCase().includes(authorName.toLowerCase())
+    );
     if (match) {
-      setSelectedAuthor(match)
+      setSelectedAuthor(match);
     } else {
-      setSelectedAuthor(null)
+      setSelectedAuthor(null);
     }
-  }, [authorName, authors])
+  }, [authorName, authors]);
 
   // Hide suggestions on click outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      if (suggestionsRef.current && !suggestionsRef.current.contains(event.target as Node)) {
-        setShowSuggestions(false)
+      if (
+        suggestionsRef.current &&
+        !suggestionsRef.current.contains(event.target as Node)
+      ) {
+        setShowSuggestions(false);
       }
-    }
-    document.addEventListener("mousedown", handleClickOutside)
-    return () => document.removeEventListener("mousedown", handleClickOutside)
-  }, [])
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
 
   // Convert markdown to HTML for preview
   useEffect(() => {
@@ -110,38 +124,49 @@ export default function NewArticlePage() {
         marked.setOptions({
           gfm: true,
           breaks: true,
-        })
-        const rawHtml = await marked.parse(content)
+        });
+        const rawHtml = await marked.parse(content);
         const sanitized = DOMPurify.sanitize(rawHtml, {
           ADD_TAGS: ["iframe"],
-          ADD_ATTR: ["allow", "allowfullscreen", "frameborder", "height", "scrolling", "src", "width"],
-        })
-        setPreviewHtml(sanitized)
+          ADD_ATTR: [
+            "allow",
+            "allowfullscreen",
+            "frameborder",
+            "height",
+            "scrolling",
+            "src",
+            "width",
+          ],
+        });
+        setPreviewHtml(sanitized);
       } catch (err) {
-        console.error("Error generating preview:", err)
-        setPreviewHtml("<p>Error generating preview</p>")
+        console.error("Error generating preview:", err);
+        setPreviewHtml("<p>Error generating preview</p>");
       }
-    }
+    };
 
-    generatePreview()
-  }, [content])
-  
+    generatePreview();
+  }, [content]);
+
   const handleMarkdownInsert = (textToInsert: string) => {
-    const textarea = contentRef.current
-    if (!textarea) return
+    const textarea = contentRef.current;
+    if (!textarea) return;
 
-    const start = textarea.selectionStart
-    const end = textarea.selectionEnd
-    const newContent = `${content.substring(0, start)}${textToInsert}${content.substring(end)}`
-    setContent(newContent)
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const newContent = `${content.substring(
+      0,
+      start
+    )}${textToInsert}${content.substring(end)}`;
+    setContent(newContent);
 
     // Focus and set cursor position after the inserted text
     setTimeout(() => {
-      textarea.focus()
-      const newCursorPosition = start + textToInsert.length
-      textarea.setSelectionRange(newCursorPosition, newCursorPosition)
-    }, 0)
-  }
+      textarea.focus();
+      const newCursorPosition = start + textToInsert.length;
+      textarea.setSelectionRange(newCursorPosition, newCursorPosition);
+    }, 0);
+  };
 
   const handleSave = async () => {
     if (!title.trim()) {
@@ -149,8 +174,8 @@ export default function NewArticlePage() {
         title: "Missing title",
         description: "Please enter a title for the article",
         variant: "destructive",
-      })
-      return
+      });
+      return;
     }
 
     if (!content.trim()) {
@@ -158,8 +183,8 @@ export default function NewArticlePage() {
         title: "Missing content",
         description: "Please enter content for the article",
         variant: "destructive",
-      })
-      return
+      });
+      return;
     }
 
     if (!authorName.trim()) {
@@ -167,26 +192,25 @@ export default function NewArticlePage() {
         title: "Missing author",
         description: "Please select an author for the article",
         variant: "destructive",
-      })
-      return
+      });
+      return;
     }
 
-    const user = auth.currentUser
+    const user = auth.currentUser;
     if (!user) {
       toast({
         title: "Authentication error",
         description: "You must be logged in to create articles",
         variant: "destructive",
-      })
-      return
+      });
+      return;
     }
 
-    setCreating(true)
+    setCreating(true);
 
     try {
-      // Create new article ID
-      const docId = uuidv4()
-      await setDoc(doc(db, "articles", docId), {
+      // Create new article ID (use the one generated on mount)
+      await setDoc(doc(db, "articles", articleId), {
         title,
         content,
         description,
@@ -199,35 +223,37 @@ export default function NewArticlePage() {
         // Use selected author if available; otherwise fallback
         authorName: selectedAuthor ? selectedAuthor.name : authorName,
         authorUID: selectedAuthor ? selectedAuthor.uid : user.uid,
-        authorRef: selectedAuthor ? doc(db, "authors", selectedAuthor.id) : doc(db, "authors", user.uid),
+        authorRef: selectedAuthor
+          ? doc(db, "authors", selectedAuthor.id)
+          : doc(db, "authors", user.uid),
         createdAt: serverTimestamp(),
         date: serverTimestamp(),
         publish: false, // Default to draft
-      })
+      });
 
       toast({
         title: "Article created",
         description: "Your article has been successfully created",
         variant: "success",
-      })
+      });
 
-      router.push("/admin/articles")
+      router.push("/admin/articles");
     } catch (error) {
-      console.error("Error creating article:", error)
+      console.error("Error creating article:", error);
       toast({
         title: "Error",
         description: "Failed to create article",
         variant: "destructive",
-      })
-      setCreating(false)
+      });
+      setCreating(false);
     }
-  }
+  };
 
   const breadcrumbItems = [
     { label: "Dashboard", href: "/admin" },
     { label: "Articles", href: "/admin/articles" },
     { label: "New Article" },
-  ]
+  ];
 
   return (
     <div className="px-4 py-6">
@@ -258,7 +284,9 @@ export default function NewArticlePage() {
             placeholder="URL-friendly identifier"
             className="w-full"
           />
-          <p className="text-sm text-white/50 mt-1">Auto-generated from title</p>
+          <p className="text-sm text-white/50 mt-1">
+            Auto-generated from title
+          </p>
         </div>
 
         {/* Author Name with Autocomplete */}
@@ -267,8 +295,8 @@ export default function NewArticlePage() {
           <Input
             value={authorName}
             onChange={(e) => {
-              setAuthorName(e.target.value)
-              setShowSuggestions(true)
+              setAuthorName(e.target.value);
+              setShowSuggestions(true);
             }}
             onFocus={() => setShowSuggestions(true)}
             placeholder="Start typing author name..."
@@ -280,15 +308,17 @@ export default function NewArticlePage() {
               className="absolute z-10 w-full border border-white/60 bg-[#1a1a1a] mt-1 max-h-48 overflow-y-auto"
             >
               {authors
-                .filter((a) => a.name.toLowerCase().includes(authorName.toLowerCase()))
+                .filter((a) =>
+                  a.name.toLowerCase().includes(authorName.toLowerCase())
+                )
                 .map((a) => (
                   <div
                     key={a.id}
                     className="px-4 py-2 hover:bg-[#8a2be2]/20 cursor-pointer"
                     onClick={() => {
-                      setAuthorName(a.name)
-                      setSelectedAuthor(a)
-                      setShowSuggestions(false)
+                      setAuthorName(a.name);
+                      setSelectedAuthor(a);
+                      setShowSuggestions(false);
                     }}
                   >
                     {a.name}
@@ -307,7 +337,10 @@ export default function NewArticlePage() {
               <TabsTrigger value="preview">Preview</TabsTrigger>
             </TabsList>
             <TabsContent value="write">
-              <MarkdownToolbar textareaRef={contentRef} onInsert={handleMarkdownInsert} />
+              <MarkdownToolbar
+                textareaRef={contentRef}
+                onInsert={handleMarkdownInsert}
+              />
               <Textarea
                 ref={contentRef}
                 value={content}
@@ -322,6 +355,14 @@ export default function NewArticlePage() {
               </div>
             </TabsContent>
           </Tabs>
+        </div>
+
+        {/* Article Assets */}
+        <div className="mb-6 space-y-2">
+          <label className="block font-medium">Article Assets:</label>
+          <div className="border border-white/10 rounded-xl p-4 bg-[#1A1A1A]">
+            <AssetManager rootPath={`Articles/${articleId}`} />
+          </div>
         </div>
 
         {/* Description */}
@@ -352,7 +393,7 @@ export default function NewArticlePage() {
                 alt={imgAlt || "Image Preview"}
                 className="max-h-64 object-contain border border-white/20"
                 onError={(e) => {
-                  e.currentTarget.src = "/placeholder.svg?height=200&width=400"
+                  e.currentTarget.src = "/placeholder.svg?height=200&width=400";
                 }}
               />
             </div>
@@ -409,7 +450,7 @@ export default function NewArticlePage() {
 
         {/* Action buttons */}
         <div className="flex flex-wrap gap-4 mt-8">
-          <Button onClick={handleSave} disabled={creating}  variant="outline">
+          <Button onClick={handleSave} disabled={creating} variant="outline">
             {creating && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
             {creating ? "Creating..." : "Create Article"}
           </Button>
@@ -425,5 +466,5 @@ export default function NewArticlePage() {
         </div>
       </div>
     </div>
-  )
+  );
 }

@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect } from "react";
 import { useAssets, Asset } from "@/hooks/use-assets";
 import { UploadZone } from "./upload-zone";
+import { convertImageToWebP } from "@/lib/image-utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -199,13 +200,13 @@ const formatBytes = (bytes: number, decimals = 2) => {
   return `${parseFloat((bytes / Math.pow(k, i)).toFixed(dm))} ${sizes[i]}`;
 };
 
-export function AssetManager() {
+export function AssetManager({ rootPath = "" }: { rootPath?: string }) {
   // Root level management for Tabs
   const {
     folders: rootFolders,
     loading: rootLoading,
     refresh: refreshRoot,
-  } = useAssets("");
+  } = useAssets(rootPath);
   const [activeTab, setActiveTab] = useState("overview");
 
   // Navigation state within a tab
@@ -216,6 +217,7 @@ export function AssetManager() {
   // If specific tab, path is tabName + subPath joined
   const getPath = () => {
     const parts = [];
+    if (rootPath) parts.push(rootPath);
     if (activeTab !== "overview") parts.push(activeTab);
     if (subPath.length > 0) parts.push(...subPath);
     return parts.join("/");
@@ -464,9 +466,29 @@ export function AssetManager() {
     return folders;
   }, [folders, searchTerm]);
 
-  const handleUpload = (files: File[]) => {
-    files.forEach((file) => uploadAsset(file));
-    if (currentPath === "") {
+  const handleUpload = async (files: File[]) => {
+    // Convert images to WebP
+    const processedFiles = await Promise.all(
+      files.map(async (file) => {
+        if (file.type.startsWith("image/")) {
+          try {
+            return await convertImageToWebP(file);
+          } catch (e) {
+            console.error("Failed to convert image to WebP", e);
+            toast({
+              title: "Image conversion failed",
+              description: `Could not convert ${file.name} to WebP. Uploading original.`,
+              variant: "destructive",
+            });
+            return file;
+          }
+        }
+        return file;
+      })
+    );
+
+    processedFiles.forEach((file) => uploadAsset(file));
+    if (activeTab === "overview" && subPath.length === 0) {
       setTimeout(refreshRoot, 2000);
     }
   };
