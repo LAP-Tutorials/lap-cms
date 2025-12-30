@@ -656,6 +656,11 @@ export default function NewArticlePage() {
   const [showSuggestions, setShowSuggestions] = useState(false);
   const suggestionsRef = useRef<HTMLDivElement>(null);
 
+  // Label autocomplete state
+  const [existingLabels, setExistingLabels] = useState<string[]>([]);
+  const [showLabelSuggestions, setShowLabelSuggestions] = useState(false);
+  const labelSuggestionsRef = useRef<HTMLDivElement>(null);
+
   const router = useRouter();
   const { toast } = useToast();
 
@@ -716,6 +721,27 @@ export default function NewArticlePage() {
     fetchAuthors();
   }, [toast]);
 
+  // Fetch existing labels from articles
+  useEffect(() => {
+    const fetchLabels = async () => {
+      try {
+        const snap = await getDocs(collection(db, "articles"));
+        const labels = snap.docs
+          .map((doc) => doc.data().label)
+          .filter(
+            (label): label is string =>
+              typeof label === "string" && label.trim() !== ""
+          );
+        // Get unique labels
+        const uniqueLabels = [...new Set(labels)].sort();
+        setExistingLabels(uniqueLabels);
+      } catch (error) {
+        console.error("Error fetching labels:", error);
+      }
+    };
+    fetchLabels();
+  }, []);
+
   // Auto-generate slug from title
   useEffect(() => {
     if (title) {
@@ -748,6 +774,12 @@ export default function NewArticlePage() {
         !suggestionsRef.current.contains(event.target as Node)
       ) {
         setShowSuggestions(false);
+      }
+      if (
+        labelSuggestionsRef.current &&
+        !labelSuggestionsRef.current.contains(event.target as Node)
+      ) {
+        setShowLabelSuggestions(false);
       }
     };
     document.addEventListener("mousedown", handleClickOutside);
@@ -1093,15 +1125,43 @@ export default function NewArticlePage() {
           />
         </div>
 
-        {/* Label */}
-        <div className="mb-6">
+        {/* Label with Autocomplete */}
+        <div className="mb-6 relative">
           <label className="block mb-2 font-medium">Label:</label>
           <Input
             value={label}
-            onChange={(e) => setLabel(e.target.value)}
-            placeholder="Article category or label"
+            onChange={(e) => {
+              setLabel(e.target.value);
+              setShowLabelSuggestions(true);
+            }}
+            onFocus={() => setShowLabelSuggestions(true)}
+            placeholder="Select existing or type new label"
             className="w-full"
           />
+          {showLabelSuggestions && existingLabels.length > 0 && (
+            <div
+              ref={labelSuggestionsRef}
+              className="absolute z-10 w-full border border-white/60 bg-[#1a1a1a] mt-1 max-h-48 overflow-y-auto rounded-md"
+            >
+              {existingLabels
+                .filter((l) => l.toLowerCase().includes(label.toLowerCase()))
+                .map((l) => (
+                  <div
+                    key={l}
+                    className="px-4 py-2 hover:bg-[#8a2be2]/20 cursor-pointer"
+                    onClick={() => {
+                      setLabel(l);
+                      setShowLabelSuggestions(false);
+                    }}
+                  >
+                    {l}
+                  </div>
+                ))}
+            </div>
+          )}
+          <p className="text-sm text-white/50 mt-1">
+            Select an existing label or type a new one
+          </p>
         </div>
 
         {/* Popularity */}

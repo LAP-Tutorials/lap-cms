@@ -587,6 +587,8 @@ import {
   updateDoc,
   deleteDoc,
   serverTimestamp,
+  collection,
+  getDocs,
 } from "firebase/firestore";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
@@ -623,6 +625,11 @@ export default function EditArticlePage() {
   const [error, setError] = useState<string | null>(null);
   const [previewHtml, setPreviewHtml] = useState("");
   const contentRef = useRef<HTMLTextAreaElement>(null);
+
+  // Label autocomplete state
+  const [existingLabels, setExistingLabels] = useState<string[]>([]);
+  const [showLabelSuggestions, setShowLabelSuggestions] = useState(false);
+  const labelSuggestionsRef = useRef<HTMLDivElement>(null);
 
   const router = useRouter();
   const params = useParams();
@@ -706,6 +713,41 @@ export default function EditArticlePage() {
 
     fetchArticle();
   }, [id]);
+
+  // Fetch existing labels from articles
+  useEffect(() => {
+    const fetchLabels = async () => {
+      try {
+        const snap = await getDocs(collection(db, "articles"));
+        const labels = snap.docs
+          .map((doc) => doc.data().label)
+          .filter(
+            (label): label is string =>
+              typeof label === "string" && label.trim() !== ""
+          );
+        // Get unique labels
+        const uniqueLabels = [...new Set(labels)].sort();
+        setExistingLabels(uniqueLabels);
+      } catch (error) {
+        console.error("Error fetching labels:", error);
+      }
+    };
+    fetchLabels();
+  }, []);
+
+  // Hide label suggestions on click outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        labelSuggestionsRef.current &&
+        !labelSuggestionsRef.current.contains(event.target as Node)
+      ) {
+        setShowLabelSuggestions(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
 
   const handleUpdate = async () => {
     if (!title || !content) {
@@ -1047,15 +1089,43 @@ export default function EditArticlePage() {
           />
         </div>
 
-        {/* Label */}
-        <div className="mb-6">
+        {/* Label with Autocomplete */}
+        <div className="mb-6 relative">
           <label className="block mb-2 font-medium">Label:</label>
           <Input
             value={label}
-            onChange={(e) => setLabel(e.target.value)}
-            placeholder="Article category or label"
+            onChange={(e) => {
+              setLabel(e.target.value);
+              setShowLabelSuggestions(true);
+            }}
+            onFocus={() => setShowLabelSuggestions(true)}
+            placeholder="Select existing or type new label"
             className="w-full"
           />
+          {showLabelSuggestions && existingLabels.length > 0 && (
+            <div
+              ref={labelSuggestionsRef}
+              className="absolute z-10 w-full border border-white/60 bg-[#1a1a1a] mt-1 max-h-48 overflow-y-auto rounded-md"
+            >
+              {existingLabels
+                .filter((l) => l.toLowerCase().includes(label.toLowerCase()))
+                .map((l) => (
+                  <div
+                    key={l}
+                    className="px-4 py-2 hover:bg-[#8a2be2]/20 cursor-pointer"
+                    onClick={() => {
+                      setLabel(l);
+                      setShowLabelSuggestions(false);
+                    }}
+                  >
+                    {l}
+                  </div>
+                ))}
+            </div>
+          )}
+          <p className="text-sm text-white/50 mt-1">
+            Select an existing label or type a new one
+          </p>
         </div>
 
         {/* Publish Status */}
