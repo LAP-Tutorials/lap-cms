@@ -261,18 +261,18 @@ export function AssetManager({ rootPath = "" }: { rootPath?: string }) {
   const [folderStats, setFolderStats] = useState<{ [key: string]: number }>({});
   const [totalPersistenceSize, setTotalPersistenceSize] = useState<number>(0);
 
-  // Fetch total storage size on mount
+  // Fetch folder storage size when path changes
   useEffect(() => {
-    const fetchTotalSize = async () => {
+    const fetchFolderSize = async () => {
       try {
-        const stats = await getFolderStats("");
+        const stats = await getFolderStats(currentPath);
         setTotalPersistenceSize(stats.size);
       } catch (e) {
-        console.error("Failed to fetch total storage size", e);
+        console.error("Failed to fetch folder storage size", e);
       }
     };
-    fetchTotalSize();
-  }, [getFolderStats]);
+    fetchFolderSize();
+  }, [getFolderStats, currentPath]);
 
   useEffect(() => {
     const loadFolderStats = async () => {
@@ -686,7 +686,7 @@ export function AssetManager({ rootPath = "" }: { rootPath?: string }) {
     <>
       <div className="space-y-6">
         {/* Tabs Header */}
-        <div className="border-b border-white/10 pb-2">
+        <div className="border-b border-white/10 pb-2 overflow-x-auto">
           {rootLoading ? (
             <div className="h-10 w-full animate-pulse bg-white/5 rounded-md" />
           ) : (
@@ -695,19 +695,21 @@ export function AssetManager({ rootPath = "" }: { rootPath?: string }) {
               onValueChange={handleTabChange}
               className="w-full"
             >
-              <TabsList className="w-full justify-start overflow-x-auto bg-transparent p-0">
+              <TabsList className="w-max min-w-full justify-start bg-transparent p-0 gap-1">
                 <TabsTrigger
                   value="overview"
                   onClick={() => setSubPath([])}
-                  className="flex items-center data-[state=active]:bg-white/10 data-[state=active]:text-white rounded-md px-4 py-2"
+                  className="flex items-center data-[state=active]:bg-white/10 data-[state=active]:text-white rounded-md px-3 py-2 text-sm whitespace-nowrap"
                 >
-                  <Home className="w-4 h-4 mr-2" /> Overview
+                  <Home className="w-4 h-4 mr-1.5" />
+                  <span className="hidden sm:inline">Overview</span>
+                  <span className="sm:hidden">Home</span>
                 </TabsTrigger>
                 {rootFolders.map((folder) => (
                   <TabsTrigger
                     key={folder.id}
                     value={folder.name}
-                    className="data-[state=active]:bg-white/10 data-[state=active]:text-white rounded-md px-4 py-2"
+                    className="data-[state=active]:bg-white/10 data-[state=active]:text-white rounded-md px-3 py-2 text-sm whitespace-nowrap"
                   >
                     {folder.name}
                   </TabsTrigger>
@@ -717,11 +719,11 @@ export function AssetManager({ rootPath = "" }: { rootPath?: string }) {
           )}
         </div>
 
-        {/* Global Stats Bar */}
+        {/* Folder Stats Bar */}
         <div className="flex items-center justify-between px-1 mb-4">
           <div className="text-sm text-white/50">
-            Total Storage Used:{" "}
-            <span className="text-white font-medium">
+            Folder Storage:{" "}
+            <span className="text-purple-300 font-medium">
               {formatBytes(totalPersistenceSize)}
             </span>
           </div>
@@ -833,118 +835,137 @@ export function AssetManager({ rootPath = "" }: { rootPath?: string }) {
           </div>
         )}
 
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-          {subPath.length > 0 && (
-            <Button variant="ghost" size="icon" onClick={navigateUp}>
-              <ArrowLeft className="h-5 w-5" />
-            </Button>
-          )}
-          <h2 className="text-xl font-bold flex items-center gap-2">
-            <span className="opacity-50">
-              {activeTab === "overview" ? "Overview" : activeTab}
-            </span>
+        <div className="flex flex-col gap-3">
+          {/* Header Row */}
+          <div className="flex flex-wrap items-center gap-2">
             {subPath.length > 0 && (
-              <>
-                <span className="opacity-30">/</span>
-                <span>{subPath[subPath.length - 1]}</span>
-              </>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={navigateUp}
+                className="shrink-0"
+              >
+                <ArrowLeft className="h-5 w-5" />
+              </Button>
             )}
-          </h2>
-        </div>
-
-        <div className="flex items-center gap-2 w-full sm:w-auto">
-          <div className="relative flex-1 sm:w-64">
-            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-white/50" />
-            <Input
-              type="search"
-              placeholder="Search assets..."
-              className="pl-8 bg-[#121212] border-white/10 focus-visible:ring-purple-500"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-            />
+            <h2 className="text-lg sm:text-xl font-bold flex items-center gap-2 flex-1 min-w-0">
+              <span className="opacity-50 truncate">
+                {activeTab === "overview" ? "Overview" : activeTab}
+              </span>
+              {subPath.length > 0 && (
+                <>
+                  <span className="opacity-30">/</span>
+                  <span className="truncate">
+                    {subPath[subPath.length - 1]}
+                  </span>
+                </>
+              )}
+            </h2>
           </div>
 
-          <Dialog
-            open={isCreateFolderOpen}
-            onOpenChange={setIsCreateFolderOpen}
-          >
-            <DialogTrigger asChild>
+          {/* Search and Actions Row */}
+          <div className="flex flex-col sm:flex-row gap-2">
+            <div className="relative flex-1">
+              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-white/50" />
+              <Input
+                type="search"
+                placeholder="Search assets..."
+                className="pl-8 bg-[#121212] border-white/20 focus-visible:ring-purple-500 w-full"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+              />
+            </div>
+
+            <div className="flex gap-2">
+              <Dialog
+                open={isCreateFolderOpen}
+                onOpenChange={setIsCreateFolderOpen}
+              >
+                <DialogTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="border-white/20 hover:bg-white/5 flex-1 sm:flex-none"
+                  >
+                    <FolderPlus className="h-4 w-4 sm:mr-2" />
+                    <span className="hidden sm:inline">New Folder</span>
+                  </Button>
+                </DialogTrigger>
+                <DialogContent className="bg-[#121212] border-white/10 text-white">
+                  <DialogHeader>
+                    <DialogTitle>Create New Folder</DialogTitle>
+                  </DialogHeader>
+                  <div className="py-4">
+                    <Input
+                      placeholder="Folder Name"
+                      value={newFolderName}
+                      onChange={(e) => setNewFolderName(e.target.value)}
+                      onKeyDown={(e) =>
+                        e.key === "Enter" && handleCreateFolder()
+                      }
+                      className="bg-black/20 border-white/10"
+                    />
+                  </div>
+                  <DialogFooter>
+                    <Button
+                      variant="outline"
+                      onClick={() => setIsCreateFolderOpen(false)}
+                      className="border-white/10"
+                    >
+                      Cancel
+                    </Button>
+                    <Button
+                      onClick={handleCreateFolder}
+                      className="bg-purple-600 hover:bg-purple-700 text-white"
+                    >
+                      Create
+                    </Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
               <Button
                 variant="outline"
-                className="border-white/10 hover:bg-white/5"
+                size="sm"
+                className="border-white/20 hover:bg-white/5 flex-1 sm:flex-none"
+                onClick={selectAll}
               >
-                <FolderPlus className="mr-2 h-4 w-4" /> New Folder
+                <CheckSquare className="h-4 w-4 sm:mr-2" />
+                <span className="hidden sm:inline">Select All</span>
               </Button>
-            </DialogTrigger>
-            <Button
-              variant="outline"
-              className="border-white/10 hover:bg-white/5"
-              onClick={selectAll}
-            >
-              <CheckSquare className="mr-2 h-4 w-4" /> Select All
-            </Button>
-            <DialogContent className="bg-[#121212] border-white/10 text-white">
-              <DialogHeader>
-                <DialogTitle>Create New Folder</DialogTitle>
-              </DialogHeader>
-              <div className="py-4">
-                <Input
-                  placeholder="Folder Name"
-                  value={newFolderName}
-                  onChange={(e) => setNewFolderName(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && handleCreateFolder()}
-                  className="bg-black/20 border-white/10"
-                />
-              </div>
-              <DialogFooter>
-                <Button
-                  variant="outline"
-                  onClick={() => setIsCreateFolderOpen(false)}
-                  className="border-white/10"
-                >
-                  Cancel
-                </Button>
-                <Button
-                  onClick={handleCreateFolder}
-                  className="bg-purple-600 hover:bg-purple-700 text-white"
-                >
-                  Create
-                </Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
-
-          <Dialog open={isRenameOpen} onOpenChange={setIsRenameOpen}>
-            <DialogContent className="bg-[#121212] border-white/10 text-white">
-              <DialogHeader>
-                <DialogTitle>Rename Asset</DialogTitle>
-              </DialogHeader>
-              <div className="py-4">
-                <Input
-                  value={renameValue}
-                  onChange={(e) => setRenameValue(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && confirmRename()}
-                  className="bg-black/20 border-white/10"
-                />
-              </div>
-              <DialogFooter>
-                <Button
-                  variant="outline"
-                  onClick={() => setIsRenameOpen(false)}
-                  className="border-white/10"
-                >
-                  Cancel
-                </Button>
-                <Button
-                  onClick={confirmRename}
-                  className="bg-purple-600 hover:bg-purple-700 text-white"
-                >
-                  Rename
-                </Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
+            </div>
+          </div>
         </div>
+
+        <Dialog open={isRenameOpen} onOpenChange={setIsRenameOpen}>
+          <DialogContent className="bg-[#121212] border-white/10 text-white">
+            <DialogHeader>
+              <DialogTitle>Rename Asset</DialogTitle>
+            </DialogHeader>
+            <div className="py-4">
+              <Input
+                value={renameValue}
+                onChange={(e) => setRenameValue(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && confirmRename()}
+                className="bg-black/20 border-white/10"
+              />
+            </div>
+            <DialogFooter>
+              <Button
+                variant="outline"
+                onClick={() => setIsRenameOpen(false)}
+                className="border-white/10"
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={confirmRename}
+                className="bg-purple-600 hover:bg-purple-700 text-white"
+              >
+                Rename
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
 
         <div className="min-h-[400px]">
           <UploadZone onUpload={handleUpload} uploadProgress={uploadProgress} />
