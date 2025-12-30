@@ -3,6 +3,7 @@ import { onCall, HttpsError } from "firebase-functions/v2/https";
 import * as logger from "firebase-functions/logger";
 import * as admin from "firebase-admin";
 import { BetaAnalyticsDataClient } from "@google-analytics/data";
+import * as JSZip from "jszip";
 // import { google } from "googleapis";
 // remove dotenv import as firebase loads .env automatically
 // import * as dotenv from "dotenv";
@@ -351,6 +352,94 @@ export const manageAssets = onCall(
             results.errors.push(`Failed to delete ${srcPath}`);
           }
         }
+      } else if (action === "downloadFolder") {
+        if (items.length !== 1) {
+          throw new HttpsError(
+            "invalid-argument",
+            "Download folder requires exactly 1 item (folder path)."
+          );
+        }
+        const srcPath = items[0];
+        const prefix = srcPath.endsWith("/") ? srcPath : `${srcPath}/`;
+        const [files] = await bucket.getFiles({ prefix });
+
+        if (files.length === 0) {
+          // It might be empty, just return empty zip? Or error?
+          // Let's allow empty zip or just handle gracefully.
+        }
+
+        const zip = new JSZip();
+
+        // Download all files in parallel
+        // WARNING: Large folders might run out of memory.
+        // Ideally we stream, but JSZip generateAsync needs all data for compression unless we use a stream-capable zip lib.
+        // JSZip is memory-bound.
+
+        await Promise.all(
+          files.map(async (file) => {
+            if (file.name.endsWith("/")) return; // Skip directories if listed
+            try {
+              const [content] = await file.download();
+              const relativePath = file.name.slice(prefix.length);
+              if (relativePath) {
+                zip.file(relativePath, content);
+              }
+            } catch (e) {
+              logger.error(`Failed to download file for zip: ${file.name}`, e);
+            }
+          })
+        );
+
+        const zipContent = await zip.generateAsync({ type: "nodebuffer" });
+
+        const fileName =
+          srcPath.replace(/\/$/, "").split("/").pop() || "download";
+        const tempFilePath = `temp_downloads/${fileName}-${Date.now()}.zip`;
+        const tempFile = bucket.file(tempFilePath);
+
+        await tempFile.save(zipContent, {
+          contentType: "application/zip",
+          metadata: {
+            metadata: {
+              tempDownload: "true", // Tag for cleanup lifecycle rules
+            },
+          },
+        });
+
+        const [url] = await tempFile.getSignedUrl({
+          action: "read",
+          expires: Date.now() + 15 * 60 * 1000, // 15 min
+          version: "v4",
+        });
+
+        results.success++;
+        return { ...results, downloadUrl: url };
+      } else if (action === "downloadFile") {
+        if (items.length !== 1) {
+          throw new HttpsError(
+            "invalid-argument",
+            "Download file requires exactly 1 item (file path)."
+          );
+        }
+        const srcPath = items[0];
+        const file = bucket.file(srcPath);
+        const [match] = await file.exists();
+        if (!match) {
+          throw new HttpsError("not-found", "File not found");
+        }
+
+        // Generate signed URL with response-content-disposition attachment
+        // This forces the browser to download instead of open
+        // Using v4 to avoid permission issues
+        const [url] = await file.getSignedUrl({
+          action: "read",
+          expires: Date.now() + 15 * 60 * 1000, // 15 min
+          version: "v4",
+          responseDisposition: "attachment",
+        });
+
+        results.success++;
+        return { ...results, downloadUrl: url };
       } else {
         throw new HttpsError("invalid-argument", `Unknown action: ${action}`);
       }

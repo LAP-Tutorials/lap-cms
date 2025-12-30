@@ -48,7 +48,10 @@ import {
   Palette,
   Database,
   Disc,
+  Download,
 } from "lucide-react";
+
+import { saveAs } from "file-saver";
 import { useToast } from "@/hooks/use-toast";
 
 const getFileIcon = (mimeType: string, fileName: string) => {
@@ -69,7 +72,7 @@ const getFileIcon = (mimeType: string, fileName: string) => {
     return { icon: FileVideo, color: "text-blue-400" };
 
   // Documents
-  if (mimeType.includes("pdf"))
+  if (mimeType.includes("pdf") || extension === "pdf")
     return { icon: FileText, color: "text-red-400" };
   if (
     mimeType.includes("word") ||
@@ -239,6 +242,10 @@ export function AssetManager({ rootPath = "" }: { rootPath?: string }) {
     copyAssets,
     getFolderStats,
     searchAssets,
+    getAllFilesInFolder,
+    getFileBlob,
+    downloadFolder,
+    downloadFile,
   } = useAssets(currentPath);
 
   const [newFolderName, setNewFolderName] = useState("");
@@ -273,6 +280,27 @@ export function AssetManager({ rootPath = "" }: { rootPath?: string }) {
     };
     fetchFolderSize();
   }, [getFolderStats, currentPath]);
+
+  const navigateToSearchResult = (targetPath: string) => {
+    let relative = targetPath;
+    if (rootPath && relative.startsWith(rootPath + "/")) {
+      relative = relative.substring(rootPath.length + 1);
+    } else if (rootPath && relative === rootPath) {
+      setActiveTab("overview");
+      setSubPath([]);
+      setSearchTerm("");
+      return;
+    }
+
+    const parts = relative.split("/").filter(Boolean);
+    if (parts.length > 0) {
+      const [head, ...tail] = parts;
+      // Switch to the top-level folder as tab
+      setActiveTab(head);
+      setSubPath(tail);
+      setSearchTerm(""); // clear search to show content
+    }
+  };
 
   useEffect(() => {
     const loadFolderStats = async () => {
@@ -457,14 +485,67 @@ export function AssetManager({ rootPath = "" }: { rootPath?: string }) {
   };
 
   const filteredAssets = useMemo(() => {
-    if (searchTerm.trim()) return searchResults;
+    if (searchTerm.trim())
+      return searchResults.filter((r) => r.type === "file");
     return assets;
   }, [assets, searchResults, searchTerm]);
 
   const filteredFolders = useMemo(() => {
-    if (searchTerm.trim()) return []; // Don't show folders in global search mode for now
+    if (searchTerm.trim()) {
+      return searchResults.filter((r) => r.type === "folder");
+    }
     return folders;
-  }, [folders, searchTerm]);
+  }, [folders, searchResults, searchTerm]);
+
+  const handleDownload = async (asset: Asset) => {
+    if (asset.type === "file") {
+      try {
+        toast({
+          title: `Preparing ${asset.name} for download...`,
+          variant: "default",
+        });
+        const url = await downloadFile(asset.path);
+        if (url) {
+          // Open signed URL to trigger download (it has attachment disposition)
+          window.location.href = url;
+          toast({ title: "Download started", variant: "success" });
+        } else {
+          throw new Error("No URL returned");
+        }
+      } catch (e) {
+        console.error("Download failed", e);
+        toast({ title: "Download failed", variant: "destructive" });
+      }
+    } else {
+      // Folder download via Cloud Function
+      try {
+        toast({
+          title: `Preparing ${asset.name} for download...`,
+          description: "This might take a moment based on folder size.",
+          variant: "default",
+        });
+
+        const downloadUrl = await downloadFolder(asset.path);
+
+        if (downloadUrl) {
+          window.open(downloadUrl, "_blank");
+          toast({ title: "Download started", variant: "success" });
+        } else {
+          toast({
+            title: "Failed to generate download link",
+            variant: "destructive",
+          });
+        }
+      } catch (e) {
+        console.error("Error downloading folder", e);
+        toast({
+          title: "Download failed",
+          description: "Could not create zip archive.",
+          variant: "destructive",
+        });
+      }
+    }
+  };
 
   const handleUpload = async (files: File[]) => {
     // Convert images to WebP
@@ -582,6 +663,15 @@ export function AssetManager({ rootPath = "" }: { rootPath?: string }) {
                   size="icon"
                   variant="secondary"
                   className="h-9 w-9 rounded-full bg-black/50 text-white border border-white/20 hover:bg-black/70 hover:scale-105 transition-all"
+                  onClick={() => handleDownload(asset)}
+                  title="Download"
+                >
+                  <Download className="h-4 w-4" />
+                </Button>
+                <Button
+                  size="icon"
+                  variant="secondary"
+                  className="h-9 w-9 rounded-full bg-black/50 text-white border border-white/20 hover:bg-black/70 hover:scale-105 transition-all"
                   onClick={() => handleCopyLink(asset.url!)}
                   title="Copy Link"
                 >
@@ -665,6 +755,12 @@ export function AssetManager({ rootPath = "" }: { rootPath?: string }) {
                       className="focus:bg-white/5"
                     >
                       <LinkIcon className="mr-2 h-4 w-4" /> Copy Link
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onClick={() => handleDownload(asset)}
+                      className="focus:bg-white/5"
+                    >
+                      <Download className="mr-2 h-4 w-4" /> Download
                     </DropdownMenuItem>
                     <DropdownMenuItem
                       className="text-red-400 focus:text-red-400 focus:bg-white/5"
@@ -804,6 +900,23 @@ export function AssetManager({ rootPath = "" }: { rootPath?: string }) {
                     <Trash className="h-4 w-4 sm:mr-2" />{" "}
                     <span className="hidden sm:inline">Delete</span>
                   </Button>
+                  {selectedAssets.size === 1 && (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="px-2 sm:px-4"
+                      onClick={() => {
+                        const id = Array.from(selectedAssets)[0];
+                        const asset = [...folders, ...assets].find(
+                          (a) => a.id === id
+                        );
+                        if (asset) handleDownload(asset);
+                      }}
+                    >
+                      <Download className="h-4 w-4 sm:mr-2" />
+                      <span className="hidden sm:inline">Download</span>
+                    </Button>
+                  )}
                 </>
               )}
 
@@ -992,7 +1105,13 @@ export function AssetManager({ rootPath = "" }: { rootPath?: string }) {
                               ? "bg-purple-500/10 border-purple-500/50"
                               : "bg-white/5 border-white/5 hover:bg-white/10"
                           }`}
-                          onClick={() => navigateToFolder(folder.name)}
+                          onClick={() => {
+                            if (searchTerm.trim()) {
+                              navigateToSearchResult(folder.path);
+                            } else {
+                              navigateToFolder(folder.name);
+                            }
+                          }}
                         >
                           <div
                             className="absolute top-2 left-2"
@@ -1076,6 +1195,12 @@ export function AssetManager({ rootPath = "" }: { rootPath?: string }) {
                                   className="focus:bg-white/5"
                                 >
                                   <Scissors className="mr-2 h-4 w-4" /> Cut
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                  onClick={() => handleDownload(folder as any)}
+                                  className="focus:bg-white/5"
+                                >
+                                  <Download className="mr-2 h-4 w-4" /> Download
                                 </DropdownMenuItem>
                                 <DropdownMenuItem
                                   className="text-red-400 focus:text-red-400 focus:bg-white/5"
