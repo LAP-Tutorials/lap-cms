@@ -600,7 +600,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Breadcrumb } from "@/components/breadcrumb";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { formatDate, sanitizeUrl } from "@/lib/utils";
-import { Loader2, AlertTriangle, ImageIcon } from "lucide-react";
+import { Loader2, AlertTriangle, ImageIcon, Copy, Check } from "lucide-react";
 import { MarkdownToolbar } from "@/components/markdown-toolbar";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
@@ -630,6 +630,7 @@ export default function EditArticlePage() {
   const [existingLabels, setExistingLabels] = useState<string[]>([]);
   const [showLabelSuggestions, setShowLabelSuggestions] = useState(false);
   const labelSuggestionsRef = useRef<HTMLDivElement>(null);
+  const [copied, setCopied] = useState(false);
 
   const router = useRouter();
   const params = useParams();
@@ -924,6 +925,44 @@ export default function EditArticlePage() {
       </div>
 
       <div className="max-w-4xl">
+        {/* Article ID */}
+        <div className="mb-6">
+          <label className="block mb-2 font-medium">Article ID:</label>
+          <div className="flex gap-2">
+            <Input
+              value={id}
+              disabled
+              className="w-full opacity-70 cursor-not-allowed font-mono bg-[#1a1a1a] border-white/20"
+            />
+            <Button
+              variant="outline"
+              size="icon"
+              className="shrink-0 border-white/20 hover:bg-white/10"
+              onClick={() => {
+                if (id) {
+                  navigator.clipboard.writeText(id as string);
+                  setCopied(true);
+                  toast({
+                    title: "Copied ID",
+                    description: "Article ID copied to clipboard",
+                    variant: "success",
+                  });
+                  setTimeout(() => setCopied(false), 2000);
+                }
+              }}
+            >
+              {copied ? (
+                <Check className="h-4 w-4 text-green-500" />
+              ) : (
+                <Copy className="h-4 w-4" />
+              )}
+            </Button>
+          </div>
+          <p className="text-sm text-white/50 mt-1">
+            Unique identifier for this article
+          </p>
+        </div>
+
         {/* Title */}
         <div className="mb-6">
           <label className="block mb-2 font-medium">Title:</label>

@@ -10,7 +10,18 @@ import {
   getBytes,
 } from "firebase/storage";
 import { httpsCallable } from "firebase/functions";
-import { storage, auth, functions } from "@/lib/firebase";
+import { storage, auth, functions, db } from "@/lib/firebase";
+import {
+  collection,
+  query,
+  where,
+  getDocs,
+  limit,
+  orderBy,
+  getAggregateFromServer,
+  sum,
+  count,
+} from "firebase/firestore";
 import { useToast } from "@/hooks/use-toast";
 
 export interface Asset {
@@ -327,108 +338,210 @@ export function useAssets(path: string = "") {
     []
   );
 
-  const searchAssets = useCallback(async (query: string): Promise<Asset[]> => {
-    if (!query.trim()) return [];
-    const results: Asset[] = [];
-
-    const processFolder = async (path: string) => {
-      const folderRef = ref(storage, path);
-      let res;
+  const getFolderStatsIndexed = useCallback(
+    async (
+      folderPath: string
+    ): Promise<{ size: number; fileCount: number }> => {
       try {
-        res = await listAll(folderRef);
-      } catch (e) {
-        console.warn("Failed to list contents of", path);
-        return;
-      }
+        const assetsRef = collection(db, "assets_index");
+        // We want all files where path starts with folderPath + "/"
+        // and also the folder itself? No, just children.
+        // If folderPath is empty "", we match all.
 
-      // Check subfolders
-      for (const prefix of res.prefixes) {
-        if (prefix.name.toLowerCase().includes(query.toLowerCase())) {
-          results.push({
-            id: prefix.fullPath,
-            name: prefix.name,
-            type: "folder",
-            path: prefix.fullPath,
-            parentId: prefix.parent?.fullPath || null,
-          });
+        let q;
+        if (folderPath) {
+          const prefix = folderPath.endsWith("/")
+            ? folderPath
+            : folderPath + "/";
+          q = query(
+            assetsRef,
+            where("path", ">=", prefix),
+            where("path", "<=", prefix + "\uf8ff"),
+            where("type", "==", "file")
+          );
+        } else {
+          // Root
+          q = query(assetsRef, where("type", "==", "file"));
         }
-      }
 
-      // Check files
-      for (const itemRef of res.items) {
-        if (itemRef.name.toLowerCase().includes(query.toLowerCase())) {
-          try {
-            const [url, metadata] = await Promise.all([
-              getDownloadURL(itemRef).catch(() => ""),
-              getMetadata(itemRef).catch(() => ({} as any)),
-            ]);
-
-            results.push({
-              id: itemRef.fullPath,
-              name: itemRef.name,
-              type: "file",
-              url,
-              path: itemRef.fullPath,
-              parentId: itemRef.parent?.fullPath || null,
-              mimeType: metadata.contentType || "application/octet-stream",
-              size: metadata.size || 0,
-              createdAt: metadata.timeCreated || new Date().toISOString(),
-              updatedAt: metadata.updated || new Date().toISOString(),
-            });
-          } catch (e) {
-            console.warn("Failed to load search result details", itemRef.name);
-          }
-        }
-      }
-
-      // Recurse
-      await Promise.all(res.prefixes.map((p) => processFolder(p.fullPath)));
-    };
-
-    await processFolder(""); // Start from root
-    return results;
-  }, []);
-
-  const getAllFilesInFolder = useCallback(
-    async (folderPath: string): Promise<Asset[]> => {
-      const results: Asset[] = [];
-
-      const processFolder = async (path: string) => {
-        const folderRef = ref(storage, path);
-        const res = await listAll(folderRef);
-
-        // Collect files
-        const filePromises = res.items.map(async (itemRef) => {
-          try {
-            const url = await getDownloadURL(itemRef).catch(() => "");
-            const metadata = await getMetadata(itemRef).catch(() => ({}));
-
-            results.push({
-              id: itemRef.fullPath,
-              name: itemRef.name,
-              type: "file",
-              url,
-              path: itemRef.fullPath,
-              parentId: itemRef.parent?.fullPath || null,
-              mimeType:
-                (metadata as any).contentType || "application/octet-stream",
-            });
-          } catch (e) {
-            console.warn("Failed to fetch file for zip", itemRef.name);
-          }
+        const snapshot = await getAggregateFromServer(q, {
+          totalSize: sum("size"),
+          count: count(),
         });
 
-        await Promise.all(filePromises);
+        return {
+          size: snapshot.data().totalSize || 0,
+          fileCount: snapshot.data().count || 0,
+        };
+      } catch (error) {
+        console.warn(
+          "Indexed stats failed, falling back to storage crawl",
+          error
+        );
+        // Fallback if index fails or not ready?
+        // But user wants speed. Let's return 0 or crawl?
+        // Let's crawl for now as fallback.
+        return getFolderStats(folderPath);
+      }
+    },
+    [getFolderStats]
+  );
 
-        // Recurse
-        await Promise.all(res.prefixes.map((p) => processFolder(p.fullPath)));
-      };
+  // Replace getFolderStats with the indexed version
+  // We rename the old one or just swap usage.
+  // Ideally we keep the interface same.
 
-      await processFolder(folderPath);
-      return results;
+  const searchAssets = useCallback(
+    async (queryText: string): Promise<Asset[]> => {
+      if (!queryText.trim()) return [];
+
+      const lowerQuery = queryText.toLowerCase();
+
+      try {
+        const assetsRef = collection(db, "assets_index");
+
+        // Strategy 1: Prefix search on name (e.g. "dra" -> "draft...")
+        const prefixQuery = query(
+          assetsRef,
+          where("nameLower", ">=", lowerQuery),
+          where("nameLower", "<=", lowerQuery + "\uf8ff"),
+          limit(30)
+        );
+
+        // Strategy 2: Keyword search (e.g. "vivian" -> "... Dr Vivian ...")
+        // Note: 'array-contains' only matches EXACT elements. "vivi" wont match "vivian" keyword.
+        // But it handles the "word in middle" case which is what the user wants.
+        const keywordQuery = query(
+          assetsRef,
+          where("keywords", "array-contains", lowerQuery),
+          limit(30)
+        );
+
+        // Run both in parallel
+        const [prefixSnapshot, keywordSnapshot] = await Promise.all([
+          getDocs(prefixQuery),
+          getDocs(keywordQuery),
+        ]);
+
+        // Merge and Deduplicate by ID (path)
+        const mergedDocs = new Map();
+
+        [...prefixSnapshot.docs, ...keywordSnapshot.docs].forEach((doc) => {
+          mergedDocs.set(doc.id, doc.data());
+        });
+
+        const results: Asset[] = Array.from(mergedDocs.values()).map(
+          (data) => ({
+            id: data.path,
+            name: data.name,
+            type: data.type || "file",
+            url: "",
+            path: data.path,
+            parentId: data.path.includes("/")
+              ? data.path.substring(0, data.path.lastIndexOf("/"))
+              : null,
+            mimeType:
+              data.mimeType ||
+              (data.type === "folder"
+                ? "application/vnd.google-apps.folder"
+                : "application/octet-stream"),
+            size: data.size || 0,
+            createdAt: data.createdAt,
+            updatedAt: data.updatedAt,
+          })
+        );
+
+        // Fetch URLs for files (limit to top 20 to avoid spamming)
+        const topResults = results.slice(0, 50);
+
+        await Promise.all(
+          topResults.map(async (asset) => {
+            if (asset.type === "file" && asset.mimeType?.startsWith("image/")) {
+              try {
+                const refUrl = await getDownloadURL(ref(storage, asset.path));
+                asset.url = refUrl;
+              } catch (e) {
+                /* ignore */
+              }
+            }
+          })
+        );
+
+        return topResults;
+      } catch (error) {
+        console.error("Search failed:", error);
+        return [];
+      }
     },
     []
   );
+
+  const getAllFilesInFolder = useCallback(
+    async (folderPath: string): Promise<Asset[]> => {
+      try {
+        const assetsRef = collection(db, "assets_index");
+
+        // Query documents where parentId == folderPath
+        // For root (folderPath == ""), we search parentId == ""
+
+        const q = query(
+          assetsRef,
+          where("parentId", "==", folderPath),
+          orderBy("type", "desc"), // Folders first?
+          orderBy("nameLower", "asc")
+        );
+
+        const querySnapshot = await getDocs(q);
+
+        const results: Asset[] = querySnapshot.docs.map((doc) => {
+          const data = doc.data();
+          return {
+            id: data.path,
+            name: data.name,
+            type: data.type,
+            url: "",
+            path: data.path,
+            parentId: data.parentId || getParentPath(data.path),
+            mimeType:
+              data.mimeType ||
+              (data.type === "folder"
+                ? "application/vnd.google-apps.folder"
+                : "application/octet-stream"),
+            size: data.size || 0,
+            createdAt: data.createdAt,
+            updatedAt: data.updatedAt,
+          };
+        });
+
+        // 4. Fetch URLs for files
+        // We usually want thumbnails
+        await Promise.all(
+          results.map(async (asset) => {
+            if (asset.type === "file" && asset.mimeType?.startsWith("image/")) {
+              try {
+                const url = await getDownloadURL(ref(storage, asset.path));
+                asset.url = url;
+              } catch (e) {
+                /* ignore */
+              }
+            }
+          })
+        );
+
+        return results;
+      } catch (e) {
+        console.error("Failed to list assets from index", e);
+        // Fallback to empty
+        return [];
+      }
+    },
+    []
+  );
+
+  // Helper
+  const getParentPath = (path: string) => {
+    return path.includes("/") ? path.substring(0, path.lastIndexOf("/")) : "";
+  };
 
   const getFileBlob = useCallback(
     async (path: string): Promise<Blob | null> => {
@@ -495,7 +608,7 @@ export function useAssets(path: string = "") {
     renameAsset,
     moveAssets,
     copyAssets: copyAssetsToRes,
-    getFolderStats,
+    getFolderStats: getFolderStatsIndexed,
     searchAssets,
     getAllFilesInFolder,
     getFileBlob,

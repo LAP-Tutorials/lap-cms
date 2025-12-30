@@ -510,3 +510,220 @@ export const updateYouTubeSubscribers = onSchedule(
     }
   }
 );
+
+export const syncAssetIndex = onSchedule(
+  {
+    schedule: "every day 01:00",
+    region: "europe-west1",
+    timeoutSeconds: 540,
+    memory: "1GiB",
+  },
+  async (event) => {
+    logger.info("Starting syncAssetIndex function");
+    const bucket = admin.storage().bucket();
+    const db = getDb();
+    const collectionRef = db.collection("assets_index");
+
+    try {
+      // 1. Get all files
+      const [files] = await bucket.getFiles();
+      logger.info(`Found ${files.length} files in storage`);
+
+      const BATCH_SIZE = 450;
+      let batch = db.batch();
+      let operationCount = 0;
+      let totalBatches = 0;
+
+      const currentSyncTime = admin.firestore.Timestamp.now();
+      const processedFolders = new Set<string>();
+
+      for (const file of files) {
+        if (file.name.endsWith("/")) continue;
+
+        // Process File
+        const fileName = file.name.split("/").pop() || "";
+        const safeId = file.name.replace(/\//g, "___");
+        const parentId = file.name.includes("/")
+          ? file.name.substring(0, file.name.lastIndexOf("/"))
+          : "";
+
+        // Generate simple keywords for search (name parts)
+        const keywords = fileName
+          .toLowerCase()
+          .split(/[\s\-_.]+/)
+          .filter((k) => k.length > 2);
+        keywords.push(fileName.toLowerCase()); // full name
+
+        batch.set(
+          collectionRef.doc(safeId),
+          {
+            name: fileName,
+            path: file.name,
+            parentId: parentId, // Index parent folder path
+            type: "file",
+            size: file.metadata.size ? parseInt(String(file.metadata.size)) : 0,
+            mimeType: file.metadata.contentType || "application/octet-stream",
+            updatedAt: file.metadata.updated || new Date().toISOString(),
+            createdAt: file.metadata.timeCreated || new Date().toISOString(),
+            lastSync: currentSyncTime,
+            nameLower: fileName.toLowerCase(),
+            keywords: keywords,
+          },
+          { merge: true }
+        );
+        operationCount++;
+
+        // Process Parent Folders
+        // "a/b/c.jpg" -> process "a/b", then "a"
+        let parentPath = parentId;
+        while (parentPath) {
+          if (!processedFolders.has(parentPath)) {
+            processedFolders.add(parentPath);
+            const safeFolderId = parentPath.replace(/\//g, "___");
+            const folderName = parentPath.split("/").pop() || parentPath;
+            const folderParentId = parentPath.includes("/")
+              ? parentPath.substring(0, parentPath.lastIndexOf("/"))
+              : "";
+
+            batch.set(
+              collectionRef.doc(safeFolderId),
+              {
+                name: folderName,
+                path: parentPath,
+                parentId: folderParentId, // Index parent of the folder
+                type: "folder",
+                size: 0, // Folders don't have intrinsic size in this model, or we aggregate later?
+                // For stats, we sum files. For listing, we just need existence.
+                mimeType: "application/vnd.google-apps.folder",
+                updatedAt: currentSyncTime.toDate().toISOString(),
+                createdAt: currentSyncTime.toDate().toISOString(),
+                lastSync: currentSyncTime,
+                nameLower: folderName.toLowerCase(),
+                keywords: [folderName.toLowerCase()],
+              },
+              { merge: true }
+            );
+            operationCount++;
+          }
+          // Move up
+          parentPath = parentPath.includes("/")
+            ? parentPath.substring(0, parentPath.lastIndexOf("/"))
+            : "";
+          if (operationCount >= BATCH_SIZE) {
+            await batch.commit();
+            totalBatches++;
+            batch = db.batch();
+            operationCount = 0;
+          }
+        }
+
+        if (operationCount >= BATCH_SIZE) {
+          await batch.commit();
+          totalBatches++;
+          batch = db.batch();
+          operationCount = 0;
+        }
+      }
+
+      if (operationCount > 0) {
+        await batch.commit();
+        totalBatches++;
+      }
+
+      logger.info("Asset index sync complete");
+    } catch (error) {
+      logger.error("Error syncing asset index", error);
+    }
+  }
+);
+
+// Real-time Indexing Triggers
+// Note: Requires "firebase-functions/v2/storage" import if using v2, but we use v1/v2 mixed.
+// Let's use v2 storage triggers.
+import {
+  onObjectFinalized,
+  onObjectDeleted,
+} from "firebase-functions/v2/storage";
+
+export const indexAssetOnUpload = onObjectFinalized(
+  { region: "europe-west1" },
+  async (event) => {
+    const file = event.data;
+    const db = getDb();
+    const safeId = file.name.replace(/\//g, "___");
+    const parentId = file.name.includes("/")
+      ? file.name.substring(0, file.name.lastIndexOf("/"))
+      : "";
+    const fileName = file.name.split("/").pop() || "";
+
+    // Keywords
+    const keywords = fileName
+      .toLowerCase()
+      .split(/[\s\-_.]+/)
+      .filter((k) => k.length > 2);
+    keywords.push(fileName.toLowerCase());
+
+    await db
+      .collection("assets_index")
+      .doc(safeId)
+      .set(
+        {
+          name: fileName,
+          path: file.name,
+          parentId: parentId,
+          items: [file.name],
+          type: "file",
+          size: file.size ? parseInt(String(file.size)) : 0,
+          mimeType: file.contentType || "application/octet-stream",
+          updatedAt: file.updated || new Date().toISOString(),
+          createdAt: file.timeCreated || new Date().toISOString(),
+          lastSync: admin.firestore.Timestamp.now(),
+          nameLower: fileName.toLowerCase(),
+          keywords: keywords,
+        },
+        { merge: true }
+      );
+
+    // Also ensure parent folder exists (simple check)
+    if (parentId) {
+      const safeFolderId = parentId.replace(/\//g, "___");
+      const folderName = parentId.split("/").pop() || parentId;
+      const folderParentId = parentId.includes("/")
+        ? parentId.substring(0, parentId.lastIndexOf("/"))
+        : "";
+
+      // Upsert folder just in case
+      await db
+        .collection("assets_index")
+        .doc(safeFolderId)
+        .set(
+          {
+            name: folderName,
+            path: parentId,
+            parentId: folderParentId,
+            type: "folder",
+            mimeType: "application/vnd.google-apps.folder",
+            updatedAt: new Date().toISOString(),
+            lastSync: admin.firestore.Timestamp.now(),
+            nameLower: folderName.toLowerCase(),
+            keywords: [folderName.toLowerCase()],
+          },
+          { merge: true }
+        );
+    }
+
+    logger.info(`Indexed new asset: ${file.name}`);
+  }
+);
+
+export const removeAssetFromIndex = onObjectDeleted(
+  { region: "europe-west1" },
+  async (event) => {
+    const file = event.data;
+    const db = getDb();
+    const safeId = file.name.replace(/\//g, "___");
+
+    await db.collection("assets_index").doc(safeId).delete();
+    logger.info(`Removed asset from index: ${file.name}`);
+  }
+);

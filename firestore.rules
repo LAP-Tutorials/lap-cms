@@ -43,10 +43,16 @@ service cloud.firestore {
       allow write: if isAuthenticated();
     }
 
+
     // Meta (Stats): Authenticated users can read
     match /meta/{docId} {
       allow read: if isAuthenticated();
       allow write: if isAdmin();
+    }
+
+    // Asset Index: Authenticated users can read (for search/stats)
+    match /assets_index/{docId} {
+      allow read: if isAuthenticated();
     }
   }
 }
