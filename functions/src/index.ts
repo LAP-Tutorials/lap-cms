@@ -190,6 +190,8 @@ export const manageAssets = onCall(
   {
     region: "europe-west1",
     minInstances: 0,
+    timeoutSeconds: 540, // Increase timeout for large folder operations
+    memory: "1GiB",
   },
   async (request) => {
     logger.info("Starting manageAssets function", {
@@ -207,12 +209,21 @@ export const manageAssets = onCall(
       );
     }
 
-    const bucket = admin.storage().bucket(); // Default bucket
+    const bucket = admin.storage().bucket();
+    const debugLogs: string[] = [];
+    const log = (msg: string) => {
+      debugLogs.push(msg);
+      logger.info(msg);
+    };
+
     const results = {
       success: 0,
       failure: 0,
       errors: [] as string[],
+      logs: debugLogs,
     };
+
+    log(`Starting action: ${action} on ${items.length} items`);
 
     try {
       if (action === "rename") {
@@ -239,22 +250,16 @@ export const manageAssets = onCall(
 
         if (!isFolder) {
           await bucket.file(srcPath).move(newPath);
-          logger.info(`Renamed file ${srcPath} to ${newPath}`);
+          log(`Renamed file ${srcPath} to ${newPath}`);
         } else {
           // Folder rename = move all files with prefix
           const prefix = srcPath.endsWith("/") ? srcPath : `${srcPath}/`;
           const [files] = await bucket.getFiles({ prefix });
-          logger.info(
+          log(
             `Renaming folder ${srcPath} to ${newPath}, found ${files.length} files`
           );
 
           for (const file of files) {
-            // srcPath: "a/b/old"
-            // file: "a/b/old/sub/file.txt"
-            // newPath: "a/b/new"
-            // rel: "sub/file.txt" (part after srcPath + /)
-
-            // We can just replace the prefix string
             const targetPath = file.name.replace(prefix, `${newPath}/`);
             await file.move(targetPath);
           }
@@ -268,23 +273,13 @@ export const manageAssets = onCall(
           );
         }
 
-        // destPath: "targetFolder" (no trailing slash needed usually)
-        // For each item "sourceFolder/file.png", we want "targetFolder/file.png"
-
         for (const srcPath of items) {
           try {
-            // Check if it's a "folder" (exists as a prefix or we treat it as one if it ends in /? No, client sends exact path)
-            // But GCS "folders" are just prefixes. If the user selected a "folder" in UI, use-assets sends its path.
-            // We need to list all files starting with this path + "/"
-
-            // Standard file handling first
             let isFolder = false;
             try {
-              // Quick check if it's a file
               await bucket.file(srcPath).getMetadata();
             } catch (e: any) {
               if (e.code === 404) {
-                // Might be a folder path (prefix)
                 isFolder = true;
               } else {
                 throw e;
@@ -292,7 +287,6 @@ export const manageAssets = onCall(
             }
 
             if (!isFolder) {
-              // Normal file operation
               const fileName = srcPath.split("/").pop();
               if (!fileName) continue;
               const targetPath = destPath
@@ -301,21 +295,17 @@ export const manageAssets = onCall(
 
               if (action === "copy") {
                 await bucket.file(srcPath).copy(targetPath);
-                logger.info(`Copied ${srcPath} to ${targetPath}`);
+                log(`Copied ${srcPath} to ${targetPath}`);
               } else {
                 await bucket.file(srcPath).move(targetPath);
-                logger.info(`Moved ${srcPath} to ${targetPath}`);
+                log(`Moved ${srcPath} to ${targetPath}`);
               }
               results.success++;
             } else {
-              // Folder operation - list all files with this prefix
-              // Ensure trailing slash for prefix matching
               const prefix = srcPath.endsWith("/") ? srcPath : `${srcPath}/`;
               const [files] = await bucket.getFiles({ prefix });
 
-              logger.info(
-                `Processing folder ${prefix}, found ${files.length} files`
-              );
+              log(`Processing folder ${prefix}, found ${files.length} files`);
 
               for (const file of files) {
                 const relativePath = file.name.slice(prefix.length);
@@ -332,24 +322,110 @@ export const manageAssets = onCall(
               results.success++;
             }
           } catch (e) {
-            logger.error(`Failed to ${action} ${srcPath}`, e);
+            const err = `Failed to ${action} ${srcPath}: ${e}`;
+            logger.error(err);
             results.failure++;
-            results.errors.push(
-              `Failed to ${action} ${srcPath}: ${
-                e instanceof Error ? e.message : String(e)
-              }`
-            );
+            results.errors.push(err);
           }
         }
       } else if (action === "delete") {
         for (const srcPath of items) {
+          // 1. CLEANUP INDEX FIRST
           try {
-            await bucket.file(srcPath).delete();
+            const db = getDb();
+            const indexRef = db.collection("assets_index");
+
+            // Normalize path
+            const normalizedPath = srcPath.replace(/\/$/, "");
+
+            // Delete the folder/file doc itself
+            const safeId = normalizedPath.replace(/\//g, "___");
+            await indexRef.doc(safeId).delete();
+
+            // Recursive delete of children using ID RANGE
+            const startId = safeId + "___";
+            const endId = safeId + "___\uf8ff";
+
+            const allChildren = await indexRef
+              .where(admin.firestore.FieldPath.documentId(), ">=", startId)
+              .where(admin.firestore.FieldPath.documentId(), "<=", endId)
+              .get();
+
+            if (!allChildren.empty) {
+              const BATCH_SIZE = 450;
+              let batch = db.batch();
+              let count = 0;
+              let totalDeleted = 0;
+
+              for (const doc of allChildren.docs) {
+                batch.delete(doc.ref);
+                count++;
+                if (count >= BATCH_SIZE) {
+                  await batch.commit();
+                  batch = db.batch();
+                  count = 0;
+                }
+                totalDeleted++;
+              }
+
+              if (count > 0) {
+                await batch.commit();
+              }
+              log(
+                `Recursively deleted ${totalDeleted} index entries for ${srcPath}`
+              );
+            }
+          } catch (indexError: any) {
+            const msg = `Failed to clean up index for ${srcPath}: ${indexError.message}`;
+            logger.error(msg);
+            results.errors.push(msg);
+          }
+
+          // 2. DELETE FROM STORAGE
+          try {
+            // Check if it's a file first and delete it
+            try {
+              await bucket.file(srcPath).delete();
+              log(`Deleted file: ${srcPath}`);
+            } catch (e: any) {
+              if (e.code !== 404) {
+                throw e;
+              }
+            }
+
+            // Delete folder contents (Manual Iteration)
+            const prefix = srcPath.endsWith("/") ? srcPath : `${srcPath}/`;
+
+            log(`Listing files for prefix: ${prefix}`);
+            const [files] = await bucket.getFiles({ prefix });
+
+            if (files.length > 0) {
+              log(`Found ${files.length} items in ${srcPath}, deleting...`);
+
+              const DELETE_BATCH = 50;
+              for (let i = 0; i < files.length; i += DELETE_BATCH) {
+                const chunk = files.slice(i, i + DELETE_BATCH);
+                await Promise.all(
+                  chunk.map((f) =>
+                    f.delete().catch((e) => {
+                      const err = `Failed to delete file ${f.name}: ${e.message}`;
+                      logger.error(err);
+                      results.errors.push(err);
+                    })
+                  )
+                );
+              }
+              log(`Successfully deleted contents of ${srcPath}`);
+            } else {
+              log(`No files found under prefix ${prefix}`);
+            }
+
             results.success++;
-          } catch (e) {
-            logger.error(`Failed to delete ${srcPath}`, e);
+          } catch (e: any) {
+            const err = `Failed to delete from storage ${srcPath}: ${e.message}`;
+            logger.error(err);
             results.failure++;
-            results.errors.push(`Failed to delete ${srcPath}`);
+            results.errors.push(err);
           }
         }
       } else if (action === "downloadFolder") {
@@ -440,6 +516,111 @@ export const manageAssets = onCall(
 
         results.success++;
         return { ...results, downloadUrl: url };
+      } else if (action === "syncIndex") {
+        // Manual Trigger for Asset Indexing
+        // Replicating logic from syncAssetIndex
+
+        const collectionRef = getDb().collection("assets_index");
+        const [files] = await bucket.getFiles();
+        logger.info(`Manual sync: Found ${files.length} files`);
+
+        const BATCH_SIZE = 450;
+        let batch = getDb().batch();
+        let operationCount = 0;
+        const currentSyncTime = admin.firestore.Timestamp.now();
+        const processedFolders = new Set<string>();
+
+        for (const file of files) {
+          if (file.name.endsWith("/")) continue;
+
+          const fileName = file.name.split("/").pop() || "";
+          const safeId = file.name.replace(/\//g, "___"); // File ID
+          const parentId = file.name.includes("/")
+            ? file.name.substring(0, file.name.lastIndexOf("/"))
+            : "";
+
+          // Keywords
+          const keywords = fileName
+            .toLowerCase()
+            .split(/[\s\-_.]+/)
+            .filter((k) => k.length > 2);
+          keywords.push(fileName.toLowerCase());
+
+          batch.set(
+            collectionRef.doc(safeId),
+            {
+              name: fileName,
+              path: file.name,
+              parentId: parentId,
+              type: "file",
+              size: file.metadata.size
+                ? parseInt(String(file.metadata.size))
+                : 0,
+              mimeType: file.metadata.contentType || "application/octet-stream",
+              updatedAt: file.metadata.updated || new Date().toISOString(),
+              createdAt: file.metadata.timeCreated || new Date().toISOString(),
+              lastSync: currentSyncTime,
+              nameLower: fileName.toLowerCase(),
+              keywords: keywords,
+            },
+            { merge: true }
+          );
+          operationCount++;
+
+          // Folders
+          let parentPath = parentId;
+          while (parentPath) {
+            if (!processedFolders.has(parentPath)) {
+              processedFolders.add(parentPath);
+              const safeFolderId = parentPath.replace(/\//g, "___");
+              const folderName = parentPath.split("/").pop() || parentPath;
+              const folderParentId = parentPath.includes("/")
+                ? parentPath.substring(0, parentPath.lastIndexOf("/"))
+                : "";
+
+              batch.set(
+                collectionRef.doc(safeFolderId),
+                {
+                  name: folderName,
+                  path: parentPath,
+                  parentId: folderParentId,
+                  type: "folder",
+                  size: 0,
+                  mimeType: "application/vnd.google-apps.folder",
+                  updatedAt: currentSyncTime.toDate().toISOString(),
+                  createdAt: currentSyncTime.toDate().toISOString(),
+                  lastSync: currentSyncTime,
+                  nameLower: folderName.toLowerCase(),
+                  keywords: [folderName.toLowerCase()],
+                },
+                { merge: true }
+              );
+              operationCount++;
+            }
+            parentPath = parentPath.includes("/")
+              ? parentPath.substring(0, parentPath.lastIndexOf("/"))
+              : "";
+
+            if (operationCount >= BATCH_SIZE) {
+              await batch.commit();
+              batch = getDb().batch();
+              operationCount = 0;
+            }
+          }
+
+          if (operationCount >= BATCH_SIZE) {
+            await batch.commit();
+            batch = getDb().batch();
+            operationCount = 0;
+          }
+        }
+
+        if (operationCount > 0) {
+          await batch.commit();
+        }
+
+        results.success = files.length;
+        logger.info("Manual asset index sync complete");
       } else {
         throw new HttpsError("invalid-argument", `Unknown action: ${action}`);
       }

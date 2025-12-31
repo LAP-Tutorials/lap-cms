@@ -189,25 +189,21 @@ export function useAssets(path: string = "") {
   const deleteAsset = useCallback(
     async (asset: Asset) => {
       try {
-        if (asset.type === "file") {
-          const storageRef = ref(storage, asset.path);
-          await deleteObject(storageRef);
-        } else {
-          const folderRef = ref(storage, asset.path);
-          const listRes = await listAll(folderRef);
-
-          const deletePromises = [
-            ...listRes.items.map((item) => deleteObject(item)),
-          ];
-
-          await Promise.all(deletePromises);
-        }
+        const manageAssets = httpsCallable(functions, "manageAssets");
+        await manageAssets({
+          action: "delete",
+          items: [asset.path],
+        });
 
         toast({ title: "Item deleted", variant: "success" });
         fetchAssets();
       } catch (error) {
-        console.error(error);
-        toast({ title: "Error deleting item", variant: "destructive" });
+        console.error("Error deleting item:", error);
+        toast({
+          title: "Error deleting item",
+          description: error instanceof Error ? error.message : "Unknown error",
+          variant: "destructive",
+        });
       }
     },
     [fetchAssets, toast]
@@ -513,20 +509,8 @@ export function useAssets(path: string = "") {
           };
         });
 
-        // 4. Fetch URLs for files
-        // We usually want thumbnails
-        await Promise.all(
-          results.map(async (asset) => {
-            if (asset.type === "file" && asset.mimeType?.startsWith("image/")) {
-              try {
-                const url = await getDownloadURL(ref(storage, asset.path));
-                asset.url = url;
-              } catch (e) {
-                /* ignore */
-              }
-            }
-          })
-        );
+        // Loop Removed: URLs are now lazy loaded by AssetThumbnail component in UI.
+        // This makes folder listing instant.
 
         return results;
       } catch (e) {
@@ -596,6 +580,20 @@ export function useAssets(path: string = "") {
     }
   }, []);
 
+  const syncIndex = useCallback(async () => {
+    try {
+      const manageAssets = httpsCallable(functions, "manageAssets");
+      const result = await manageAssets({
+        action: "syncIndex",
+        items: [], // required by validation but unused
+      });
+      return (result.data as any).success as number;
+    } catch (error) {
+      console.error("Error syncing index:", error);
+      throw error;
+    }
+  }, []);
+
   return {
     assets,
     folders,
@@ -614,5 +612,6 @@ export function useAssets(path: string = "") {
     getFileBlob,
     downloadFolder,
     downloadFile,
+    syncIndex,
   };
 }

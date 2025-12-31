@@ -203,6 +203,60 @@ const formatBytes = (bytes: number, decimals = 2) => {
   return `${parseFloat((bytes / Math.pow(k, i)).toFixed(dm))} ${sizes[i]}`;
 };
 
+// Lazy loading thumbnail component
+import { getDownloadURL, ref } from "firebase/storage";
+import { storage } from "@/lib/firebase";
+
+const AssetThumbnail = ({ asset }: { asset: Asset }) => {
+  const [url, setUrl] = useState<string | null>(asset.url || null);
+  const [loading, setLoading] = useState(!asset.url);
+  const [error, setError] = useState(false);
+
+  useEffect(() => {
+    if (url) return;
+
+    let active = true;
+    const fetchUrl = async () => {
+      try {
+        const downloadUrl = await getDownloadURL(ref(storage, asset.path));
+        if (active) {
+          setUrl(downloadUrl);
+          setLoading(false);
+        }
+      } catch (e) {
+        if (active) {
+          console.error("Failed to load thumbnail", e);
+          setError(true);
+          setLoading(false);
+        }
+      }
+    };
+
+    fetchUrl();
+    return () => {
+      active = false;
+    };
+  }, [asset.path, url]);
+
+  if (loading)
+    return <div className="animate-pulse bg-white/10 w-full h-full" />;
+  if (error || !url)
+    return (
+      <div className="flex items-center justify-center w-full h-full bg-white/5">
+        <ImageIcon className="h-8 w-8 text-white/20" />
+      </div>
+    );
+
+  return (
+    <img
+      src={url}
+      alt={asset.name}
+      className="object-cover w-full h-full transition-transform group-hover:scale-105"
+      onError={() => setError(true)}
+    />
+  );
+};
+
 export function AssetManager({ rootPath = "" }: { rootPath?: string }) {
   // Root level management for Tabs
   const {
@@ -246,6 +300,7 @@ export function AssetManager({ rootPath = "" }: { rootPath?: string }) {
     getFileBlob,
     downloadFolder,
     downloadFile,
+    syncIndex,
   } = useAssets(currentPath);
 
   const [newFolderName, setNewFolderName] = useState("");
@@ -633,11 +688,7 @@ export function AssetManager({ rootPath = "" }: { rootPath?: string }) {
             </div>
             <div className="aspect-square bg-black/40 flex items-center justify-center relative overflow-hidden">
               {asset.mimeType?.startsWith("image/") ? (
-                <img
-                  src={asset.url}
-                  alt={asset.name}
-                  className="object-cover w-full h-full transition-transform group-hover:scale-105"
-                />
+                <AssetThumbnail asset={asset} />
               ) : (
                 (() => {
                   const { icon: Icon, color } = getFileIcon(
@@ -689,8 +740,11 @@ export function AssetManager({ rootPath = "" }: { rootPath?: string }) {
                   >
                     {asset.name}
                   </p>
-                  <p className="text-xs text-white/40 mt-1">
-                    {formatBytes(asset.size || 0)}
+                  <p
+                    className="text-xs text-white/40 mt-1 truncate"
+                    title={searchTerm ? asset.path : undefined}
+                  >
+                    {searchTerm ? asset.path : formatBytes(asset.size || 0)}
                   </p>
                 </div>
                 <DropdownMenu>
@@ -978,15 +1032,26 @@ export function AssetManager({ rootPath = "" }: { rootPath?: string }) {
 
           {/* Search and Actions Row */}
           <div className="flex flex-col sm:flex-row gap-2">
-            <div className="relative flex-1">
-              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-white/50" />
-              <Input
-                type="search"
-                placeholder="Search assets..."
-                className="pl-8 bg-[#121212] border-white/20 focus-visible:ring-purple-500 w-full"
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-              />
+            <div className="flex gap-2 w-full sm:w-auto">
+              {/* Manual Re-Index Button Removed as per user request */}
+
+              <div className="flex-1 sm:flex-none relative">
+                <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-white/40" />
+                <Input
+                  className="pl-9 w-full sm:w-[250px] bg-white/5 border-white/10 text-white placeholder:text-white/40 focus:border-purple-500/50"
+                  placeholder="Search assets..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                />
+                {searchTerm && (
+                  <button
+                    onClick={() => setSearchTerm("")}
+                    className="absolute right-2.5 top-2.5 text-white/40 hover:text-white"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                )}
+              </div>
             </div>
 
             <div className="flex gap-2">
