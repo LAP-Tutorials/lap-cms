@@ -619,6 +619,8 @@ export default function EditArticlePage() {
   const [date, setDate] = useState("");
   const [popularity, setPopularity] = useState(false);
   const [isPublished, setIsPublished] = useState(false);
+  // Track initial publish status to determine if we are publishing for the first time/re-publishing
+  const [initialPublishStatus, setInitialPublishStatus] = useState(false);
   const [readTime, setReadTime] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -699,6 +701,7 @@ export default function EditArticlePage() {
           setSlug(data.slug || "");
           setPopularity(data.popularity || false);
           setIsPublished(data.publish || false);
+          setInitialPublishStatus(data.publish || false);
           setReadTime(data.read || "");
           setDate(data.date ? formatDate(data.date.toDate()) : "");
         } else {
@@ -774,7 +777,9 @@ export default function EditArticlePage() {
 
     try {
       const ref = doc(db, "articles", id);
-      await updateDoc(ref, {
+
+      // Prepare update data
+      const updateData: any = {
         title,
         content,
         description,
@@ -786,8 +791,14 @@ export default function EditArticlePage() {
         publish: isPublished,
         read: readTime,
         updatedAt: serverTimestamp(),
-        // Don't update date to keep it uneditable
-      });
+      };
+
+      // If transition from draft to published, update the date
+      if (isPublished && !initialPublishStatus) {
+        updateData.date = serverTimestamp();
+      }
+
+      await updateDoc(ref, updateData);
 
       toast({
         title: "Article updated",
