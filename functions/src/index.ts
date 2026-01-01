@@ -112,8 +112,8 @@ export const updatePopularPosts = onSchedule(
             }
           }
         }
-        // User requested top 4
-        if (topSlugs.length >= 4) break;
+        // User requested top 5
+        if (topSlugs.length >= 5) break;
       }
 
       logger.info(`Identified Top 5 Slugs: ${JSON.stringify(topSlugs)}`);
@@ -129,7 +129,10 @@ export const updatePopularPosts = onSchedule(
         .get();
 
       currentPopularSnapshot.docs.forEach((doc) => {
-        batch.update(doc.ref, { popularity: false });
+        batch.update(doc.ref, {
+          popularity: false,
+          popularityRank: admin.firestore.FieldValue.delete(),
+        });
       });
 
       logger.info(
@@ -150,10 +153,12 @@ export const updatePopularPosts = onSchedule(
           );
         } else {
           newPopularSnapshot.docs.forEach((doc) => {
+            const slug = doc.data().slug;
+            const rank = topSlugs.indexOf(slug) + 1; // 1-based rank
             logger.info(
-              `Marking doc ${doc.id} (slug: ${doc.data().slug}) as popular`
+              `Marking doc ${doc.id} (slug: ${slug}) as popular (Rank: ${rank})`
             );
-            batch.update(doc.ref, { popularity: true });
+            batch.update(doc.ref, { popularity: true, popularityRank: rank });
           });
         }
         logger.info(
