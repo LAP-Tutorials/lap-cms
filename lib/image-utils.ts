@@ -9,8 +9,8 @@ export const convertImageToWebP = (
   quality = 0.8
 ): Promise<File> => {
   return new Promise((resolve, reject) => {
-    // If it's already WebP, return as is
-    if (file.type === "image/webp") {
+    // If it's already WebP or GIF, return as is
+    if (file.type === "image/webp" || file.type === "image/gif") {
       resolve(file);
       return;
     }
