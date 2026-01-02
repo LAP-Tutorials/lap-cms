@@ -112,11 +112,16 @@ export const updatePopularPosts = onSchedule(
             }
           }
         }
-        // User requested top 5
-        if (topSlugs.length >= 5) break;
+        // Fetch more candidates (e.g. 20) to ensure we find 5 published ones
+        // even if some top views are drafts
+        if (topSlugs.length >= 20) break;
       }
 
-      logger.info(`Identified Top 5 Slugs: ${JSON.stringify(topSlugs)}`);
+      logger.info(
+        `Identified Top ${topSlugs.length} Candidate Slugs: ${JSON.stringify(
+          topSlugs
+        )}`
+      );
 
       // 2. Database Update Transaction/Batch
       const db = getDb();
@@ -139,31 +144,66 @@ export const updatePopularPosts = onSchedule(
         `Queued reset for ${currentPopularSnapshot.size} currently popular articles`
       );
 
-      // Step B: Set new popular posts
-      if (topSlugs.length > 0) {
-        // Note: 'in' queries support up to 10 items, we have max 5, so this is safe.
-        const newPopularSnapshot = await db
-          .collection("articles")
-          .where("slug", "in", topSlugs)
-          .get();
+      // Step B: Filter candidates for published status and pick top 5
+      const finalPopularSlugs: string[] = [];
 
-        if (newPopularSnapshot.empty) {
-          logger.warn(
-            "No documents found in Firestore matching the top slugs!"
-          );
-        } else {
-          newPopularSnapshot.docs.forEach((doc) => {
-            const slug = doc.data().slug;
-            const rank = topSlugs.indexOf(slug) + 1; // 1-based rank
-            logger.info(
-              `Marking doc ${doc.id} (slug: ${slug}) as popular (Rank: ${rank})`
-            );
-            batch.update(doc.ref, { popularity: true, popularityRank: rank });
+      if (topSlugs.length > 0) {
+        // Firestore 'in' query limit is 10. We need to batch requests if we have > 10.
+        const slugChunks = [];
+        for (let i = 0; i < topSlugs.length; i += 10) {
+          slugChunks.push(topSlugs.slice(i, i + 10));
+        }
+
+        const validDocsMap = new Map<
+          string,
+          admin.firestore.DocumentSnapshot
+        >();
+
+        for (const chunk of slugChunks) {
+          const snapshot = await db
+            .collection("articles")
+            .where("slug", "in", chunk)
+            .get();
+
+          snapshot.docs.forEach((doc) => {
+            validDocsMap.set(doc.data().slug, doc);
           });
         }
-        logger.info(
-          `Queued set popular for ${newPopularSnapshot.size} new articles`
-        );
+
+        // Iterate through original sorted topSlugs to maintain rank order
+        let rankCounter = 1;
+        for (const slug of topSlugs) {
+          const doc = validDocsMap.get(slug);
+          if (doc) {
+            const data = doc.data();
+            // ONLY allow if explicitly published
+            if (data && data.publish === true) {
+              batch.update(doc.ref, {
+                popularity: true,
+                popularityRank: rankCounter,
+              });
+
+              logger.info(
+                `Marking doc ${doc.id} (slug: ${slug}) as popular (Rank: ${rankCounter})`
+              );
+
+              finalPopularSlugs.push(slug);
+              rankCounter++;
+
+              if (finalPopularSlugs.length >= 5) break;
+            } else {
+              logger.info(`Skipping popular candidate (Draft): ${slug}`);
+            }
+          }
+        }
+
+        if (finalPopularSlugs.length === 0) {
+          logger.warn("No published articles found among top views.");
+        } else {
+          logger.info(
+            `Final Top 5 Popular: ${JSON.stringify(finalPopularSlugs)}`
+          );
+        }
       } else {
         logger.warn("No top slugs found to mark as popular.");
       }
