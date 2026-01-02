@@ -605,6 +605,7 @@ import {
   serverTimestamp,
   doc,
   getDocs,
+  Timestamp,
 } from "firebase/firestore";
 import { v4 as uuidv4 } from "uuid";
 import { Button } from "@/components/ui/button";
@@ -645,6 +646,7 @@ export default function NewArticlePage() {
   const [popularity, setPopularity] = useState(false);
   const [readTime, setReadTime] = useState("");
   const [slug, setSlug] = useState("");
+  const [scheduledDate, setScheduledDate] = useState("");
   const [creating, setCreating] = useState(false);
   const [previewHtml, setPreviewHtml] = useState("");
   const contentRef = useRef<HTMLTextAreaElement>(null!);
@@ -899,6 +901,9 @@ export default function NewArticlePage() {
         createdAt: serverTimestamp(),
         date: serverTimestamp(),
         publish: false, // Default to draft
+        scheduledPublishDate: scheduledDate
+          ? Timestamp.fromDate(new Date(scheduledDate))
+          : null,
       });
 
       toast({
@@ -1188,6 +1193,22 @@ export default function NewArticlePage() {
             placeholder="e.g., 5 min read"
             className="w-full"
           />
+        </div>
+
+        {/* Scheduled Publish */}
+        <div className="mb-6">
+          <label className="block mb-2 font-medium">Scheduled Publish:</label>
+          <div className="flex flex-col space-y-2">
+            <Input
+              type="datetime-local"
+              value={scheduledDate}
+              onChange={(e) => setScheduledDate(e.target.value)}
+              className="w-full bg-black/20 border-white/20"
+            />
+            <p className="text-sm text-white/50">
+              If set, the article will automatically publish at this time.
+            </p>
+          </div>
         </div>
 
         {/* Action buttons */}

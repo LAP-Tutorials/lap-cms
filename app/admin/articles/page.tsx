@@ -30,6 +30,7 @@ interface Article {
   authorName: string;
   createdAt?: any;
   date?: any; // Published date
+  scheduledPublishDate?: any; // Scheduled published date
   publish: boolean;
   img: string;
   slug: string;
@@ -327,11 +328,20 @@ export default function ArticlesPage() {
                       </td>
                       {/* Published Date */}
                       <td className="p-4 whitespace-nowrap">
-                        {articleData.publish && articleData.date
-                          ? formatDate(
-                              articleData.date.toDate?.() || articleData.date
-                            )
-                          : "-"}
+                        {articleData.publish && articleData.date ? (
+                          formatDate(
+                            articleData.date.toDate?.() || articleData.date
+                          )
+                        ) : articleData.scheduledPublishDate ? (
+                          <span className="text-orange-400">
+                            {formatDate(
+                              articleData.scheduledPublishDate.toDate?.() ||
+                                articleData.scheduledPublishDate
+                            )}
+                          </span>
+                        ) : (
+                          "-"
+                        )}
                       </td>
                       {/* Publish Toggle */}
                       <td className="p-4 whitespace-nowrap">
@@ -344,8 +354,18 @@ export default function ArticlesPage() {
                           }
                           size="sm"
                           disabled={updateArticle.isPending}
+                          className={
+                            !articleData.publish &&
+                            articleData.scheduledPublishDate
+                              ? "bg-orange-500/20 text-orange-400 hover:bg-orange-500/30"
+                              : ""
+                          }
                         >
-                          {articleData.publish ? "Published" : "Draft"}
+                          {articleData.publish
+                            ? "Published"
+                            : articleData.scheduledPublishDate
+                            ? "Scheduled"
+                            : "Draft"}
                         </Button>
                       </td>
                       {/* Actions */}

@@ -589,6 +589,7 @@ import {
   serverTimestamp,
   collection,
   getDocs,
+  Timestamp,
 } from "firebase/firestore";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
@@ -617,6 +618,7 @@ export default function EditArticlePage() {
   const [label, setLabel] = useState("");
   const [slug, setSlug] = useState("");
   const [date, setDate] = useState("");
+  const [scheduledDate, setScheduledDate] = useState("");
   const [popularity, setPopularity] = useState(false);
   const [isPublished, setIsPublished] = useState(false);
   // Track initial publish status to determine if we are publishing for the first time/re-publishing
@@ -704,6 +706,16 @@ export default function EditArticlePage() {
           setInitialPublishStatus(data.publish || false);
           setReadTime(data.read || "");
           setDate(data.date ? formatDate(data.date.toDate()) : "");
+
+          if (data.scheduledPublishDate) {
+            const d = data.scheduledPublishDate.toDate();
+            // Adjust for local time input
+            const offset = d.getTimezoneOffset() * 60000;
+            const localDate = new Date(d.getTime() - offset);
+            setScheduledDate(localDate.toISOString().slice(0, 16));
+          } else {
+            setScheduledDate("");
+          }
         } else {
           setError("Article not found");
         }
@@ -796,6 +808,14 @@ export default function EditArticlePage() {
       // If transition from draft to published, update the date
       if (isPublished && !initialPublishStatus) {
         updateData.date = serverTimestamp();
+      }
+
+      if (scheduledDate) {
+        updateData.scheduledPublishDate = Timestamp.fromDate(
+          new Date(scheduledDate)
+        );
+      } else {
+        updateData.scheduledPublishDate = null;
       }
 
       await updateDoc(ref, updateData);
@@ -1008,6 +1028,23 @@ export default function EditArticlePage() {
           <p className="text-sm text-white/50 mt-1">
             Creation date cannot be modified
           </p>
+        </div>
+
+        {/* Scheduled Publish */}
+        <div className="mb-6">
+          <label className="block mb-2 font-medium">Scheduled Publish:</label>
+          <div className="flex flex-col space-y-2">
+            <Input
+              type="datetime-local"
+              value={scheduledDate}
+              onChange={(e) => setScheduledDate(e.target.value)}
+              className="w-full bg-black/20 border-white/20"
+            />
+            <p className="text-sm text-white/50">
+              If set, the article will automatically publish at this time.
+              Standard publishing will be overridden.
+            </p>
+          </div>
         </div>
 
         {/* Toggle Editor/Preview/Assets for Content */}
