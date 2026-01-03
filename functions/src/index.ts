@@ -953,3 +953,45 @@ export const removeAssetFromIndex = onObjectDeleted(
     logger.info(`Removed asset from index: ${file.name}`);
   }
 );
+
+export const checkScheduledPosts = onSchedule(
+  {
+    schedule: "every 1 hours",
+    region: "europe-west1",
+  },
+  async (event) => {
+    logger.info("Starting checkScheduledPosts function");
+    const db = getDb();
+    const now = admin.firestore.Timestamp.now();
+
+    try {
+      // Query for articles that are NOT published AND have a scheduled date in the past
+      const snapshot = await db
+        .collection("articles")
+        .where("publish", "==", false)
+        .where("scheduledPublishDate", "<=", now)
+        .get();
+
+      if (snapshot.empty) {
+        logger.info("No scheduled posts found to publish.");
+        return;
+      }
+
+      logger.info(`Found ${snapshot.size} scheduled posts to publish.`);
+
+      const batch = db.batch();
+      snapshot.docs.forEach((doc) => {
+        batch.update(doc.ref, {
+          publish: true,
+          date: doc.data().scheduledPublishDate || now, // Use scheduled time as publish time
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+      });
+
+      await batch.commit();
+      logger.info(`Successfully published ${snapshot.size} articles.`);
+    } catch (error) {
+      logger.error("Error in checkScheduledPosts", error);
+    }
+  }
+);
