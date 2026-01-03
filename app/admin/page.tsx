@@ -76,23 +76,27 @@ export default function AdminDashboardPage() {
       setLatestArticles(articlesList);
 
       // 4. Fetch articles for the last 6 months for chart
-      const sixMonthsAgo = new Date();
-      sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
+      // 4. Fetch articles for the last 6 months for chart
+      const now = new Date();
+      // Start from the beginning of the 6-month window (5 months ago + current month)
+      const startDate = new Date(now.getFullYear(), now.getMonth() - 5, 1);
+
       const articlesForChartQuery = query(
         collection(db, "articles"),
-        where("createdAt", ">=", Timestamp.fromDate(sixMonthsAgo)),
-        orderBy("createdAt", "asc")
+        where("date", ">=", Timestamp.fromDate(startDate)),
+        orderBy("date", "asc")
       );
       const chartSnap = await getDocs(articlesForChartQuery);
       const monthlyCounts: { [key: string]: number } = {};
 
       chartSnap.docs.forEach((doc) => {
         const data = doc.data();
-        if (data.createdAt) {
-          const date = data.createdAt.toDate();
-          const month = date.toLocaleString("default", {
+        // Only count published articles with a valid date
+        if (data.date && data.publish) {
+          const date = data.date.toDate();
+          const month = date.toLocaleString("en-US", {
             month: "short",
-            year: "2-digit",
+            year: "numeric",
           });
           monthlyCounts[month] = (monthlyCounts[month] || 0) + 1;
         }
@@ -103,9 +107,9 @@ export default function AdminDashboardPage() {
       for (let i = 5; i >= 0; i--) {
         const d = new Date();
         d.setMonth(d.getMonth() - i);
-        const monthKey = d.toLocaleString("default", {
+        const monthKey = d.toLocaleString("en-US", {
           month: "short",
-          year: "2-digit",
+          year: "numeric",
         });
         chartData.push({
           month: monthKey,
