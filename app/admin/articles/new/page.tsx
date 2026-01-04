@@ -594,9 +594,7 @@
 //   );
 // }
 
-"use client";
-
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { db, auth } from "@/lib/firebase";
 import {
@@ -613,9 +611,11 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
 import { Breadcrumb } from "@/components/breadcrumb";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Loader2, ImageIcon } from "lucide-react";
+import { Loader2, ImageIcon, Save } from "lucide-react";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
 import { generateSlugFromTitle, sanitizeUrl } from "@/lib/utils";
@@ -623,6 +623,8 @@ import { MarkdownToolbar } from "@/components/markdown-toolbar";
 import { AssetManager } from "@/components/admin/assets/asset-manager";
 import { convertImageToWebP } from "@/lib/image-utils";
 import { useDropzone } from "react-dropzone";
+import { useAutosave } from "@/hooks/use-autosave";
+import { format } from "date-fns";
 
 // Type for an author document
 interface Author {
@@ -648,6 +650,7 @@ export default function NewArticlePage() {
   const [slug, setSlug] = useState("");
   const [scheduledDate, setScheduledDate] = useState("");
   const [creating, setCreating] = useState(false);
+  const [isPublished, setIsPublished] = useState(false);
   const [previewHtml, setPreviewHtml] = useState("");
   const contentRef = useRef<HTMLTextAreaElement>(null!);
 
@@ -839,90 +842,170 @@ export default function NewArticlePage() {
     }, 0);
   };
 
-  const handleSave = async () => {
-    if (!title.trim()) {
-      toast({
-        title: "Missing title",
-        description: "Please enter a title for the article",
-        variant: "destructive",
-      });
-      return;
-    }
+  const saveToFirestore = useCallback(
+    async (isManual: boolean = false) => {
+      // Basic validation for manual save
+      if (isManual) {
+        if (!title.trim()) {
+          toast({
+            title: "Missing title",
+            description: "Please enter a title for the article",
+            variant: "destructive",
+          });
+          throw new Error("Missing title");
+        }
+        if (!content.trim()) {
+          toast({
+            title: "Missing content",
+            description: "Please enter content for the article",
+            variant: "destructive",
+          });
+          throw new Error("Missing content");
+        }
+        if (!authorName.trim()) {
+          toast({
+            title: "Missing author",
+            description: "Please select an author for the article",
+            variant: "destructive",
+          });
+          throw new Error("Missing author");
+        }
+      }
 
-    if (!content.trim()) {
-      toast({
-        title: "Missing content",
-        description: "Please enter content for the article",
-        variant: "destructive",
-      });
-      return;
-    }
+      const user = auth.currentUser;
+      if (!user) {
+        if (isManual) {
+          toast({
+            title: "Authentication error",
+            description: "You must be logged in to create articles",
+            variant: "destructive",
+          });
+        }
+        throw new Error("Not authenticated");
+      }
 
-    if (!authorName.trim()) {
-      toast({
-        title: "Missing author",
-        description: "Please select an author for the article",
-        variant: "destructive",
-      });
-      return;
-    }
+      // If we are autosaving but there's no title, we can't really save a meaningful draft or slug
+      if (!isManual && !title.trim() && !content.trim()) {
+        return;
+      }
 
-    const user = auth.currentUser;
-    if (!user) {
-      toast({
-        title: "Authentication error",
-        description: "You must be logged in to create articles",
-        variant: "destructive",
-      });
-      return;
-    }
+      if (isManual) setCreating(true);
 
-    setCreating(true);
+      try {
+        const articleData: any = {
+          title,
+          content,
+          description,
+          img,
+          imgAlt,
+          label,
+          popularity,
+          read: readTime,
+          slug,
+          authorName: selectedAuthor ? selectedAuthor.name : authorName,
+          authorUID: selectedAuthor ? selectedAuthor.uid : user.uid,
+          authorRef: selectedAuthor
+            ? doc(db, "authors", selectedAuthor.id)
+            : doc(db, "authors", user.uid),
 
-    try {
-      // Use the pre-generated article ID for consistency with asset uploads
-      await setDoc(doc(db, "articles", articleId), {
-        title,
-        content,
-        description,
-        img,
-        imgAlt,
-        label,
-        popularity,
-        read: readTime,
-        slug,
-        // Use selected author if available; otherwise fallback
-        authorName: selectedAuthor ? selectedAuthor.name : authorName,
-        authorUID: selectedAuthor ? selectedAuthor.uid : user.uid,
-        authorRef: selectedAuthor
-          ? doc(db, "authors", selectedAuthor.id)
-          : doc(db, "authors", user.uid),
+          // Set createdAt/date if not exists (merge will keep existing)
+          // Actually serverTimestamp() will always update.
+          // For autosave (draft), we want to set createdAt once.
+          // For now, we will just set updatedAt.
+          // Original code set `createdAt` and `date`.
+          updatedAt: serverTimestamp(),
+          publish: isPublished,
+        };
 
-        createdAt: serverTimestamp(),
-        date: serverTimestamp(),
-        publish: false, // Default to draft
-        scheduledPublishDate: scheduledDate
-          ? Timestamp.fromDate(new Date(scheduledDate))
-          : null,
-      });
+        // If it's the first save (no doc exists), we should set createdAt.
+        // Since we don't know if doc exists without fetching, and we use setDoc with merge.
+        // We can just set it.
+        // Note: New Article Page - articleId is generated on client. Doc likely doesn't exist yet unless autosaved.
+        // We can add createdAt only if we think it's new?
+        // Let's just set it. Firestore serverTimestamp is fine.
+        articleData.createdAt = serverTimestamp();
+        articleData.date = serverTimestamp();
 
-      toast({
-        title: "Article created",
-        description: "Your article has been successfully created",
-        variant: "success",
-      });
+        if (scheduledDate) {
+          articleData.scheduledPublishDate = Timestamp.fromDate(
+            new Date(scheduledDate)
+          );
+        } else {
+          articleData.scheduledPublishDate = null;
+        }
 
-      router.push("/admin/articles");
-    } catch (error) {
-      console.error("Error creating article:", error);
-      toast({
-        title: "Error",
-        description: "Failed to create article",
-        variant: "destructive",
-      });
-      setCreating(false);
-    }
+        await setDoc(doc(db, "articles", articleId), articleData, {
+          merge: true,
+        });
+
+        if (isManual) {
+          toast({
+            title: "Article created",
+            description: "Your article has been successfully created",
+            variant: "success",
+          });
+          router.push("/admin/articles");
+        }
+      } catch (error) {
+        console.error("Error creating article:", error);
+        if (isManual) {
+          toast({
+            title: "Error",
+            description: "Failed to create article",
+            variant: "destructive",
+          });
+          setCreating(false);
+        }
+        throw error;
+      }
+    },
+    [
+      title,
+      content,
+      description,
+      img,
+      imgAlt,
+      label,
+      popularity,
+      readTime,
+      slug,
+      authorName,
+      selectedAuthor,
+      isPublished,
+      scheduledDate,
+      articleId,
+      router,
+      toast,
+    ]
+  );
+
+  // Autosave
+  const autosaveData = {
+    title,
+    content,
+    description,
+    img,
+    imgAlt,
+    label,
+    popularity,
+    readTime,
+    slug,
+    authorName,
+    isPublished,
+    scheduledDate,
   };
+
+  const { status: saveStatus, lastSaved } = useAutosave({
+    data: autosaveData,
+    onSave: async () => {
+      if (title || content) {
+        await saveToFirestore(false);
+      }
+    },
+    interval: 3000,
+  });
+
+  const handleManualSave = () => saveToFirestore(true);
 
   const breadcrumbItems = [
     { label: "Dashboard", href: "/admin" },
@@ -1211,9 +1294,45 @@ export default function NewArticlePage() {
           </div>
         </div>
 
+        {/* Publish Status & Autosave */}
+        <div className="mb-6 flex items-center justify-between">
+          <div className="flex items-center space-x-2">
+            <Switch
+              id="publish-status"
+              checked={isPublished}
+              onCheckedChange={setIsPublished}
+            />
+            <Label htmlFor="publish-status">
+              {isPublished ? "Published" : "Draft"}
+            </Label>
+          </div>
+
+          <div className="flex items-center space-x-2">
+            {saveStatus === "saving" && (
+              <span className="text-xs text-purple-400 flex items-center animate-pulse">
+                <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                Saving...
+              </span>
+            )}
+            {saveStatus === "saved" && lastSaved && (
+              <span className="text-xs text-green-400 flex items-center">
+                <Save className="h-3 w-3 mr-1" />
+                Saved {format(lastSaved, "h:mm a")}
+              </span>
+            )}
+            {saveStatus === "error" && (
+              <span className="text-xs text-red-400">Save failed</span>
+            )}
+          </div>
+        </div>
+
         {/* Action buttons */}
         <div className="flex flex-wrap gap-4 mt-8">
-          <Button onClick={handleSave} disabled={creating} variant="outline">
+          <Button
+            onClick={handleManualSave}
+            disabled={creating}
+            variant="outline"
+          >
             {creating && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
             {creating ? "Creating..." : "Create Article"}
           </Button>

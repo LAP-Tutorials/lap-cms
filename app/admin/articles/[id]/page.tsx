@@ -578,7 +578,7 @@
 
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { db, auth } from "@/lib/firebase";
 import {
@@ -601,13 +601,22 @@ import { useToast } from "@/hooks/use-toast";
 import { Breadcrumb } from "@/components/breadcrumb";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { formatDate, sanitizeUrl } from "@/lib/utils";
-import { Loader2, AlertTriangle, ImageIcon, Copy, Check } from "lucide-react";
+import {
+  Loader2,
+  AlertTriangle,
+  ImageIcon,
+  Copy,
+  Check,
+  Save,
+} from "lucide-react";
 import { MarkdownToolbar } from "@/components/markdown-toolbar";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { AssetManager } from "@/components/admin/assets/asset-manager";
 import { convertImageToWebP } from "@/lib/image-utils";
 import { useDropzone } from "react-dropzone";
+import { useAutosave } from "@/hooks/use-autosave";
+import { format } from "date-fns";
 
 export default function EditArticlePage() {
   const [title, setTitle] = useState("");
@@ -765,78 +774,136 @@ export default function EditArticlePage() {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  const handleUpdate = async () => {
-    if (!title || !content) {
-      toast({
-        title: "Missing fields",
-        description: "Title and content are required",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    const user = auth.currentUser;
-    if (!user || !id) {
-      toast({
-        title: "Authentication error",
-        description: "You must be logged in to update articles",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    setSaving(true);
-
-    try {
-      const ref = doc(db, "articles", id);
-
-      // Prepare update data
-      const updateData: any = {
-        title,
-        content,
-        description,
-        img,
-        imgAlt,
-        label,
-        slug,
-        popularity,
-        publish: isPublished,
-        read: readTime,
-        updatedAt: serverTimestamp(),
-      };
-
-      // If transition from draft to published, update the date
-      if (isPublished && !initialPublishStatus) {
-        updateData.date = serverTimestamp();
+  const saveToFirestore = useCallback(
+    async (isManual: boolean = false) => {
+      // Basic validation for manual save
+      if (isManual) {
+        if (!title || !content) {
+          toast({
+            title: "Missing fields",
+            description: "Title and content are required",
+            variant: "destructive",
+          });
+          throw new Error("Missing fields");
+        }
       }
 
-      if (scheduledDate) {
-        updateData.scheduledPublishDate = Timestamp.fromDate(
-          new Date(scheduledDate)
-        );
-      } else {
-        updateData.scheduledPublishDate = null;
+      const user = auth.currentUser;
+      if (!user || !id) {
+        if (isManual) {
+          toast({
+            title: "Authentication error",
+            description: "You must be logged in to update articles",
+            variant: "destructive",
+          });
+        }
+        throw new Error("Authentication error");
       }
 
-      await updateDoc(ref, updateData);
+      // If autosaving and no content, skip (though usually edits have content)
+      if (!isManual && !title && !content) return;
 
-      toast({
-        title: "Article updated",
-        description: "Your article has been successfully updated",
-        variant: "success",
-      });
+      if (isManual) setSaving(true);
 
-      router.push("/admin/articles");
-    } catch (err) {
-      console.error("Error updating article:", err);
-      toast({
-        title: "Error",
-        description: "Failed to update article",
-        variant: "destructive",
-      });
-      setSaving(false);
-    }
+      try {
+        const ref = doc(db, "articles", id as string);
+
+        // Prepare update data
+        const updateData: any = {
+          title,
+          content,
+          description,
+          img,
+          imgAlt,
+          label,
+          slug,
+          popularity,
+          publish: isPublished,
+          read: readTime,
+          updatedAt: serverTimestamp(),
+        };
+
+        // If transition from draft to published, update the date
+        if (isPublished && !initialPublishStatus) {
+          updateData.date = serverTimestamp();
+          // Update local state so we don't keep updating date on subsequent autosaves
+          setInitialPublishStatus(true);
+        }
+
+        if (scheduledDate) {
+          updateData.scheduledPublishDate = Timestamp.fromDate(
+            new Date(scheduledDate)
+          );
+        } else {
+          updateData.scheduledPublishDate = null;
+        }
+
+        await updateDoc(ref, updateData);
+
+        if (isManual) {
+          toast({
+            title: "Article updated",
+            description: "Your article has been successfully updated",
+            variant: "success",
+          });
+          router.push("/admin/articles");
+        }
+      } catch (err) {
+        console.error("Error updating article:", err);
+        if (isManual) {
+          toast({
+            title: "Error",
+            description: "Failed to update article",
+            variant: "destructive",
+          });
+          setSaving(false);
+        }
+        throw err;
+      }
+    },
+    [
+      title,
+      content,
+      description,
+      img,
+      imgAlt,
+      label,
+      slug,
+      popularity,
+      isPublished,
+      readTime,
+      scheduledDate,
+      initialPublishStatus,
+      id,
+      router,
+      toast,
+    ]
+  );
+
+  // Autosave
+  const autosaveData = {
+    title,
+    content,
+    description,
+    img,
+    imgAlt,
+    label,
+    slug,
+    popularity,
+    isPublished,
+    readTime,
+    scheduledDate,
   };
+
+  const { status: saveStatus, lastSaved } = useAutosave({
+    data: autosaveData,
+    onSave: async () => {
+      await saveToFirestore(false);
+    },
+    interval: 3000,
+  });
+
+  const handleManualSave = () => saveToFirestore(true);
 
   const handleDelete = async () => {
     try {
@@ -1215,16 +1282,36 @@ export default function EditArticlePage() {
           </p>
         </div>
 
-        {/* Publish Status */}
-        <div className="mb-6 flex items-center space-x-2">
-          <Switch
-            id="publish-status"
-            checked={isPublished}
-            onCheckedChange={setIsPublished}
-          />
-          <Label htmlFor="publish-status">
-            {isPublished ? "Published" : "Draft"}
-          </Label>
+        {/* Publish Status & Autosave */}
+        <div className="mb-6 flex items-center justify-between">
+          <div className="flex items-center space-x-2">
+            <Switch
+              id="publish-status"
+              checked={isPublished}
+              onCheckedChange={setIsPublished}
+            />
+            <Label htmlFor="publish-status">
+              {isPublished ? "Published" : "Draft"}
+            </Label>
+          </div>
+
+          <div className="flex items-center space-x-2">
+            {saveStatus === "saving" && (
+              <span className="text-xs text-purple-400 flex items-center animate-pulse">
+                <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                Saving...
+              </span>
+            )}
+            {saveStatus === "saved" && lastSaved && (
+              <span className="text-xs text-green-400 flex items-center">
+                <Save className="h-3 w-3 mr-1" />
+                Saved {format(lastSaved, "h:mm a")}
+              </span>
+            )}
+            {saveStatus === "error" && (
+              <span className="text-xs text-red-400">Save failed</span>
+            )}
+          </div>
         </div>
 
         {/* Popularity */}
@@ -1255,7 +1342,11 @@ export default function EditArticlePage() {
 
         {/* Action buttons */}
         <div className="flex flex-wrap gap-4 mt-8">
-          <Button onClick={handleUpdate} disabled={saving} variant="outline">
+          <Button
+            onClick={handleManualSave}
+            disabled={saving}
+            variant="outline"
+          >
             {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
             {saving ? "Updating..." : "Update Article"}
           </Button>
