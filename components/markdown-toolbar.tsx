@@ -1,7 +1,7 @@
 // components/markdown-toolbar.tsx
-"use client"
+"use client";
 
-import type React from "react"
+import type React from "react";
 import {
   Bold,
   Italic,
@@ -14,30 +14,36 @@ import {
   Image as ImageIcon,
   Code2,
   Quote,
-} from "lucide-react"
-import { Button } from "@/components/ui/button"
+} from "lucide-react";
+import { Button } from "@/components/ui/button";
 
 interface MarkdownToolbarProps {
-  textareaRef: React.RefObject<HTMLTextAreaElement>
-  onInsert: (text: string, options?: { prefix?: string; suffix?: string }) => void
+  textareaRef: React.RefObject<HTMLTextAreaElement>;
+  onInsert: (
+    text: string,
+    options?: { prefix?: string; suffix?: string }
+  ) => void;
 }
 
-export function MarkdownToolbar({ textareaRef, onInsert }: MarkdownToolbarProps) {
+export function MarkdownToolbar({
+  textareaRef,
+  onInsert,
+}: MarkdownToolbarProps) {
   const insertMarkdown = (
     prefix: string,
     suffix = "",
-    placeholder = "text",
+    placeholder = "text"
   ) => {
-    const textarea = textareaRef.current
-    if (!textarea) return
+    const textarea = textareaRef.current;
+    if (!textarea) return;
 
-    const start = textarea.selectionStart
-    const end = textarea.selectionEnd
-    const selectedText = textarea.value.substring(start, end)
-    const textToInsert = selectedText || placeholder
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const selectedText = textarea.value.substring(start, end);
+    const textToInsert = selectedText || placeholder;
 
-    onInsert(`${prefix}${textToInsert}${suffix}`)
-  }
+    onInsert(`${prefix}${textToInsert}${suffix}`);
+  };
 
   const toolbarItems = [
     {
@@ -95,7 +101,7 @@ export function MarkdownToolbar({ textareaRef, onInsert }: MarkdownToolbarProps)
       onClick: () => insertMarkdown("![", "](https://)", "alt text"),
       title: "Image",
     },
-  ]
+  ];
 
   return (
     <div className="flex flex-wrap items-center gap-1 border border-white p-2 bg-[#1a1a1a]">
@@ -106,6 +112,7 @@ export function MarkdownToolbar({ textareaRef, onInsert }: MarkdownToolbarProps)
           variant="ghost"
           size="icon"
           onClick={item.onClick}
+          onMouseDown={(e) => e.preventDefault()}
           title={item.title}
           className="h-8 w-8"
         >
@@ -113,5 +120,5 @@ export function MarkdownToolbar({ textareaRef, onInsert }: MarkdownToolbarProps)
         </Button>
       ))}
     </div>
-  )
+  );
 }
