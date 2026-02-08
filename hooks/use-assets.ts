@@ -3,7 +3,6 @@ import {
   ref,
   uploadBytesResumable,
   getDownloadURL,
-  deleteObject,
   listAll,
   getMetadata,
   getBytes,

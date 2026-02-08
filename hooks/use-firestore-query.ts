@@ -1,5 +1,6 @@
 "use client";
 
+import { useState, useEffect, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   collection,
@@ -93,9 +94,16 @@ export function usePaginatedCollection(
     loadInitialData();
   };
 
+  // Memoize constraints to avoid unnecessary re-renders
+  const memoizedConstraints = useMemo(
+    () => constraints,
+    [JSON.stringify(constraints)],
+  );
+
   useEffect(() => {
     loadInitialData();
-  }, [collectionName, JSON.stringify(constraints)]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [collectionName, memoizedConstraints]);
 
   return { items, loading, hasMore, loadMore, refresh };
 }
@@ -123,8 +131,11 @@ export function useCollection<T = DocumentData>(
   collectionName: string,
   constraints: QueryConstraint[] = [],
 ) {
+  // Serialize constraints for stable cache key
+  const constraintsKey = JSON.stringify(constraints);
+
   return useQuery({
-    queryKey: ["collection", collectionName, constraints],
+    queryKey: ["collection", collectionName, constraintsKey],
     queryFn: async () => {
       const q = query(collection(db, collectionName), ...constraints);
       const snapshot = await getDocs(q);
@@ -247,5 +258,3 @@ export function useBatchOperations() {
     },
   });
 }
-
-import { useState, useEffect } from "react";
