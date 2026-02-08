@@ -22,7 +22,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import { Breadcrumb } from "@/components/breadcrumb";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { formatDate, sanitizeUrl } from "@/lib/utils";
+import { formatDate, sanitizeUrl, sanitizeText } from "@/lib/utils";
 import {
   Loader2,
   AlertTriangle,
@@ -85,9 +85,8 @@ export default function EditArticlePage() {
           type: "image/webp",
         });
 
-        const { ref, uploadBytes, getDownloadURL } = await import(
-          "firebase/storage"
-        );
+        const { ref, uploadBytes, getDownloadURL } =
+          await import("firebase/storage");
         const { storage } = await import("@/lib/firebase");
 
         const storageRef = ref(storage, `Articles/${id}/thumbnail.webp`);
@@ -124,8 +123,8 @@ export default function EditArticlePage() {
             typeof data.content === "string"
               ? data.content
               : data.content
-              ? JSON.stringify(data.content, null, 2)
-              : ""
+                ? JSON.stringify(data.content, null, 2)
+                : "",
           );
           setDescription(data.description || "");
           setImg(data.img || "");
@@ -170,7 +169,7 @@ export default function EditArticlePage() {
           .map((doc) => doc.data().label)
           .filter(
             (label): label is string =>
-              typeof label === "string" && label.trim() !== ""
+              typeof label === "string" && label.trim() !== "",
           );
         // Get unique labels
         const uniqueLabels = [...new Set(labels)].sort();
@@ -254,7 +253,7 @@ export default function EditArticlePage() {
 
         if (scheduledDate) {
           updateData.scheduledPublishDate = Timestamp.fromDate(
-            new Date(scheduledDate)
+            new Date(scheduledDate),
           );
         } else {
           updateData.scheduledPublishDate = null;
@@ -299,7 +298,7 @@ export default function EditArticlePage() {
       id,
       router,
       toast,
-    ]
+    ],
   );
 
   // Autosave
@@ -358,7 +357,7 @@ export default function EditArticlePage() {
     const end = textarea.selectionEnd;
     const newContent = `${content.substring(
       0,
-      start
+      start,
     )}${textToInsert}${content.substring(end)}`;
     setContent(newContent);
 
@@ -631,7 +630,7 @@ export default function EditArticlePage() {
             <div className="relative">
               <img
                 src={sanitizeUrl(img) || "/placeholder.svg"}
-                alt={imgAlt || "Thumbnail Preview"}
+                alt={sanitizeText(imgAlt) || "Thumbnail Preview"}
                 className="max-h-64 object-contain border border-white/20 rounded-lg"
                 onError={(e) => {
                   e.currentTarget.src = "/placeholder.svg?height=200&width=400";
@@ -798,7 +797,7 @@ export default function EditArticlePage() {
             onClick={() => {
               if (
                 window.confirm(
-                  "Are you sure you want to delete this article? This action cannot be undone."
+                  "Are you sure you want to delete this article? This action cannot be undone.",
                 )
               ) {
                 handleDelete();

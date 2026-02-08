@@ -373,7 +373,7 @@ export function AssetManager({ rootPath = "" }: { rootPath?: string }) {
 
   // Search State
   const [searchResults, setSearchResults] = useState<Asset[]>([]);
-  const [isSearching, setIsSearching] = useState(false);
+  const [_isSearching, setIsSearching] = useState(false);
 
   // Search Effect
   useEffect(() => {
@@ -518,10 +518,6 @@ export function AssetManager({ rootPath = "" }: { rootPath?: string }) {
     const newPath = [...subPath];
     newPath.pop();
     setSubPath(newPath);
-  };
-
-  const navigateToRoot = () => {
-    setSubPath([]);
   };
 
   const handleTabChange = (val: string) => {

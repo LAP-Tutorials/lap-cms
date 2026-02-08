@@ -6,7 +6,6 @@ import {
   deleteObject,
   listAll,
   getMetadata,
-  StorageReference,
   getBytes,
 } from "firebase/storage";
 import { httpsCallable } from "firebase/functions";
@@ -92,7 +91,7 @@ export function useAssets(path: string = "") {
             createdAt: metadata.timeCreated || new Date().toISOString(),
             updatedAt: metadata.updated || new Date().toISOString(),
           };
-        })
+        }),
       );
 
       // Filter out weird placeholder files if we use them
@@ -133,7 +132,7 @@ export function useAssets(path: string = "") {
         toast({ title: "Error creating folder", variant: "destructive" });
       }
     },
-    [path, fetchAssets, toast]
+    [path, fetchAssets, toast],
   );
 
   const uploadAsset = useCallback(
@@ -142,7 +141,7 @@ export function useAssets(path: string = "") {
 
       const storageRef = ref(
         storage,
-        path ? `${path}/${file.name}` : file.name
+        path ? `${path}/${file.name}` : file.name,
       );
       const uploadTask = uploadBytesResumable(storageRef, file);
 
@@ -180,10 +179,10 @@ export function useAssets(path: string = "") {
             variant: "success",
           });
           fetchAssets();
-        }
+        },
       );
     },
-    [path, fetchAssets, toast]
+    [path, fetchAssets, toast],
   );
 
   const deleteAsset = useCallback(
@@ -206,26 +205,7 @@ export function useAssets(path: string = "") {
         });
       }
     },
-    [fetchAssets, toast]
-  );
-
-  const copyAsset = useCallback(
-    async (asset: Asset, destPath: string) => {
-      try {
-        const manageAssets = httpsCallable(functions, "manageAssets");
-        await manageAssets({
-          action: "copy",
-          items: [asset.path],
-          destPath: destPath,
-        });
-        toast({ title: "Asset copied successfully", variant: "success" });
-      } catch (error) {
-        console.error("Error into copyAsset:", error);
-        toast({ title: "Failed to copy asset", variant: "destructive" });
-        throw error;
-      }
-    },
-    [toast]
+    [fetchAssets, toast],
   );
 
   const renameAsset = useCallback(
@@ -250,7 +230,7 @@ export function useAssets(path: string = "") {
         throw error;
       }
     },
-    [fetchAssets, toast]
+    [fetchAssets, toast],
   );
 
   const moveAssets = useCallback(
@@ -272,7 +252,7 @@ export function useAssets(path: string = "") {
         throw error;
       }
     },
-    [fetchAssets, toast]
+    [fetchAssets, toast],
   );
 
   const copyAssetsToRes = useCallback(
@@ -294,12 +274,12 @@ export function useAssets(path: string = "") {
         throw error;
       }
     },
-    [fetchAssets, toast]
+    [fetchAssets, toast],
   );
 
   const getFolderStats = useCallback(
     async (
-      folderPath: string
+      folderPath: string,
     ): Promise<{ size: number; fileCount: number }> => {
       let totalSize = 0;
       let totalFiles = 0;
@@ -323,7 +303,7 @@ export function useAssets(path: string = "") {
 
         // Recursively process subfolders
         const folderPromises = res.prefixes.map((prefix) =>
-          processFolder(prefix.fullPath)
+          processFolder(prefix.fullPath),
         );
         await Promise.all(folderPromises);
       };
@@ -331,12 +311,12 @@ export function useAssets(path: string = "") {
       await processFolder(folderPath);
       return { size: totalSize, fileCount: totalFiles };
     },
-    []
+    [],
   );
 
   const getFolderStatsIndexed = useCallback(
     async (
-      folderPath: string
+      folderPath: string,
     ): Promise<{ size: number; fileCount: number }> => {
       try {
         const assetsRef = collection(db, "assets_index");
@@ -353,7 +333,7 @@ export function useAssets(path: string = "") {
             assetsRef,
             where("path", ">=", prefix),
             where("path", "<=", prefix + "\uf8ff"),
-            where("type", "==", "file")
+            where("type", "==", "file"),
           );
         } else {
           // Root
@@ -372,7 +352,7 @@ export function useAssets(path: string = "") {
       } catch (error) {
         console.warn(
           "Indexed stats failed, falling back to storage crawl",
-          error
+          error,
         );
         // Fallback if index fails or not ready?
         // But user wants speed. Let's return 0 or crawl?
@@ -380,7 +360,7 @@ export function useAssets(path: string = "") {
         return getFolderStats(folderPath);
       }
     },
-    [getFolderStats]
+    [getFolderStats],
   );
 
   // Replace getFolderStats with the indexed version
@@ -401,7 +381,7 @@ export function useAssets(path: string = "") {
           assetsRef,
           where("nameLower", ">=", lowerQuery),
           where("nameLower", "<=", lowerQuery + "\uf8ff"),
-          limit(30)
+          limit(30),
         );
 
         // Strategy 2: Keyword search (e.g. "vivian" -> "... Dr Vivian ...")
@@ -410,7 +390,7 @@ export function useAssets(path: string = "") {
         const keywordQuery = query(
           assetsRef,
           where("keywords", "array-contains", lowerQuery),
-          limit(30)
+          limit(30),
         );
 
         // Run both in parallel
@@ -444,7 +424,7 @@ export function useAssets(path: string = "") {
             size: data.size || 0,
             createdAt: data.createdAt,
             updatedAt: data.updatedAt,
-          })
+          }),
         );
 
         // Fetch URLs for files (limit to top 20 to avoid spamming)
@@ -460,7 +440,7 @@ export function useAssets(path: string = "") {
                 /* ignore */
               }
             }
-          })
+          }),
         );
 
         return topResults;
@@ -469,7 +449,7 @@ export function useAssets(path: string = "") {
         return [];
       }
     },
-    []
+    [],
   );
 
   const getAllFilesInFolder = useCallback(
@@ -484,7 +464,7 @@ export function useAssets(path: string = "") {
           assetsRef,
           where("parentId", "==", folderPath),
           orderBy("type", "desc"), // Folders first?
-          orderBy("nameLower", "asc")
+          orderBy("nameLower", "asc"),
         );
 
         const querySnapshot = await getDocs(q);
@@ -519,7 +499,7 @@ export function useAssets(path: string = "") {
         return [];
       }
     },
-    []
+    [],
   );
 
   // Helper
@@ -549,7 +529,7 @@ export function useAssets(path: string = "") {
         return null;
       }
     },
-    []
+    [],
   );
 
   const downloadFolder = useCallback(async (folderPath: string) => {

@@ -14,7 +14,7 @@ export function formatDate(date: Date | string | null | undefined): string {
     return "Invalid date";
   }
 
-  return d.toLocaleDateString("en-US", {
+  return d.toLocaleString("en-US", {
     year: "numeric",
     month: "short",
     day: "numeric",
@@ -31,11 +31,12 @@ export function truncateText(text: string, maxLength: number): string {
 
 export function generateSlugFromTitle(title: string): string {
   return title
+    .trim()
     .toLowerCase()
     .replace(/[^\w\s-]/g, "")
     .replace(/\s+/g, "-")
     .replace(/-+/g, "-")
-    .trim();
+    .replace(/^-+|-+$/g, "");
 }
 
 export function sanitizeUrl(url: string | null | undefined): string {
@@ -65,11 +66,26 @@ export function sanitizeUrl(url: string | null | undefined): string {
       if (dangerousProtocols.test(decoded)) {
         return "";
       }
-    } catch {
-      // decodeURIComponent can throw on malformed URLs - still safe since we validated protocol
+    } catch (e) {
+      // decodeURIComponent can throw on malformed URLs; we intentionally ignore the error here
+      // because the protocol has already been validated and logging every malformed URL would be noisy.
     }
     return trimmed;
   }
 
   return "";
+}
+
+/**
+ * Sanitizes text content to prevent XSS when being inserted into the DOM.
+ * Escapes HTML meta-characters like <, >, &, ", and '.
+ */
+export function sanitizeText(text: string | null | undefined): string {
+  if (!text) return "";
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#x27;");
 }
