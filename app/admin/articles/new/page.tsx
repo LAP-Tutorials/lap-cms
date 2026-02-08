@@ -11,7 +11,7 @@ import {
   getDocs,
   Timestamp,
 } from "firebase/firestore";
-import { v4 as uuidv4 } from "uuid";
+
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -88,9 +88,8 @@ export default function NewArticlePage() {
           type: "image/webp",
         });
 
-        const { ref, uploadBytes, getDownloadURL } = await import(
-          "firebase/storage"
-        );
+        const { ref, uploadBytes, getDownloadURL } =
+          await import("firebase/storage");
         const { storage } = await import("@/lib/firebase");
 
         const storageRef = ref(storage, `Articles/${articleId}/thumbnail.webp`);
@@ -141,7 +140,7 @@ export default function NewArticlePage() {
           .map((doc) => doc.data().label)
           .filter(
             (label): label is string =>
-              typeof label === "string" && label.trim() !== ""
+              typeof label === "string" && label.trim() !== "",
           );
         // Get unique labels
         const uniqueLabels = [...new Set(labels)].sort();
@@ -167,7 +166,7 @@ export default function NewArticlePage() {
       return;
     }
     const match = authors.find((a) =>
-      a.name.toLowerCase().includes(authorName.toLowerCase())
+      a.name.toLowerCase().includes(authorName.toLowerCase()),
     );
 
     if (match) {
@@ -236,7 +235,7 @@ export default function NewArticlePage() {
     const end = textarea.selectionEnd;
     const newContent = `${content.substring(
       0,
-      start
+      start,
     )}${textToInsert}${content.substring(end)}`;
     setContent(newContent);
 
@@ -352,7 +351,7 @@ export default function NewArticlePage() {
 
         if (scheduledDate) {
           articleData.scheduledPublishDate = Timestamp.fromDate(
-            new Date(scheduledDate)
+            new Date(scheduledDate),
           );
         } else {
           articleData.scheduledPublishDate = null;
@@ -400,7 +399,7 @@ export default function NewArticlePage() {
       articleId,
       router,
       toast,
-    ]
+    ],
   );
 
   // Autosave
@@ -491,7 +490,7 @@ export default function NewArticlePage() {
             >
               {authors
                 .filter((a) =>
-                  a.name.toLowerCase().includes(authorName.toLowerCase())
+                  a.name.toLowerCase().includes(authorName.toLowerCase()),
                 )
                 .map((a) => (
                   <div

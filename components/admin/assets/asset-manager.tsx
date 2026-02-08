@@ -51,7 +51,6 @@ import {
   Download,
 } from "lucide-react";
 
-import { saveAs } from "file-saver";
 import { useToast } from "@/hooks/use-toast";
 
 const getFileIcon = (mimeType: string, fileName: string) => {
@@ -179,7 +178,7 @@ const getFileIcon = (mimeType: string, fileName: string) => {
   // Disk Images
   if (
     ["iso", "dmg", "img", "toast", "vcd", "bin", "cue", "vhd", "vhdx"].includes(
-      extension
+      extension,
     )
   )
     return { icon: Disc, color: "text-slate-400" };
@@ -296,11 +295,8 @@ export function AssetManager({ rootPath = "" }: { rootPath?: string }) {
     copyAssets,
     getFolderStats,
     searchAssets,
-    getAllFilesInFolder,
-    getFileBlob,
     downloadFolder,
     downloadFile,
-    syncIndex,
   } = useAssets(currentPath);
 
   const [newFolderName, setNewFolderName] = useState("");
@@ -360,7 +356,7 @@ export function AssetManager({ rootPath = "" }: { rootPath?: string }) {
   useEffect(() => {
     const loadFolderStats = async () => {
       const selectedFolders = [...folders].filter((f) =>
-        selectedAssets.has(f.id)
+        selectedAssets.has(f.id),
       );
       for (const folder of selectedFolders) {
         if (folderStats[folder.id] === undefined) {
@@ -426,7 +422,7 @@ export function AssetManager({ rootPath = "" }: { rootPath?: string }) {
 
   const handleCopy = (isCut: boolean = false) => {
     const itemsToProcess = [...folders, ...assets].filter((item) =>
-      selectedAssets.has(item.id)
+      selectedAssets.has(item.id),
     );
     setClipboard({
       type: isCut ? "cut" : "copy",
@@ -480,7 +476,7 @@ export function AssetManager({ rootPath = "" }: { rootPath?: string }) {
 
   const handleDeleteSelected = async () => {
     const itemsToDelete = [...folders, ...assets].filter((item) =>
-      selectedAssets.has(item.id)
+      selectedAssets.has(item.id),
     );
     if (
       confirm(`Are you sure you want to delete ${itemsToDelete.length} items?`)
@@ -620,7 +616,7 @@ export function AssetManager({ rootPath = "" }: { rootPath?: string }) {
           }
         }
         return file;
-      })
+      }),
     );
 
     processedFiles.forEach((file) => uploadAsset(file));
@@ -693,7 +689,7 @@ export function AssetManager({ rootPath = "" }: { rootPath?: string }) {
                 (() => {
                   const { icon: Icon, color } = getFileIcon(
                     asset.mimeType || "",
-                    asset.name
+                    asset.name,
                   );
                   return <Icon className={`h-12 w-12 ${color}`} />;
                 })()
@@ -962,7 +958,7 @@ export function AssetManager({ rootPath = "" }: { rootPath?: string }) {
                       onClick={() => {
                         const id = Array.from(selectedAssets)[0];
                         const asset = [...folders, ...assets].find(
-                          (a) => a.id === id
+                          (a) => a.id === id,
                         );
                         if (asset) handleDownload(asset);
                       }}

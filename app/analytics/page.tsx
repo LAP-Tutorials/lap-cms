@@ -2,9 +2,6 @@
 
 import { AnalyticsDashboard } from "@/components/analytics/AnalyticsDashboard";
 import PageTitle from "@/components/PageTitle";
-import { useEffect, useState } from "react";
-import { doc, getDoc } from "firebase/firestore";
-import { db } from "@/lib/firebase";
 
 export default function AnalyticsPage() {
   return (

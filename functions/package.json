@@ -27,5 +27,9 @@
     "firebase-functions-test": "^3.4.1",
     "typescript": "^5.7.3"
   },
-  "private": true
+  "private": true,
+  "overrides": {
+    "lodash": ">=4.17.23",
+    "fast-xml-parser": ">=5.3.4"
+  }
 }

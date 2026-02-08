@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useMemo } from "react";
 
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -17,7 +17,7 @@ import {
   Pie,
   Cell,
 } from "recharts";
-import { motion } from "framer-motion";
+
 import {
   Loader2,
   TrendingUp,
@@ -35,15 +35,9 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Video, PlayCircle } from "lucide-react";
+
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+
 import {
   Table,
   TableBody,
@@ -111,7 +105,6 @@ type AnalyticsData = {
 };
 
 export function AnalyticsDashboard() {
-  const [days, setDays] = useState("7");
   const [dateRange, setDateRange] = useState<DateRange | undefined>({
     from: subDays(new Date(), 7),
     to: new Date(),
@@ -139,10 +132,6 @@ export function AnalyticsDashboard() {
 
   const totalViews = useMemo(() => {
     return data?.summary?.views || 0;
-  }, [data]);
-
-  const totalSessions = useMemo(() => {
-    return data?.summary?.sessions || 0;
   }, [data]);
 
   const avgViewsPerUser = useMemo(() => {
@@ -345,7 +334,7 @@ export function AnalyticsDashboard() {
                             "-" +
                             value.substring(4, 6) +
                             "-" +
-                            value.substring(6, 8)
+                            value.substring(6, 8),
                         );
                         return d.toLocaleDateString(undefined, {
                           month: "short",
@@ -378,7 +367,7 @@ export function AnalyticsDashboard() {
                                 "-" +
                                 dateStr.substring(4, 6) +
                                 "-" +
-                                dateStr.substring(6, 8)
+                                dateStr.substring(6, 8),
                             );
                             formattedDate = d.toLocaleDateString(undefined, {
                               weekday: "short",

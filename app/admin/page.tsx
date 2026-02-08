@@ -1,6 +1,6 @@
 "use client";
 
-import { BarChart3, Users, FileText, Youtube } from "lucide-react";
+import { Youtube } from "lucide-react";
 import { useEffect, useState } from "react";
 import PageTitle from "@/components/PageTitle";
 import {
@@ -66,7 +66,7 @@ export default function AdminDashboardPage() {
       const latestArticlesQuery = query(
         collection(db, "articles"),
         orderBy("createdAt", "desc"),
-        limit(3)
+        limit(3),
       );
       const latestArticlesSnap = await getDocs(latestArticlesQuery);
       const articlesList = latestArticlesSnap.docs.map((doc) => ({
@@ -84,7 +84,7 @@ export default function AdminDashboardPage() {
       const articlesForChartQuery = query(
         collection(db, "articles"),
         where("date", ">=", Timestamp.fromDate(startDate)),
-        orderBy("date", "asc")
+        orderBy("date", "asc"),
       );
       const chartSnap = await getDocs(articlesForChartQuery);
       const monthlyCounts: { [key: string]: number } = {};

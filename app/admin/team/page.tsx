@@ -1,31 +1,37 @@
-"use client"
-import { orderBy } from "firebase/firestore"
-import Link from "next/link"
-import PageTitle from "@/components/PageTitle"
-import { Button } from "@/components/ui/button"
-import { useToast } from "@/hooks/use-toast"
-import { Breadcrumb } from "@/components/breadcrumb"
-import { Plus, Eye, Pencil, UserCircle } from "lucide-react"
-import { useAuth } from "@/lib/auth-context"
-import { usePaginatedCollection } from "@/hooks/use-firestore-query"
+"use client";
+import { orderBy } from "firebase/firestore";
+import Link from "next/link";
+import PageTitle from "@/components/PageTitle";
+import { Button } from "@/components/ui/button";
+
+import { Breadcrumb } from "@/components/breadcrumb";
+import { Plus, Eye, Pencil, UserCircle } from "lucide-react";
+import { useAuth } from "@/lib/auth-context";
+import { usePaginatedCollection } from "@/hooks/use-firestore-query";
 
 interface TeamMember {
-  id: string
-  name: string
-  role: string
-  uid: string
-  slug: string
-  avatar?: string
+  id: string;
+  name: string;
+  role: string;
+  uid: string;
+  slug: string;
+  avatar?: string;
 }
 
 export default function TeamPage() {
-  const { userRole } = useAuth()
-  const { toast } = useToast()
-
+  const { userRole } = useAuth();
   // Use the paginated collection hook with sorting by name
-  const { items: team, loading, hasMore, loadMore } = usePaginatedCollection("authors", 20, [orderBy("name", "asc")])
+  const {
+    items: team,
+    loading,
+    hasMore,
+    loadMore,
+  } = usePaginatedCollection("authors", 20, [orderBy("name", "asc")]);
 
-  const breadcrumbItems = [{ label: "Dashboard", href: "/admin" }, { label: "Team" }]
+  const breadcrumbItems = [
+    { label: "Dashboard", href: "/admin" },
+    { label: "Team" },
+  ];
 
   return (
     <div className="px-4 py-6">
@@ -34,7 +40,11 @@ export default function TeamPage() {
       </div>
 
       <div className="flex justify-between items-center mb-6">
-        <PageTitle className="sr-only" imgSrc="/images/titles/team.svg" imgAlt="Team">
+        <PageTitle
+          className="sr-only"
+          imgSrc="/images/titles/team.svg"
+          imgAlt="Team"
+        >
           Team
         </PageTitle>
       </div>
@@ -59,14 +69,20 @@ export default function TeamPage() {
           <table className="min-w-full divide-y divide-white/10">
             <thead className="bg-white/5">
               <tr>
-                <th className="p-4 text-left font-medium text-white/70">Member</th>
-                <th className="p-4 text-left font-medium text-white/70">Role</th>
-                <th className="p-4 text-left font-medium text-white/70">Actions</th>
+                <th className="p-4 text-left font-medium text-white/70">
+                  Member
+                </th>
+                <th className="p-4 text-left font-medium text-white/70">
+                  Role
+                </th>
+                <th className="p-4 text-left font-medium text-white/70">
+                  Actions
+                </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-white/10">
               {team.map((member) => {
-                const teamMember = member as TeamMember
+                const teamMember = member as TeamMember;
                 return (
                   <tr key={teamMember.id} className="hover:bg-white/5">
                     <td className="p-4">
@@ -77,7 +93,8 @@ export default function TeamPage() {
                             alt={teamMember.name}
                             className="w-10 h-10 rounded-full object-cover"
                             onError={(e) => {
-                              e.currentTarget.src = "/placeholder.svg?height=40&width=40"
+                              e.currentTarget.src =
+                                "/placeholder.svg?height=40&width=40";
                             }}
                           />
                         ) : (
@@ -87,7 +104,9 @@ export default function TeamPage() {
                       </div>
                     </td>
                     <td className="p-4">
-                      <span className="px-2 py-1 bg-white/10 text-xs rounded-none">{teamMember.role || "Member"}</span>
+                      <span className="px-2 py-1 bg-white/10 text-xs rounded-none">
+                        {teamMember.role || "Member"}
+                      </span>
                     </td>
                     <td className="p-4">
                       <div className="flex items-center space-x-2">
@@ -103,7 +122,10 @@ export default function TeamPage() {
 
                         {userRole !== "manager" && (
                           <Button asChild size="sm" variant="ghost">
-                            <Link href={`/admin/team/${teamMember.id}`} title="Edit member">
+                            <Link
+                              href={`/admin/team/${teamMember.id}`}
+                              title="Edit member"
+                            >
                               <Pencil className="h-4 w-4 mr-1" /> Edit
                             </Link>
                           </Button>
@@ -111,7 +133,7 @@ export default function TeamPage() {
                       </div>
                     </td>
                   </tr>
-                )
+                );
               })}
               {team.length === 0 && (
                 <tr>
@@ -141,5 +163,5 @@ export default function TeamPage() {
         </div>
       )}
     </div>
-  )
+  );
 }

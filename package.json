@@ -54,7 +54,7 @@
     "markdown-to-jsx": "^7.7.4",
     "marked": "^15.0.7",
     "msw": "^2.7.3",
-    "next": "^15.5.9",
+    "next": "^15.5.10",
     "next-themes": "^0.4.6",
     "react": "^19.2.3",
     "react-day-picker": "^9.6.5",
@@ -82,5 +82,8 @@
     "@types/react-dom": "^19",
     "tailwindcss": "^4",
     "typescript": "^5"
+  },
+  "overrides": {
+    "lodash": ">=4.17.23"
   }
 }

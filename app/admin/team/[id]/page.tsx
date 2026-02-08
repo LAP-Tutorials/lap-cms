@@ -252,14 +252,6 @@ export default function EditTeamMemberPage() {
     });
   };
 
-  const handleAvatarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const avatarUrl = e.target.value;
-    if (member) {
-      setMember({ ...member, avatar: avatarUrl });
-    }
-    setAvatarPreview(avatarUrl);
-  };
-
   const onSelectFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
       setSelectedImageFile(e.target.files[0]);
@@ -289,7 +281,7 @@ export default function EditTeamMemberPage() {
 
       // Update local state
       setMember((prev) =>
-        prev ? { ...prev, avatar: downloadURL, imgAlt: newImgAlt } : null
+        prev ? { ...prev, avatar: downloadURL, imgAlt: newImgAlt } : null,
       );
       setAvatarPreview(downloadURL);
 
@@ -619,7 +611,7 @@ export default function EditTeamMemberPage() {
               onClick={() => {
                 if (
                   window.confirm(
-                    "Are you sure you want to delete this team member? This action cannot be undone."
+                    "Are you sure you want to delete this team member? This action cannot be undone.",
                   )
                 ) {
                   handleDelete();

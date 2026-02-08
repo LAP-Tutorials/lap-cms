@@ -1,17 +1,17 @@
-import { type ClassValue, clsx } from "clsx"
-import { twMerge } from "tailwind-merge"
+import { type ClassValue, clsx } from "clsx";
+import { twMerge } from "tailwind-merge";
 
 export function cn(...inputs: ClassValue[]) {
-  return twMerge(clsx(inputs))
+  return twMerge(clsx(inputs));
 }
 
 export function formatDate(date: Date | string | null | undefined): string {
-  if (!date) return "N/A"
+  if (!date) return "N/A";
 
-  const d = typeof date === "string" ? new Date(date) : date
+  const d = typeof date === "string" ? new Date(date) : date;
 
   if (!(d instanceof Date) || isNaN(d.getTime())) {
-    return "Invalid date"
+    return "Invalid date";
   }
 
   return d.toLocaleDateString("en-US", {
@@ -20,13 +20,13 @@ export function formatDate(date: Date | string | null | undefined): string {
     day: "numeric",
     hour: "2-digit",
     minute: "2-digit",
-  })
+  });
 }
 
 export function truncateText(text: string, maxLength: number): string {
-  if (!text) return ""
-  if (text.length <= maxLength) return text
-  return text.substring(0, maxLength) + "..."
+  if (!text) return "";
+  if (text.length <= maxLength) return text;
+  return text.substring(0, maxLength) + "...";
 }
 
 export function generateSlugFromTitle(title: string): string {
@@ -35,29 +35,41 @@ export function generateSlugFromTitle(title: string): string {
     .replace(/[^\w\s-]/g, "")
     .replace(/\s+/g, "-")
     .replace(/-+/g, "-")
-    .trim()
+    .trim();
 }
 
 export function sanitizeUrl(url: string | null | undefined): string {
-  if (!url) return ""
-  const trimmed = url.trim()
-  
-  // Explicitly reject javascript: protocol (case insensitive)
-  if (/^javascript:/i.test(trimmed)) {
-    return ""
+  if (!url) return "";
+  const trimmed = url.trim();
+
+  // List of dangerous protocols to block
+  const dangerousProtocols = /^(javascript|data|vbscript|file|blob):/i;
+
+  // Check raw input for dangerous protocols
+  if (dangerousProtocols.test(trimmed)) {
+    return "";
   }
 
-  // Allow http/https and relative paths
+  // Allow http/https and relative paths only
   // Matches:
   // 1. / (absolute path)
   // 2. ./ or ../ (relative path)
   // 3. http:// or https:// (absolute URL)
-  const safePattern = /^(\/|\.\/|\.\.\/|https?:\/\/)/i
+  const safePattern = /^(\/|\.\/|\.\.\/|https?:\/\/)/i;
 
   if (safePattern.test(trimmed)) {
-    return trimmed
+    try {
+      // Decode URL and re-check for encoded dangerous protocols
+      // e.g., "javascript%3A" would decode to "javascript:"
+      const decoded = decodeURIComponent(trimmed);
+      if (dangerousProtocols.test(decoded)) {
+        return "";
+      }
+    } catch {
+      // decodeURIComponent can throw on malformed URLs - still safe since we validated protocol
+    }
+    return trimmed;
   }
 
-  return ""
+  return "";
 }
-

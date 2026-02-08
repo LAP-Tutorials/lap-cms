@@ -1,26 +1,25 @@
-import { useCallback, useState } from "react"
-import { useDropzone } from "react-dropzone"
-import { Upload, X, File as FileIcon } from "lucide-react"
-import { cn } from "@/lib/utils"
-import { Progress } from "@/components/ui/progress"
-import { Button } from "@/components/ui/button"
+import { useCallback } from "react";
+import { useDropzone } from "react-dropzone";
+import { Upload, File as FileIcon } from "lucide-react";
+import { cn } from "@/lib/utils";
+import { Progress } from "@/components/ui/progress";
 
 interface UploadZoneProps {
-  onUpload: (files: File[]) => void
-  uploadProgress: { [key: string]: number }
+  onUpload: (files: File[]) => void;
+  uploadProgress: { [key: string]: number };
 }
 
 export function UploadZone({ onUpload, uploadProgress }: UploadZoneProps) {
   const onDrop = useCallback(
     (acceptedFiles: File[]) => {
-      onUpload(acceptedFiles)
+      onUpload(acceptedFiles);
     },
-    [onUpload]
-  )
+    [onUpload],
+  );
 
-  const { getRootProps, getInputProps, isDragActive } = useDropzone({ onDrop })
+  const { getRootProps, getInputProps, isDragActive } = useDropzone({ onDrop });
 
-  const uploadingFiles = Object.entries(uploadProgress)
+  const uploadingFiles = Object.entries(uploadProgress);
 
   return (
     <div className="space-y-4">
@@ -30,14 +29,16 @@ export function UploadZone({ onUpload, uploadProgress }: UploadZoneProps) {
           "border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-colors max-w-2xl mx-auto",
           isDragActive
             ? "border-purple-500 bg-purple-500/10"
-            : "border-white/10 hover:border-white/20 hover:bg-white/5"
+            : "border-white/10 hover:border-white/20 hover:bg-white/5",
         )}
       >
         <input {...getInputProps()} />
         <div className="flex flex-col items-center gap-2">
           <Upload className="h-10 w-10 text-white/40" />
           {isDragActive ? (
-            <p className="text-lg font-medium text-white">Drop the files here ...</p>
+            <p className="text-lg font-medium text-white">
+              Drop the files here ...
+            </p>
           ) : (
             <div className="space-y-1">
               <p className="text-lg font-medium text-white/90">
@@ -78,5 +79,5 @@ export function UploadZone({ onUpload, uploadProgress }: UploadZoneProps) {
         </div>
       )}
     </div>
-  )
+  );
 }
