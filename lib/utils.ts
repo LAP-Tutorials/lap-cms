@@ -43,34 +43,25 @@ export function sanitizeUrl(url: string | null | undefined): string {
   if (!url) return "";
   const trimmed = url.trim();
 
-  // List of dangerous protocols to block
-  const dangerousProtocols = /^(javascript|data|vbscript|file|blob):/i;
-
-  // Check raw input for dangerous protocols
-  if (dangerousProtocols.test(trimmed)) {
+  try {
+    // Try parsing as absolute URL
+    const parsed = new URL(trimmed);
+    // Only allow http and https
+    if (parsed.protocol === "http:" || parsed.protocol === "https:") {
+      return parsed.href;
+    }
     return "";
-  }
-
-  // Allow http/https and relative paths only
-  // Matches:
-  // 1. / (absolute path)
-  // 2. ./ or ../ (relative path)
-  // 3. http:// or https:// (absolute URL)
-  const safePattern = /^(\/|\.\/|\.\.\/|https?:\/\/)/i;
-
-  if (safePattern.test(trimmed)) {
-    try {
-      // Decode URL and re-check for encoded dangerous protocols
-      // e.g., "javascript%3A" would decode to "javascript:"
+  } catch (e) {
+    // If it fails to parse, it might be a relative path
+    // Allow clean relative paths
+    if (/^(\/|\.\/|\.\.\/)/.test(trimmed)) {
+      // Ensure it doesn't contain a hidden javascript: protocol (e.g. decoded)
       const decoded = decodeURIComponent(trimmed);
-      if (dangerousProtocols.test(decoded)) {
+      if (/^(javascript|data|vbscript|file|blob):/i.test(decoded)) {
         return "";
       }
-    } catch (e) {
-      // decodeURIComponent can throw on malformed URLs; we intentionally ignore the error here
-      // because the protocol has already been validated and logging every malformed URL would be noisy.
+      return trimmed;
     }
-    return trimmed;
   }
 
   return "";
