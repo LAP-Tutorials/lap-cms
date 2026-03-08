@@ -1,5 +1,6 @@
 import { type ClassValue, clsx } from "clsx";
 import { twMerge } from "tailwind-merge";
+import { sanitizeUrl as braintreeSanitizeUrl } from "@braintree/sanitize-url";
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -41,27 +42,8 @@ export function generateSlugFromTitle(title: string): string {
 
 export function sanitizeUrl(url: string | null | undefined): string {
   if (!url) return "";
-
-  try {
-    // Parse using a dummy origin to handle relative URLs natively
-    const parsed = new URL(url.trim(), "http://dummy.local");
-
-    // Only allow safe protocols
-    if (parsed.protocol === "http:" || parsed.protocol === "https:") {
-      // If the origin is our dummy local origin, it was a relative URL!
-      if (parsed.hostname === "dummy.local") {
-        // Return only the path and query string (reconstructed, so taint is dropped!)
-        return parsed.pathname + parsed.search + parsed.hash;
-      }
-
-      // Otherwise, it was an absolute URL with http/https
-      return parsed.href;
-    }
-  } catch (e) {
-    // URL was completely unparsable
-  }
-
-  return "";
+  const sanitized = braintreeSanitizeUrl(url);
+  return sanitized === "about:blank" ? "" : sanitized;
 }
 
 /**
