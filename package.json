@@ -84,6 +84,7 @@
     "typescript": "^5"
   },
   "overrides": {
-    "lodash": ">=4.17.23"
+    "lodash": ">=4.17.23",
+    "minimatch": ">=9.0.7"
   }
 }
