@@ -1,108 +1,106 @@
-"use client"
+"use client";
 
-import { type FormEvent, useState } from "react"
-import { signInWithEmailAndPassword, GoogleAuthProvider, signInWithPopup } from "firebase/auth"
-import { doc, getDoc, setDoc, serverTimestamp } from "firebase/firestore"
-import { auth, db } from "@/lib/firebase"
-import { useRouter } from "next/navigation"
-import { FaEye, FaEyeSlash } from "react-icons/fa"
-import { FcGoogle } from "react-icons/fc"
-import PageTitle from "@/components/PageTitle"
-import { Button } from "@/components/ui/button"
+import { type FormEvent, useState } from "react";
+import {
+  signInWithEmailAndPassword,
+  GoogleAuthProvider,
+  signInWithPopup,
+  signOut,
+} from "firebase/auth";
+import { doc, getDoc, setDoc, serverTimestamp } from "firebase/firestore";
+import { auth, db } from "@/lib/firebase";
+import { useRouter } from "next/navigation";
+import { FaEye, FaEyeSlash } from "react-icons/fa";
+import { FcGoogle } from "react-icons/fc";
+import PageTitle from "@/components/PageTitle";
+import { Button } from "@/components/ui/button";
 
 export default function LoginPage() {
-  const [email, setEmail] = useState("")
-  const [password, setPassword] = useState("")
-  const [error, setError] = useState("")
-  const [loading, setLoading] = useState(false)
-  const [googleLoading, setGoogleLoading] = useState(false)
-  const [showPassword, setShowPassword] = useState(false)
-  const router = useRouter()
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [googleLoading, setGoogleLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const router = useRouter();
 
   const handleLogin = async (e: FormEvent) => {
-    e.preventDefault()
-    setLoading(true)
-    setError("")
+    e.preventDefault();
+    setLoading(true);
+    setError("");
 
     try {
-      await signInWithEmailAndPassword(auth, email, password)
-      router.push("/admin")
+      await signInWithEmailAndPassword(auth, email, password);
+      router.push("/admin");
     } catch (err: any) {
-      handleAuthError(err)
+      handleAuthError(err);
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }
+  };
 
   const handleGoogleSignIn = async () => {
-    setGoogleLoading(true)
-    setError("")
-    const provider = new GoogleAuthProvider()
+    setGoogleLoading(true);
+    setError("");
+    const provider = new GoogleAuthProvider();
 
     try {
-      const result = await signInWithPopup(auth, provider)
-      const user = result.user
+      const result = await signInWithPopup(auth, provider);
+      const user = result.user;
 
       // Check if user exists in 'authors' collection
-      const userDocRef = doc(db, "authors", user.uid)
-      const userDoc = await getDoc(userDocRef)
+      const userDocRef = doc(db, "authors", user.uid);
+      const userDoc = await getDoc(userDocRef);
 
       if (!userDoc.exists()) {
-        // New user, create a document in 'authors'
-        await setDoc(userDocRef, {
-          uid: user.uid,
-          name: user.displayName || "New User",
-          email: user.email,
-          avatar: user.photoURL || "",
-          role: "manager", // Default role for new sign-ups
-          city: "",
-          job: "",
-          biography: { body: "", summary: "" },
-          socials: {},
-          slug: user.uid,
-          createdAt: serverTimestamp(),
-          dateJoined: serverTimestamp(),
-        })
+        // User is not authorized, prevent account creation
+        await signOut(auth);
+        setError("You do not have access to this site.");
+        return;
       }
 
-      router.push("/admin")
+      router.push("/admin");
     } catch (err: any) {
-      handleAuthError(err)
+      handleAuthError(err);
     } finally {
-      setGoogleLoading(false)
+      setGoogleLoading(false);
     }
-  }
+  };
 
   const handleAuthError = (err: any) => {
-    let friendlyMessage = ""
+    let friendlyMessage = "";
     switch (err.code) {
       case "auth/invalid-email":
-        friendlyMessage = "The email address is invalid."
-        break
+        friendlyMessage = "The email address is invalid.";
+        break;
       case "auth/user-not-found":
-        friendlyMessage = "No account found with this email address."
-        break
+        friendlyMessage = "No account found with this email address.";
+        break;
       case "auth/wrong-password":
-        friendlyMessage = "Incorrect password. Please try again."
-        break
+        friendlyMessage = "Incorrect password. Please try again.";
+        break;
       case "auth/too-many-requests":
-        friendlyMessage = "Too many failed attempts. Please try again later."
-        break
+        friendlyMessage = "Too many failed attempts. Please try again later.";
+        break;
       case "auth/popup-closed-by-user":
-        friendlyMessage = "Sign-in popup was closed. Please try again."
-        break
+        friendlyMessage = "Sign-in popup was closed. Please try again.";
+        break;
       default:
-        friendlyMessage = "An error occurred. Please try again."
+        friendlyMessage = "An error occurred. Please try again.";
     }
-    setError(friendlyMessage)
-    console.error("Authentication error:", err)
-  }
+    setError(friendlyMessage);
+    console.error("Authentication error:", err);
+  };
 
   return (
     <div className="flex items-center justify-center min-h-screen text-white">
       <div className="p-9 border border-white w-[90%] md:w-[60%] lg:w-[35%]">
         <div className="mb-5">
-          <PageTitle className="sr-only" imgSrc="/images/titles/lap-cms.svg" imgAlt="Dashboard">
+          <PageTitle
+            className="sr-only"
+            imgSrc="/images/titles/lap-cms.svg"
+            imgAlt="Dashboard"
+          >
             L.A.P CMS
           </PageTitle>
         </div>
@@ -171,5 +169,5 @@ export default function LoginPage() {
         </Button>
       </div>
     </div>
-  )
+  );
 }
