@@ -42,6 +42,16 @@ export function generateSlugFromTitle(title: string): string {
 
 export function sanitizeUrl(url: string | null | undefined): string {
   if (!url) return "";
+
+  // Fast path for safe URLs to preserve encoding (like Firebase %2F)
+  if (
+    url.startsWith("http://") ||
+    url.startsWith("https://") ||
+    url.startsWith("/")
+  ) {
+    return url;
+  }
+
   const sanitized = braintreeSanitizeUrl(url);
   return sanitized === "about:blank" ? "" : sanitized;
 }
