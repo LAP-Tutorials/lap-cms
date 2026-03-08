@@ -24,7 +24,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Loader2, ImageIcon, Save } from "lucide-react";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
-import { generateSlugFromTitle, sanitizeText } from "@/lib/utils";
+import { generateSlugFromTitle, sanitizeUrl, sanitizeText } from "@/lib/utils";
 import { MarkdownToolbar } from "@/components/markdown-toolbar";
 import { AssetManager } from "@/components/admin/assets/asset-manager";
 import { convertImageToWebP } from "@/lib/image-utils";
@@ -583,14 +583,7 @@ export default function NewArticlePage() {
           {img ? (
             <div className="relative">
               <img
-                src={
-                  img &&
-                  (img.startsWith("http://") ||
-                    img.startsWith("https://") ||
-                    img.startsWith("/"))
-                    ? img
-                    : "/placeholder.svg"
-                }
+                src={sanitizeUrl(img) || "/placeholder.svg"}
                 alt={sanitizeText(imgAlt) || "Thumbnail Preview"}
                 className="max-h-64 object-contain border border-white/20 rounded-lg"
                 onError={(e) => {

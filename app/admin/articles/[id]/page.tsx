@@ -22,7 +22,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import { Breadcrumb } from "@/components/breadcrumb";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { formatDate, sanitizeText } from "@/lib/utils";
+import { formatDate, sanitizeUrl, sanitizeText } from "@/lib/utils";
 import {
   Loader2,
   AlertTriangle,
@@ -629,14 +629,7 @@ export default function EditArticlePage() {
           {img ? (
             <div className="relative">
               <img
-                src={
-                  img &&
-                  (img.startsWith("http://") ||
-                    img.startsWith("https://") ||
-                    img.startsWith("/"))
-                    ? img
-                    : "/placeholder.svg"
-                }
+                src={sanitizeUrl(img) || "/placeholder.svg"}
                 alt={sanitizeText(imgAlt) || "Thumbnail Preview"}
                 className="max-h-64 object-contain border border-white/20 rounded-lg"
                 onError={(e) => {

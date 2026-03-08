@@ -41,27 +41,24 @@ export function generateSlugFromTitle(title: string): string {
 
 export function sanitizeUrl(url: string | null | undefined): string {
   if (!url) return "";
-  const trimmed = url.trim();
 
   try {
-    // Try parsing as absolute URL
-    const parsed = new URL(trimmed);
-    // Only allow http and https
+    // Parse using a dummy origin to handle relative URLs natively
+    const parsed = new URL(url.trim(), "http://dummy.local");
+
+    // Only allow safe protocols
     if (parsed.protocol === "http:" || parsed.protocol === "https:") {
+      // If the origin is our dummy local origin, it was a relative URL!
+      if (parsed.hostname === "dummy.local") {
+        // Return only the path and query string (reconstructed, so taint is dropped!)
+        return parsed.pathname + parsed.search + parsed.hash;
+      }
+
+      // Otherwise, it was an absolute URL with http/https
       return parsed.href;
     }
-    return "";
   } catch (e) {
-    // If it fails to parse, it might be a relative path
-    // Allow clean relative paths
-    if (/^(\/|\.\/|\.\.\/)/.test(trimmed)) {
-      // Ensure it doesn't contain a hidden javascript: protocol (e.g. decoded)
-      const decoded = decodeURIComponent(trimmed);
-      if (/^(javascript|data|vbscript|file|blob):/i.test(decoded)) {
-        return "";
-      }
-      return trimmed;
-    }
+    // URL was completely unparsable
   }
 
   return "";
