@@ -6,8 +6,9 @@ import {
   GoogleAuthProvider,
   signInWithPopup,
   signOut,
+  deleteUser,
 } from "firebase/auth";
-import { doc, getDoc, setDoc, serverTimestamp } from "firebase/firestore";
+import { doc, getDoc } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
 import { useRouter } from "next/navigation";
 import { FaEye, FaEyeSlash } from "react-icons/fa";
@@ -30,7 +31,21 @@ export default function LoginPage() {
     setError("");
 
     try {
-      await signInWithEmailAndPassword(auth, email, password);
+      const result = await signInWithEmailAndPassword(auth, email, password);
+      const user = result.user;
+
+      // Check if user exists in 'authors' collection
+      const userDocRef = doc(db, "authors", user.uid);
+      const userDoc = await getDoc(userDocRef);
+
+      if (!userDoc.exists()) {
+        // User is not authorized, delete from Auth if they manage to log in without a profile
+        await deleteUser(user);
+        await signOut(auth);
+        setError("You do not have access to this site.");
+        return;
+      }
+
       router.push("/admin");
     } catch (err: any) {
       handleAuthError(err);
@@ -53,7 +68,8 @@ export default function LoginPage() {
       const userDoc = await getDoc(userDocRef);
 
       if (!userDoc.exists()) {
-        // User is not authorized, prevent account creation
+        // User is not authorized, prevent account creation by deleting the auth profile
+        await deleteUser(user);
         await signOut(auth);
         setError("You do not have access to this site.");
         return;
