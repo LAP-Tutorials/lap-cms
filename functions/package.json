@@ -30,7 +30,7 @@
   "private": true,
   "overrides": {
     "lodash": ">=4.17.23",
-    "fast-xml-parser": ">=5.3.8",
+    "fast-xml-parser": ">=5.5.7",
     "minimatch": ">=9.0.7",
     "@tootallnate/once": ">=3.0.1"
   }

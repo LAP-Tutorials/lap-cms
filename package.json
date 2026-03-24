@@ -55,7 +55,7 @@
     "markdown-to-jsx": "^7.7.4",
     "marked": "^15.0.7",
     "msw": "^2.7.3",
-    "next": "^15.5.10",
+    "next": "^15.5.14",
     "next-themes": "^0.4.6",
     "react": "^19.2.3",
     "react-day-picker": "^9.6.5",
@@ -85,6 +85,7 @@
     "typescript": "^5"
   },
   "overrides": {
+    "fast-xml-parser": ">=5.5.7",
     "lodash": ">=4.17.23",
     "minimatch": ">=9.0.7",
     "@tootallnate/once": ">=3.0.1"
