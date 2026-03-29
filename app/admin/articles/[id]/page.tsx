@@ -22,7 +22,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import { Breadcrumb } from "@/components/breadcrumb";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { formatDate, sanitizeUrl, sanitizeText } from "@/lib/utils";
+import { formatDate, sanitizeUrl } from "@/lib/utils";
 import {
   Loader2,
   AlertTriangle,
@@ -66,6 +66,23 @@ export default function EditArticlePage() {
   const [showLabelSuggestions, setShowLabelSuggestions] = useState(false);
   const labelSuggestionsRef = useRef<HTMLDivElement>(null);
   const [copied, setCopied] = useState(false);
+
+  const trimmedImg = img.trim();
+  const thumbnailPreviewSrc = (() => {
+    if (!trimmedImg) return "";
+    if (trimmedImg.startsWith("/")) return trimmedImg;
+
+    try {
+      const parsed = new URL(trimmedImg);
+      if (parsed.protocol === "http:" || parsed.protocol === "https:") {
+        return parsed.toString();
+      }
+    } catch {
+      return "";
+    }
+
+    return "";
+  })();
 
   const router = useRouter();
   const params = useParams();
@@ -234,7 +251,7 @@ export default function EditArticlePage() {
           title,
           content,
           description,
-          img,
+          img: sanitizeUrl(trimmedImg),
           imgAlt,
           label,
           slug,
@@ -629,8 +646,8 @@ export default function EditArticlePage() {
           {img ? (
             <div className="relative">
               <img
-                src={sanitizeUrl(img) || "/placeholder.svg"}
-                alt={sanitizeText(imgAlt) || "Thumbnail Preview"}
+                src={thumbnailPreviewSrc || "/placeholder.svg"}
+                alt={imgAlt.trim() || "Thumbnail Preview"}
                 className="max-h-64 object-contain border border-white/20 rounded-lg"
                 onError={(e) => {
                   e.currentTarget.src = "/placeholder.svg?height=200&width=400";
@@ -755,7 +772,7 @@ export default function EditArticlePage() {
         </div>
 
         {/* Popularity */}
-        <div className="mb-6 flex items-center space-x-2">
+        {/* <div className="mb-6 flex items-center space-x-2">
           <Checkbox
             id="popularity"
             checked={popularity}
@@ -768,7 +785,7 @@ export default function EditArticlePage() {
             Mark as popular article
           </label>
         </div>
-
+*/}
         {/* Read Time */}
         <div className="mb-6">
           <label className="block mb-2 font-medium">Read Time:</label>

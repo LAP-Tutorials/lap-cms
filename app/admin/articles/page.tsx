@@ -37,6 +37,24 @@ interface Article {
   label: string;
 }
 
+const getArticleViewConfig = (article: Article) => {
+  const hasPublicView = article.publish && Boolean(article.slug);
+
+  if (hasPublicView) {
+    return {
+      href: `https://lap-docs.netlify.app/posts/${article.slug}`,
+      title: "View live article",
+    };
+  }
+
+  return {
+    href: `/admin/articles/${article.id}/preview`,
+    title: article.scheduledPublishDate
+      ? "Preview scheduled article"
+      : "Preview draft article",
+  };
+};
+
 type SortField =
   | "title"
   | "authorName"
@@ -289,6 +307,7 @@ export default function ArticlesPage() {
               <tbody className="divide-y divide-white/10">
                 {filteredArticles.map((article) => {
                   const articleData = article as Article;
+                  const articleView = getArticleViewConfig(articleData);
                   return (
                     <tr key={articleData.id} className="hover:bg-white/5">
                       {/* Thumbnail */}
@@ -373,9 +392,10 @@ export default function ArticlesPage() {
                         <div className="flex items-center space-x-2">
                           <Button asChild size="icon" variant="ghost">
                             <Link
-                              href={`https://lap-docs.netlify.app/posts/${articleData.slug}`}
+                              href={articleView.href}
                               target="_blank"
-                              title="View article"
+                              rel="noreferrer"
+                              title={articleView.title}
                             >
                               <Eye className="h-4 w-4" />
                             </Link>

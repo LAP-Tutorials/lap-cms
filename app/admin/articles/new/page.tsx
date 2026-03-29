@@ -24,7 +24,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Loader2, ImageIcon, Save } from "lucide-react";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
-import { generateSlugFromTitle, sanitizeUrl, sanitizeText } from "@/lib/utils";
+import { generateSlugFromTitle, sanitizeUrl } from "@/lib/utils";
 import { MarkdownToolbar } from "@/components/markdown-toolbar";
 import { AssetManager } from "@/components/admin/assets/asset-manager";
 import { convertImageToWebP } from "@/lib/image-utils";
@@ -71,6 +71,23 @@ export default function NewArticlePage() {
   const [existingLabels, setExistingLabels] = useState<string[]>([]);
   const [showLabelSuggestions, setShowLabelSuggestions] = useState(false);
   const labelSuggestionsRef = useRef<HTMLDivElement>(null);
+
+  const trimmedImg = img.trim();
+  const thumbnailPreviewSrc = (() => {
+    if (!trimmedImg) return "";
+    if (trimmedImg.startsWith("/")) return trimmedImg;
+
+    try {
+      const parsed = new URL(trimmedImg);
+      if (parsed.protocol === "http:" || parsed.protocol === "https:") {
+        return parsed.toString();
+      }
+    } catch {
+      return "";
+    }
+
+    return "";
+  })();
 
   const router = useRouter();
   const { toast } = useToast();
@@ -319,7 +336,7 @@ export default function NewArticlePage() {
           title,
           content,
           description,
-          img,
+          img: sanitizeUrl(trimmedImg),
           imgAlt,
           label,
           popularity,
@@ -583,8 +600,8 @@ export default function NewArticlePage() {
           {img ? (
             <div className="relative">
               <img
-                src={sanitizeUrl(img) || "/placeholder.svg"}
-                alt={sanitizeText(imgAlt) || "Thumbnail Preview"}
+                src={thumbnailPreviewSrc || "/placeholder.svg"}
+                alt={imgAlt.trim() || "Thumbnail Preview"}
                 className="max-h-64 object-contain border border-white/20 rounded-lg"
                 onError={(e) => {
                   e.currentTarget.src = "/placeholder.svg?height=200&width=400";
@@ -677,7 +694,7 @@ export default function NewArticlePage() {
         </div>
 
         {/* Popularity */}
-        <div className="mb-6 flex items-center space-x-2">
+     {/*}   <div className="mb-6 flex items-center space-x-2">
           <Checkbox
             id="popularity"
             checked={popularity}
@@ -689,7 +706,7 @@ export default function NewArticlePage() {
           >
             Mark as popular article
           </label>
-        </div>
+        </div> */}
 
         {/* Read Time */}
         <div className="mb-6">
