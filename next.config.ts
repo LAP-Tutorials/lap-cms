@@ -2,6 +2,14 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   /* config options here */
+  images: {
+    remotePatterns: [
+      {
+        protocol: "https",
+        hostname: "firebasestorage.googleapis.com",
+      },
+    ],
+  },
   async headers() {
     return [
       {
@@ -29,16 +37,16 @@ const nextConfig: NextConfig = {
           },
           {
             key: "Referrer-Policy",
-            value: "strict-origin-when-cross-origin",
+            value: "no-referrer-when-downgrade",
           },
           {
             key: "Permissions-Policy",
-            value:
-              "camera=(), microphone=(), geolocation=(), interest-cohort=()",
+            value: "camera=(), microphone=(), geolocation=()",
           },
           {
             key: "X-Robots-Tag",
-            value: "noindex, nofollow, nosnippet, noarchive, noimageindex",
+            value:
+              "noindex, nofollow, nosnippet, noarchive, noimageindex, noai, noimageai",
           },
         ],
       },

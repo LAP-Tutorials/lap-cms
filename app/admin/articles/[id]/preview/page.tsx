@@ -3,20 +3,16 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
+import Image from "next/image";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
-import {
-  ArrowLeft,
-  CalendarDays,
-  Clock3,
-  ExternalLink,
-  FileText,
-  Pencil,
-} from "lucide-react";
-import { Breadcrumb } from "@/components/breadcrumb";
-import { Button } from "@/components/ui/button";
+
+import ArticleContent from "@/components/ArticleContent";
+import PostNavigation from "@/components/PostNavigation";
+
 import { useDocument } from "@/hooks/use-firestore-query";
 import { formatDate, sanitizeUrl } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
 
 interface ArticlePreview {
   id: string;
@@ -33,15 +29,23 @@ interface ArticlePreview {
   date?: any;
   scheduledPublishDate?: any;
   read?: string;
+  topicPath?: string;
+  video?: {
+    url: string;
+    embedUrl: string;
+    thumbnailUrl?: string;
+  };
 }
 
 export default function AdminArticlePreviewPage() {
   const params = useParams();
   const articleId = Array.isArray(params.id) ? params.id[0] : params.id;
+
   const { data: article, isLoading } = useDocument<ArticlePreview>(
     "articles",
     articleId ?? null,
   );
+
   const [previewHtml, setPreviewHtml] = useState("");
 
   const articleContent = useMemo(() => {
@@ -51,24 +55,36 @@ export default function AdminArticlePreviewPage() {
       : JSON.stringify(article.content, null, 2);
   }, [article?.content]);
 
-  const previewImage = useMemo(() => sanitizeUrl(article?.img), [article?.img]);
   const isPublished = Boolean(article?.publish);
-  const liveHref =
-    article?.slug && isPublished
-      ? `https://lap-docs.netlify.app/posts/${article.slug}`
-      : null;
 
   useEffect(() => {
     const generatePreview = async () => {
       if (!articleContent) {
-        setPreviewHtml("<p>No article content yet.</p>");
+        setPreviewHtml(
+          "<p className='text-white/40 italic text-xl'>No article content yet...</p>",
+        );
         return;
       }
 
       try {
+        const renderer = new marked.Renderer();
+
+        // Generate IDs for headings to support TOC
+        renderer.heading = ({
+          text,
+          depth,
+        }: {
+          text: string;
+          depth: number;
+        }) => {
+          const escapedText = text.toLowerCase().replace(/[^\w]+/g, "-");
+          return `<h${depth} id="${escapedText}">${text}</h${depth}>`;
+        };
+
         marked.setOptions({
           gfm: true,
           breaks: true,
+          renderer,
         });
 
         const rawHtml = await marked.parse(articleContent);
@@ -82,6 +98,9 @@ export default function AdminArticlePreviewPage() {
             "scrolling",
             "src",
             "width",
+            "id",
+            "title",
+            "referrerpolicy",
           ],
         });
 
@@ -95,18 +114,14 @@ export default function AdminArticlePreviewPage() {
     generatePreview();
   }, [articleContent]);
 
-  const breadcrumbItems = [
-    { label: "Dashboard", href: "/admin" },
-    { label: "Articles", href: "/admin/articles" },
-    { label: article?.title || "Preview" },
-  ];
-
   if (isLoading) {
     return (
-      <div className="min-h-screen px-4 py-8 text-white">
-        <div className="flex items-center gap-3 text-white/70">
-          <div className="h-5 w-5 animate-spin rounded-full border-2 border-white/20 border-t-white" />
-          Loading article preview...
+      <div className="min-h-screen flex items-center justify-center bg-[#121212] text-white">
+        <div className="flex flex-col items-center gap-4">
+          <div className="h-8 w-8 animate-spin rounded-full border-2 border-white/10 border-t-[#8a2be2]" />
+          <p className="text-xs uppercase tracking-[0.3em] text-white/40 font-bold">
+            Preparing Production Preview
+          </p>
         </div>
       </div>
     );
@@ -114,21 +129,20 @@ export default function AdminArticlePreviewPage() {
 
   if (!article) {
     return (
-      <div className="min-h-screen px-4 py-8 text-white">
-        <div className="mb-6">
-          <Breadcrumb items={breadcrumbItems} />
-        </div>
-
-        <div className="max-w-3xl rounded-none border border-white/10 bg-white/5 p-8">
-          <h1 className="text-2xl font-semibold">Article not found</h1>
-          <p className="mt-3 text-white/70">
-            This article could not be loaded for preview.
+      <div className="min-h-screen bg-[#121212] px-6 py-20 text-white flex items-center justify-center">
+        <div className="max-w-xl text-center">
+          <h1 className="text-4xl font-bold mb-4 tracking-tighter uppercase">
+            ARTICLE NOT FOUND
+          </h1>
+          <p className="text-white/50 mb-8 text-lg">
+            The article you're looking for doesn't exist or has been removed.
           </p>
-          <Button asChild className="mt-6" variant="outline">
-            <Link href="/admin/articles">
-              <ArrowLeft className="mr-2 h-4 w-4" />
-              Back to articles
-            </Link>
+          <Button
+            asChild
+            variant="outline"
+            className="rounded-full border-white/20 px-8 hover:bg-white hover:text-black transition-all"
+          >
+            <Link href="/admin/articles">Back to Dashboard</Link>
           </Button>
         </div>
       </div>
@@ -136,117 +150,112 @@ export default function AdminArticlePreviewPage() {
   }
 
   return (
-    <div className="min-h-screen px-4 pb-10 text-white">
-      <div className="mb-4 mt-6 md:mt-0">
-        <Breadcrumb items={breadcrumbItems} />
-      </div>
-
-      <div className="mb-6 flex flex-col gap-4 border border-white/10 bg-white/5 p-5 lg:flex-row lg:items-start lg:justify-between">
-        <div className="space-y-4">
-          <div className="flex flex-wrap items-center gap-2">
-            <span
-              className={`inline-flex items-center rounded-none px-3 py-1 text-xs font-semibold uppercase tracking-wide ${
-                isPublished
-                  ? "bg-emerald-500/15 text-emerald-300"
-                  : article.scheduledPublishDate
-                    ? "bg-orange-500/15 text-orange-300"
-                    : "bg-sky-500/15 text-sky-300"
-              }`}
+    <main className="max-w-[95rem] w-full mx-auto px-4 md:pt-8 sm:pt-4 xs:pt-2 lg:pb-4 md:pb-4 sm:pb-2 xs:pb-2 text-white bg-[#121212]">
+      {/* CMS UI Elements (Sticky) */}
+      <div className="sticky top-0 z-50 bg-[#121212]/90 backdrop-blur-md border-b border-white/5 px-4 py-2 -mx-4 mb-4">
+        <div className="max-w-[95rem] mx-auto flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2">
+              <div
+                className={`w-2 h-2 rounded-full ${isPublished ? "bg-emerald-500" : "bg-orange-500"}`}
+              />
+              <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/60">
+                {isPublished ? "Live" : "Draft Preview"}
+              </span>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button
+              asChild
+              size="sm"
+              variant="ghost"
+              className="text-white/60 hover:text-white hover:bg-white/5 rounded-full px-4"
             >
-              {isPublished
-                ? "Live on public site"
-                : article.scheduledPublishDate
-                  ? "Scheduled preview"
-                  : "Draft preview"}
-            </span>
-            {article.label ? (
-              <span className="inline-flex items-center rounded-none border border-white/10 bg-white/5 px-3 py-1 text-xs text-white/70">
-                {article.label}
-              </span>
-            ) : null}
-          </div>
-
-          <div>
-            <h1 className="text-3xl font-semibold sm:text-4xl">
-              {article.title || "Untitled article"}
-            </h1>
-            {article.description ? (
-              <p className="mt-3 max-w-3xl text-base text-white/70 sm:text-lg">
-                {article.description}
-              </p>
-            ) : null}
-          </div>
-
-          <div className="flex flex-wrap gap-4 text-sm text-white/60">
-            <span className="inline-flex items-center gap-2">
-              <FileText className="h-4 w-4" />
-              {article.authorName || "Unknown author"}
-            </span>
-            {article.read ? (
-              <span className="inline-flex items-center gap-2">
-                <Clock3 className="h-4 w-4" />
-                {article.read}
-              </span>
-            ) : null}
-            {article.createdAt ? (
-              <span className="inline-flex items-center gap-2">
-                <CalendarDays className="h-4 w-4" />
-                Created {formatDate(article.createdAt.toDate?.())}
-              </span>
-            ) : null}
-            {article.scheduledPublishDate && !isPublished ? (
-              <span className="inline-flex items-center gap-2 text-orange-300">
-                <CalendarDays className="h-4 w-4" />
-                Scheduled for{" "}
-                {formatDate(article.scheduledPublishDate.toDate?.())}
-              </span>
-            ) : null}
-            {article.date && isPublished ? (
-              <span className="inline-flex items-center gap-2 text-emerald-300">
-                <CalendarDays className="h-4 w-4" />
-                Published {formatDate(article.date.toDate?.() || article.date)}
-              </span>
-            ) : null}
-          </div>
-        </div>
-
-        <div className="flex flex-wrap gap-3">
-          <Button asChild variant="outline">
-            <Link href={`/admin/articles/${article.id}`}>
-              <Pencil className="mr-2 h-4 w-4" />
-              Edit article
-            </Link>
-          </Button>
-          {liveHref ? (
-            <Button asChild>
-              <Link href={liveHref} target="_blank" rel="noreferrer">
-                <ExternalLink className="mr-2 h-4 w-4" />
-                View live post
-              </Link>
+              <Link href={`/admin/articles/${article.id}`}>Edit Article</Link>
             </Button>
-          ) : null}
+          </div>
         </div>
       </div>
 
-      {previewImage ? (
-        <div className="mb-8 overflow-hidden border border-white/10 bg-white/5">
-          <img
-            src={previewImage}
-            alt={article.imgAlt?.trim() || article.title || "Article preview"}
-            className="max-h-[28rem] w-full object-cover"
-            onError={(event) => {
-              event.currentTarget.src = "/placeholder.svg?height=480&width=1280";
-            }}
-          />
-        </div>
-      ) : null}
+      <PostNavigation href="/admin/articles">POSTS</PostNavigation>
 
-      <article className="border border-white/10 bg-[#0d0d0d] p-6 sm:p-8">
-        <div
-          className="markdown-body mx-auto max-w-4xl"
-          dangerouslySetInnerHTML={{ __html: previewHtml }}
-        />
+      <article className="grid md:grid-cols-2 gap-6 md:gap-10 pb-6 md:pb-24 items-start">
+        <div>
+          <h1 className="text-subtitle">{article.title}</h1>
+        </div>
+
+        <div className="flex flex-col gap-6 md:gap-8">
+          <Link
+            href={article.topicPath || "#"}
+            className="px-3 py-2 border border-white rounded-full w-fit h-fit hover:bg-white hover:text-black transition ml-auto"
+          >
+            <span className="uppercase">{article.label}</span>
+          </Link>
+          <p className="text-lg md:text-xl font-light text-white/90 leading-relaxed">
+            {article.description}
+          </p>
+          <div className="flex flex-col sm:flex-row md:items-center gap-2 sm:gap-6 text-base font-medium">
+            <span className="flex flex-wrap">
+              <p className="font-semibold pr-2">Author:</p>
+              <p className="text-[#8a2be2]">{article.authorName}</p>
+            </span>
+            <span className="flex flex-wrap">
+              <p className="font-semibold pr-2">Published:</p>
+              <time>
+                {isPublished && article.date
+                  ? new Date(
+                      article.date.toDate?.() || article.date,
+                    ).toLocaleDateString("en-US", {
+                      year: "numeric",
+                      month: "long",
+                      day: "numeric",
+                    })
+                  : article.createdAt
+                    ? new Date(article.createdAt.toDate?.()).toLocaleDateString(
+                        "en-US",
+                        {
+                          year: "numeric",
+                          month: "long",
+                          day: "numeric",
+                        },
+                      )
+                    : "---"}
+              </time>
+            </span>
+
+            <span className="flex flex-wrap items-center">
+              <p className="font-semibold pr-2">Read:</p>
+              <p>{article.read}</p>
+            </span>
+            {article.video ? (
+              <a
+                href={article.video.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="px-3 py-2 border border-white rounded-full w-fit h-fit hover:bg-white hover:text-black transition"
+              >
+                Watch Source Video
+              </a>
+            ) : null}
+          </div>
+        </div>
       </article>
-    </div>
+
+      <div className="relative w-full h-auto aspect-[16/9] mb-12">
+        {article.img && (
+          <Image
+            src={article.img}
+            alt={article.imgAlt || article.title || ""}
+            fill
+            sizes="(min-width: 1520px) 1520px, 100vw"
+            className="object-cover w-full h-auto"
+          />
+        )}
+      </div>
+
+      <div className="w-full">
+        <ArticleContent htmlContent={previewHtml} />
+      </div>
+    </main>
   );
 }
