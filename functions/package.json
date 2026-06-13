@@ -14,14 +14,14 @@
   },
   "main": "lib/index.js",
   "dependencies": {
-    "@google-analytics/data": "^4.1.0",
+    "@google-analytics/data": "^5.2.1",
     "@types/jszip": "^3.4.0",
     "dotenv": "^17.2.3",
     "firebase-admin": "^13.6.0",
-    "firebase-functions": "^7.0.2",
+    "firebase-functions": "^7.1.0",
     "jszip": "^3.10.1",
     "node-fetch": "^3.3.2",
-    "qs": "^6.14.2"
+    "qs": "^6.15.1"
   },
   "devDependencies": {
     "firebase-functions-test": "^3.4.1",
@@ -29,7 +29,7 @@
   },
   "private": true,
   "overrides": {
-    "brace-expansion": "5.0.5",
+    "brace-expansion": "^2.0.1",
     "node-forge": "1.4.0",
     "path-to-regexp": "0.1.13",
     "anymatch": {
@@ -44,6 +44,7 @@
     "lodash": ">=4.17.23",
     "fast-xml-parser": ">=5.5.7",
     "minimatch": ">=9.0.7",
-    "@tootallnate/once": ">=3.0.1"
+    "@tootallnate/once": ">=3.0.1",
+    "uuid": "^11.1.0"
   }
 }
