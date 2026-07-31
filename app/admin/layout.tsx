@@ -82,7 +82,7 @@ export default function AdminLayout({
   return (
     <div className="flex text-white">
       <AdminSidebar />
-      <main className="flex-1 ml-0 md:ml-60 p-4 pt-[calc(env(safe-area-inset-top,1rem)+1rem)] md:pt-4 w-full relative z-[900]">
+      <main className="flex-1 min-w-0 ml-0 md:ml-60 p-4 pt-[calc(env(safe-area-inset-top,1rem)+1rem)] md:pt-4 relative z-[900]">
         {children}
       </main>
     </div>
