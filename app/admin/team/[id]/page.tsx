@@ -3,12 +3,12 @@
 import type React from "react";
 
 import { useState, useEffect } from "react";
-import { db, storage } from "@/lib/firebase";
-import { doc, getDoc, updateDoc, deleteDoc } from "firebase/firestore";
+import { auth, db, functions, storage } from "@/lib/firebase";
+import { doc, getDoc, updateDoc } from "firebase/firestore";
+import { httpsCallable } from "firebase/functions";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { useParams, useRouter } from "next/navigation";
 import { onAuthStateChanged } from "firebase/auth";
-import { auth } from "@/lib/firebase";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
@@ -44,6 +44,7 @@ export default function EditTeamMemberPage() {
   const [avatarPreview, setAvatarPreview] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // Cropper state
@@ -194,13 +195,14 @@ export default function EditTeamMemberPage() {
       return;
     }
 
+    setDeleting(true);
     try {
-      const ref = doc(db, "authors", id);
-      await deleteDoc(ref);
+      const deleteTeamMember = httpsCallable(functions, "deleteTeamMember");
+      await deleteTeamMember({ uid: id });
 
       toast({
         title: "Member deleted",
-        description: "Team member has been permanently removed",
+        description: "The member's profile and sign-in account were removed",
         variant: "success",
       });
 
@@ -209,9 +211,14 @@ export default function EditTeamMemberPage() {
       console.error("Error deleting member:", error);
       toast({
         title: "Error",
-        description: "Failed to delete team member",
+        description:
+          error instanceof Error
+            ? error.message
+            : "Failed to delete team member",
         variant: "destructive",
       });
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -611,15 +618,15 @@ export default function EditTeamMemberPage() {
               onClick={() => {
                 if (
                   window.confirm(
-                    "Are you sure you want to delete this team member? This action cannot be undone.",
+                    "Delete this team member and their sign-in account? This action cannot be undone.",
                   )
                 ) {
                   handleDelete();
                 }
               }}
-              disabled={saving}
+              disabled={saving || deleting}
             >
-              Delete Member
+              {deleting ? "Deleting..." : "Delete Member"}
             </Button>
           )}
 

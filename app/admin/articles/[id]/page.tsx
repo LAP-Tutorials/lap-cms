@@ -7,7 +7,6 @@ import {
   doc,
   getDoc,
   updateDoc,
-  deleteDoc,
   serverTimestamp,
   collection,
   getDocs,
@@ -41,6 +40,10 @@ import { convertImageToWebP } from "@/lib/image-utils";
 import { useDropzone } from "react-dropzone";
 import { useAutosave } from "@/hooks/use-autosave";
 import { format } from "date-fns";
+import {
+  ARTICLE_TRASH_COLLECTION,
+  moveArticleToTrash,
+} from "@/lib/article-trash";
 
 export default function EditArticlePage() {
   const [title, setTitle] = useState("");
@@ -59,6 +62,7 @@ export default function EditArticlePage() {
   const [readTime, setReadTime] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [previewHtml, setPreviewHtml] = useState("");
   const contentRef = useRef<HTMLTextAreaElement>(null);
@@ -253,11 +257,25 @@ export default function EditArticlePage() {
         throw new Error("Missing slug");
       }
 
-      // ponytail: this prevents normal CMS duplicates; use slug claim documents if concurrent writers become common.
-      const slugMatches = await getDocs(
-        query(collection(db, "articles"), where("slug", "==", normalizedSlug)),
-      );
-      if (slugMatches.docs.some((item) => item.id !== id)) {
+      // ponytail: reserve trashed slugs too so restoring a post cannot create a duplicate.
+      const [slugMatches, trashedSlugMatches] = await Promise.all([
+        getDocs(
+          query(
+            collection(db, "articles"),
+            where("slug", "==", normalizedSlug),
+          ),
+        ),
+        getDocs(
+          query(
+            collection(db, ARTICLE_TRASH_COLLECTION),
+            where("article.slug", "==", normalizedSlug),
+          ),
+        ),
+      ]);
+      if (
+        slugMatches.docs.some((item) => item.id !== id) ||
+        !trashedSlugMatches.empty
+      ) {
         toast({
           title: "Slug already in use",
           description: "Choose a different slug before saving this article",
@@ -369,14 +387,14 @@ export default function EditArticlePage() {
   const handleManualSave = () => saveToFirestore(true);
 
   const handleDelete = async () => {
+    setDeleting(true);
     try {
       if (!id) return;
-      const ref = doc(db, "articles", id);
-      await deleteDoc(ref);
+      await moveArticleToTrash(id);
 
       toast({
-        title: "Article deleted",
-        description: "The article has been permanently removed",
+        title: "Article moved",
+        description: "The article is now in the recycle bin",
         variant: "success",
       });
 
@@ -388,6 +406,8 @@ export default function EditArticlePage() {
         description: "Failed to delete article",
         variant: "destructive",
       });
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -842,15 +862,15 @@ export default function EditArticlePage() {
             onClick={() => {
               if (
                 window.confirm(
-                  "Are you sure you want to delete this article? This action cannot be undone.",
+                  "Move this article to the recycle bin? You can restore it later.",
                 )
               ) {
                 handleDelete();
               }
             }}
-            disabled={saving}
+            disabled={saving || deleting}
           >
-            Delete Article
+            {deleting ? "Moving..." : "Delete Article"}
           </Button>
 
           <Button

@@ -21,8 +21,8 @@ import { formatDate } from "@/lib/utils";
 import {
   usePaginatedCollection,
   useUpdateDocument,
-  useDeleteDocument,
 } from "@/hooks/use-firestore-query";
+import { moveArticleToTrash } from "@/lib/article-trash";
 
 interface Article {
   id: string;
@@ -67,10 +67,12 @@ export default function ArticlesPage() {
   const [searchTerm, setSearchTerm] = useState("");
   const [sortField, setSortField] = useState<SortField | null>(null);
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
+  const [deletingArticleId, setDeletingArticleId] = useState<string | null>(
+    null,
+  );
 
   const { toast } = useToast();
   const updateArticle = useUpdateDocument("articles");
-  const deleteArticleMutation = useDeleteDocument("articles");
 
   // Set up query constraints based on sort field and order
   const getConstraints = () => {
@@ -133,7 +135,7 @@ export default function ArticlesPage() {
   const confirmDelete = (articleId: string) => {
     if (
       window.confirm(
-        "Are you sure you want to delete this article? This action cannot be undone."
+        "Move this article to the recycle bin? You can restore it later."
       )
     ) {
       deleteArticle(articleId);
@@ -141,12 +143,13 @@ export default function ArticlesPage() {
   };
 
   const deleteArticle = async (articleId: string) => {
+    setDeletingArticleId(articleId);
     try {
-      await deleteArticleMutation.mutateAsync(articleId);
+      await moveArticleToTrash(articleId);
 
       toast({
-        title: "Article deleted",
-        description: "The article has been permanently removed",
+        title: "Article moved",
+        description: "The article is now in the recycle bin",
         variant: "success",
       });
 
@@ -158,6 +161,8 @@ export default function ArticlesPage() {
         description: "Failed to delete article",
         variant: "destructive",
       });
+    } finally {
+      setDeletingArticleId(null);
     }
   };
 
@@ -228,11 +233,18 @@ export default function ArticlesPage() {
         </div>
 
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mt-6">
-          <Button asChild className="w-full sm:w-auto" variant="outline">
-            <Link href="/admin/articles/new">
-              <Plus className="mr-2 h-4 w-4" /> New Post
-            </Link>
-          </Button>
+          <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
+            <Button asChild className="w-full sm:w-auto" variant="outline">
+              <Link href="/admin/articles/new">
+                <Plus className="mr-2 h-4 w-4" /> New Post
+              </Link>
+            </Button>
+            <Button asChild className="w-full sm:w-auto" variant="outline">
+              <Link href="/admin/articles/trash">
+                <Trash2 className="mr-2 h-4 w-4" /> Recycle Bin
+              </Link>
+            </Button>
+          </div>
 
           {/* Search Bar */}
           <div className="relative w-full sm:w-64 md:w-80">
@@ -413,8 +425,8 @@ export default function ArticlesPage() {
                             variant="ghost"
                             className="text-red-500"
                             onClick={() => confirmDelete(articleData.id)}
-                            title="Delete article"
-                            disabled={deleteArticleMutation.isPending}
+                            title="Move article to recycle bin"
+                            disabled={deletingArticleId !== null}
                           >
                             <Trash2 className="h-4 w-4" />
                           </Button>
@@ -425,7 +437,7 @@ export default function ArticlesPage() {
                 })}
                 {filteredArticles.length === 0 && (
                   <tr>
-                    <td colSpan={7} className="p-8 text-center text-white/50">
+                    <td colSpan={8} className="p-8 text-center text-white/50">
                       {searchTerm
                         ? "No matching articles found."
                         : "No articles found."}

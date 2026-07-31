@@ -146,6 +146,63 @@ export const createTeamMember = onCall(
   }
 );
 
+export const deleteTeamMember = onCall(
+  { region: "europe-west1", minInstances: 0 },
+  async (request) => {
+    if (!request.auth) {
+      throw new HttpsError("unauthenticated", "You must be signed in.");
+    }
+
+    const uid = request.data?.uid;
+    if (typeof uid !== "string" || !uid.trim()) {
+      throw new HttpsError("invalid-argument", "A member UID is required.");
+    }
+
+    if (uid === request.auth.uid) {
+      throw new HttpsError(
+        "failed-precondition",
+        "You cannot delete your own account while signed in."
+      );
+    }
+
+    const caller = await getDb()
+      .collection("authors")
+      .doc(request.auth.uid)
+      .get();
+
+    if (!caller.exists || caller.data()?.role !== "super") {
+      throw new HttpsError(
+        "permission-denied",
+        "Only a super admin can delete team members."
+      );
+    }
+
+    try {
+      await admin.auth().deleteUser(uid);
+    } catch (error) {
+      if ((error as { code?: string }).code !== "auth/user-not-found") {
+        logger.error("Failed to delete Auth user", { uid, error });
+        throw new HttpsError("internal", "Failed to delete the user account.");
+      }
+    }
+
+    try {
+      await getDb().collection("authors").doc(uid).delete();
+    } catch (error) {
+      logger.error("Auth user deleted but author cleanup failed", {
+        uid,
+        error,
+      });
+      throw new HttpsError(
+        "internal",
+        "The account was removed, but profile cleanup failed. Please retry."
+      );
+    }
+
+    return { uid };
+  }
+);
+
 export const updatePopularPosts = onSchedule(
   {
     schedule: "every day 00:00",

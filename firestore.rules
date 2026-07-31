@@ -31,13 +31,33 @@ service cloud.firestore {
     // Articles: Public read, Admin write
     match /articles/{articleId} {
       allow read: if true;
-      allow create: if isAdmin() &&
-        request.resource.data.authorUID == request.auth.uid &&
-        request.resource.data.authorRef == /databases/$(database)/documents/authors/$(request.auth.uid) &&
-        request.resource.data.authorName == get(/databases/$(database)/documents/authors/$(request.auth.uid)).data.name;
+      allow create: if isAdmin() && (
+        (request.resource.data.authorUID == request.auth.uid &&
+          request.resource.data.authorRef == /databases/$(database)/documents/authors/$(request.auth.uid) &&
+          request.resource.data.authorName == get(/databases/$(database)/documents/authors/$(request.auth.uid)).data.name) ||
+        (exists(/databases/$(database)/documents/articleTrash/$(articleId)) &&
+          request.resource.data == get(/databases/$(database)/documents/articleTrash/$(articleId)).data.article &&
+          !existsAfter(/databases/$(database)/documents/articleTrash/$(articleId)))
+      );
       allow update: if isAdmin() &&
         !request.resource.data.diff(resource.data).affectedKeys()
           .hasAny(['authorUID', 'authorRef', 'authorName']);
+      allow delete: if isAdmin() &&
+        existsAfter(/databases/$(database)/documents/articleTrash/$(articleId)) &&
+        getAfter(/databases/$(database)/documents/articleTrash/$(articleId)).data.article == resource.data;
+    }
+
+    // Deleted articles: admins can restore them or explicitly remove them forever.
+    match /articleTrash/{articleId} {
+      allow read: if isAdmin();
+      allow create: if isAdmin() &&
+        request.resource.data.keys().hasOnly(['article', 'deletedAt', 'deletedBy']) &&
+        request.resource.data.deletedBy == request.auth.uid &&
+        request.resource.data.deletedAt == request.time &&
+        exists(/databases/$(database)/documents/articles/$(articleId)) &&
+        request.resource.data.article == get(/databases/$(database)/documents/articles/$(articleId)).data &&
+        !existsAfter(/databases/$(database)/documents/articles/$(articleId));
+      allow update: if false;
       allow delete: if isAdmin();
     }
     
@@ -54,7 +74,8 @@ service cloud.firestore {
         (isAuthenticated() && request.auth.uid == userId &&
           request.resource.data.uid == resource.data.uid &&
           request.resource.data.role == resource.data.role);
-      allow delete: if isSuperAdmin() || (isAdmin() && resource.data.role != 'super');
+      // Team members are deleted by the server so Auth and Firestore stay in sync.
+      allow delete: if false;
     }
 
     // Assets: Authenticated users can read/write

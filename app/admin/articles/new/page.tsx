@@ -35,6 +35,7 @@ import { useDropzone } from "react-dropzone";
 import { useAutosave } from "@/hooks/use-autosave";
 import { format } from "date-fns";
 import { useAuth } from "@/lib/auth-context";
+import { ARTICLE_TRASH_COLLECTION } from "@/lib/article-trash";
 
 export default function NewArticlePage() {
   // Generate article ID on mount for asset uploads
@@ -316,11 +317,25 @@ export default function NewArticlePage() {
         throw new Error("Missing slug");
       }
 
-      // ponytail: this prevents normal CMS duplicates; use slug claim documents if concurrent writers become common.
-      const slugMatches = await getDocs(
-        query(collection(db, "articles"), where("slug", "==", normalizedSlug)),
-      );
-      if (slugMatches.docs.some((item) => item.id !== articleId)) {
+      // ponytail: reserve trashed slugs too so restoring a post cannot create a duplicate.
+      const [slugMatches, trashedSlugMatches] = await Promise.all([
+        getDocs(
+          query(
+            collection(db, "articles"),
+            where("slug", "==", normalizedSlug),
+          ),
+        ),
+        getDocs(
+          query(
+            collection(db, ARTICLE_TRASH_COLLECTION),
+            where("article.slug", "==", normalizedSlug),
+          ),
+        ),
+      ]);
+      if (
+        slugMatches.docs.some((item) => item.id !== articleId) ||
+        !trashedSlugMatches.empty
+      ) {
         toast({
           title: "Slug already in use",
           description: "Choose a different slug before saving this article",
