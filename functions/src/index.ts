@@ -44,6 +44,108 @@ function getAnalyticsClient() {
 
 // Property ID will be read inside the function
 
+export const createTeamMember = onCall(
+  { region: "europe-west1", minInstances: 0 },
+  async (request) => {
+    if (!request.auth) {
+      throw new HttpsError("unauthenticated", "You must be signed in.");
+    }
+
+    const caller = await getDb()
+      .collection("authors")
+      .doc(request.auth.uid)
+      .get();
+    const callerRole = caller.data()?.role;
+
+    if (!caller.exists || !["admin", "super"].includes(callerRole)) {
+      throw new HttpsError(
+        "permission-denied",
+        "You do not have permission to create team members."
+      );
+    }
+
+    const {
+      name,
+      email,
+      password,
+      role,
+      city,
+      job,
+      avatar,
+      imgAlt,
+      slug,
+      socials,
+    } = request.data ?? {};
+
+    if (
+      typeof name !== "string" ||
+      !name.trim() ||
+      typeof email !== "string" ||
+      !email.trim() ||
+      typeof password !== "string" ||
+      password.length < 6 ||
+      typeof role !== "string" ||
+      !["manager", "admin", "super"].includes(role)
+    ) {
+      throw new HttpsError("invalid-argument", "Invalid member details.");
+    }
+
+    if (role === "super" && callerRole !== "super") {
+      throw new HttpsError(
+        "permission-denied",
+        "Only a super admin can create another super admin."
+      );
+    }
+
+    const optionalString = (value: unknown) =>
+      typeof value === "string" ? value : "";
+
+    const newUser = await admin
+      .auth()
+      .createUser({
+        email: email.trim(),
+        password,
+        displayName: name.trim(),
+      })
+      .catch((error) => {
+        logger.error("Failed to create Auth user", error);
+        if (error?.code === "auth/email-already-exists") {
+          throw new HttpsError(
+            "already-exists",
+            "A user with this email already exists."
+          );
+        }
+        throw new HttpsError("internal", "Failed to create the user account.");
+      });
+
+    try {
+      await getDb().collection("authors").doc(newUser.uid).set({
+        uid: newUser.uid,
+        name: name.trim(),
+        city: optionalString(city),
+        job: optionalString(job),
+        role,
+        avatar: optionalString(avatar),
+        imgAlt: optionalString(imgAlt),
+        biography: { body: "", summary: "" },
+        slug: optionalString(slug),
+        socials:
+          typeof socials === "object" && socials !== null ? socials : {},
+        createdAt: new Date().toISOString(),
+        dateJoined: admin.firestore.FieldValue.serverTimestamp(),
+      });
+    } catch (error) {
+      await admin.auth().deleteUser(newUser.uid).catch((cleanupError) => {
+        logger.error("Failed to roll back Auth user", cleanupError);
+      });
+      logger.error("Failed to create author profile", error);
+      throw new HttpsError("internal", "Failed to create the author profile.");
+    }
+
+    return { uid: newUser.uid };
+  }
+);
+
 export const updatePopularPosts = onSchedule(
   {
     schedule: "every day 00:00",

@@ -17,6 +17,12 @@ service cloud.firestore {
         (get(/databases/$(database)/documents/authors/$(request.auth.uid)).data.role in ['admin', 'super']);
     }
 
+    function isSuperAdmin() {
+      return isAuthenticated() &&
+        exists(/databases/$(database)/documents/authors/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/authors/$(request.auth.uid)).data.role == 'super';
+    }
+
     // Default: Deny all
     match /{document=**} {
       allow read, write: if false;
@@ -38,10 +44,17 @@ service cloud.firestore {
     // News: Public read, Admin write
     // Removed as part of News functionality removal
     
-    // Authors/Team: Public read, Admin write (or self update - optional)
+    // Authors/Team: public read; privileged role changes stay privileged.
     match /authors/{userId} {
       allow read: if true;
-      allow write: if isAdmin() || (isAuthenticated() && request.auth.uid == userId);
+      allow create: if request.resource.data.uid == userId &&
+        (isSuperAdmin() || (isAdmin() && request.resource.data.role != 'super'));
+      allow update: if isSuperAdmin() ||
+        (isAdmin() && resource.data.role != 'super' && request.resource.data.role != 'super') ||
+        (isAuthenticated() && request.auth.uid == userId &&
+          request.resource.data.uid == resource.data.uid &&
+          request.resource.data.role == resource.data.role);
+      allow delete: if isSuperAdmin() || (isAdmin() && resource.data.role != 'super');
     }
 
     // Assets: Authenticated users can read/write

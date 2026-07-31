@@ -11,7 +11,9 @@ import {
   serverTimestamp,
   collection,
   getDocs,
+  query,
   Timestamp,
+  where,
 } from "firebase/firestore";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
@@ -22,7 +24,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import { Breadcrumb } from "@/components/breadcrumb";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { formatDate, sanitizeUrl } from "@/lib/utils";
+import { formatDate, generateSlugFromTitle, sanitizeUrl } from "@/lib/utils";
 import {
   Loader2,
   AlertTriangle,
@@ -241,6 +243,29 @@ export default function EditArticlePage() {
       // If autosaving and no content, skip (though usually edits have content)
       if (!isManual && !title && !content) return;
 
+      const normalizedSlug = slug.trim();
+      if (!normalizedSlug) {
+        toast({
+          title: "Missing slug",
+          description: "Please enter a slug for the article",
+          variant: "destructive",
+        });
+        throw new Error("Missing slug");
+      }
+
+      // ponytail: this prevents normal CMS duplicates; use slug claim documents if concurrent writers become common.
+      const slugMatches = await getDocs(
+        query(collection(db, "articles"), where("slug", "==", normalizedSlug)),
+      );
+      if (slugMatches.docs.some((item) => item.id !== id)) {
+        toast({
+          title: "Slug already in use",
+          description: "Choose a different slug before saving this article",
+          variant: "destructive",
+        });
+        throw new Error("Duplicate slug");
+      }
+
       if (isManual) setSaving(true);
 
       try {
@@ -254,7 +279,7 @@ export default function EditArticlePage() {
           img: sanitizeUrl(trimmedImg),
           imgAlt,
           label,
-          slug,
+          slug: normalizedSlug,
           popularity,
           publish: isPublished,
           read: readTime,
@@ -522,7 +547,10 @@ export default function EditArticlePage() {
           <label className="block mb-2 font-medium">Title:</label>
           <Input
             value={title}
-            onChange={(e) => setTitle(e.target.value)}
+            onChange={(e) => {
+              setTitle(e.target.value);
+              setSlug(generateSlugFromTitle(e.target.value));
+            }}
             placeholder="Article title"
             className="w-full"
           />

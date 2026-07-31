@@ -1,12 +1,10 @@
 "use client";
 
 import { useEffect, useState, type FormEvent } from "react";
-import {
-  onAuthStateChanged,
-  createUserWithEmailAndPassword,
-} from "firebase/auth";
-import { auth, db } from "@/lib/firebase";
-import { doc, setDoc, getDoc } from "firebase/firestore";
+import { onAuthStateChanged } from "firebase/auth";
+import { auth, db, functions } from "@/lib/firebase";
+import { doc, getDoc } from "firebase/firestore";
+import { httpsCallable } from "firebase/functions";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -199,31 +197,17 @@ export default function NewTeamMemberPage() {
     setCreating(true);
 
     try {
-      // Create a new user in Firebase Auth
-      const { user } = await createUserWithEmailAndPassword(
-        auth,
+      await httpsCallable(functions, "createTeamMember")({
+        name,
         email,
         password,
-      );
-      const newUid = user.uid;
-
-      // Create the doc in authors collection
-      await setDoc(doc(db, "authors", newUid), {
-        uid: newUid,
-        name,
         city,
         job,
-        role, // "admin" or "manager" etc.
-        avatar: avatar,
-        imgAlt: imgAlt,
-        biography: {
-          body: "",
-          summary: "",
-        },
-        slug: slug,
-        socials, // Add the socials map
-        createdAt: new Date().toISOString(),
-        dateJoined: new Date(),
+        role,
+        avatar,
+        imgAlt,
+        slug,
+        socials,
       });
 
       toast({

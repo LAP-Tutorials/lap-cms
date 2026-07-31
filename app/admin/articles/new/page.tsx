@@ -10,7 +10,9 @@ import {
   doc,
   getDoc,
   getDocs,
+  query,
   Timestamp,
+  where,
 } from "firebase/firestore";
 
 import { Button } from "@/components/ui/button";
@@ -304,6 +306,29 @@ export default function NewArticlePage() {
         return;
       }
 
+      const normalizedSlug = slug.trim();
+      if (!normalizedSlug) {
+        toast({
+          title: "Missing slug",
+          description: "Please enter a slug for the article",
+          variant: "destructive",
+        });
+        throw new Error("Missing slug");
+      }
+
+      // ponytail: this prevents normal CMS duplicates; use slug claim documents if concurrent writers become common.
+      const slugMatches = await getDocs(
+        query(collection(db, "articles"), where("slug", "==", normalizedSlug)),
+      );
+      if (slugMatches.docs.some((item) => item.id !== articleId)) {
+        toast({
+          title: "Slug already in use",
+          description: "Choose a different slug before saving this article",
+          variant: "destructive",
+        });
+        throw new Error("Duplicate slug");
+      }
+
       if (isManual) setCreating(true);
 
       try {
@@ -316,7 +341,7 @@ export default function NewArticlePage() {
           label,
           popularity,
           read: readTime,
-          slug,
+          slug: normalizedSlug,
           authorName,
           authorUID: user.uid,
           authorRef: doc(db, "authors", user.uid),
