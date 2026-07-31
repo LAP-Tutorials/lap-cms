@@ -2,12 +2,13 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { db, auth } from "@/lib/firebase";
+import { db } from "@/lib/firebase";
 import {
   collection,
   setDoc,
   serverTimestamp,
   doc,
+  getDoc,
   getDocs,
   Timestamp,
 } from "firebase/firestore";
@@ -31,13 +32,7 @@ import { convertImageToWebP } from "@/lib/image-utils";
 import { useDropzone } from "react-dropzone";
 import { useAutosave } from "@/hooks/use-autosave";
 import { format } from "date-fns";
-
-// Type for an author document
-interface Author {
-  id: string;
-  name: string;
-  uid: string;
-}
+import { useAuth } from "@/lib/auth-context";
 
 export default function NewArticlePage() {
   // Generate article ID on mount for asset uploads
@@ -60,12 +55,7 @@ export default function NewArticlePage() {
   const [previewHtml, setPreviewHtml] = useState("");
   const contentRef = useRef<HTMLTextAreaElement>(null!);
 
-  // Author autocomplete state
   const [authorName, setAuthorName] = useState("");
-  const [selectedAuthor, setSelectedAuthor] = useState<Author | null>(null);
-  const [authors, setAuthors] = useState<Author[]>([]);
-  const [showSuggestions, setShowSuggestions] = useState(false);
-  const suggestionsRef = useRef<HTMLDivElement>(null);
 
   // Label autocomplete state
   const [existingLabels, setExistingLabels] = useState<string[]>([]);
@@ -91,6 +81,7 @@ export default function NewArticlePage() {
 
   const router = useRouter();
   const { toast } = useToast();
+  const { user } = useAuth();
 
   // Custom thumbnail uploader using dropzone
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
@@ -126,27 +117,35 @@ export default function NewArticlePage() {
     maxFiles: 1,
   });
 
-  // Fetch authors on mount
+  // Always attribute new articles to the signed-in author.
   useEffect(() => {
-    const fetchAuthors = async () => {
+    const fetchCurrentAuthor = async () => {
+      if (!user) {
+        setAuthorName("");
+        return;
+      }
+
       try {
-        const snap = await getDocs(collection(db, "authors"));
-        const docs = snap.docs.map((doc) => ({
-          id: doc.id,
-          ...doc.data(),
-        })) as Author[];
-        setAuthors(docs);
+        const snap = await getDoc(doc(db, "authors", user.uid));
+        const name = snap.data()?.name;
+
+        if (typeof name !== "string" || !name.trim()) {
+          throw new Error("Author profile has no name");
+        }
+
+        setAuthorName(name);
       } catch (error) {
-        console.error("Error fetching authors:", error);
+        console.error("Error fetching current author:", error);
+        setAuthorName("");
         toast({
           title: "Error",
-          description: "Failed to load authors",
+          description: "Failed to load your author profile",
           variant: "destructive",
         });
       }
     };
-    fetchAuthors();
-  }, [toast]);
+    fetchCurrentAuthor();
+  }, [user, toast]);
 
   // Fetch existing labels from articles
   useEffect(() => {
@@ -176,32 +175,9 @@ export default function NewArticlePage() {
     }
   }, [title]);
 
-  // Update selected author if input changes
-  useEffect(() => {
-    if (authorName.trim() === "") {
-      setSelectedAuthor(null);
-      return;
-    }
-    const match = authors.find((a) =>
-      a.name.toLowerCase().includes(authorName.toLowerCase()),
-    );
-
-    if (match) {
-      setSelectedAuthor(match);
-    } else {
-      setSelectedAuthor(null);
-    }
-  }, [authorName, authors]);
-
   // Hide suggestions on click outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      if (
-        suggestionsRef.current &&
-        !suggestionsRef.current.contains(event.target as Node)
-      ) {
-        setShowSuggestions(false);
-      }
       if (
         labelSuggestionsRef.current &&
         !labelSuggestionsRef.current.contains(event.target as Node)
@@ -304,15 +280,14 @@ export default function NewArticlePage() {
         }
         if (!authorName.trim()) {
           toast({
-            title: "Missing author",
-            description: "Please select an author for the article",
+            title: "Author unavailable",
+            description: "Your author profile could not be loaded",
             variant: "destructive",
           });
           throw new Error("Missing author");
         }
       }
 
-      const user = auth.currentUser;
       if (!user) {
         if (isManual) {
           toast({
@@ -342,11 +317,9 @@ export default function NewArticlePage() {
           popularity,
           read: readTime,
           slug,
-          authorName: selectedAuthor ? selectedAuthor.name : authorName,
-          authorUID: selectedAuthor ? selectedAuthor.uid : user.uid,
-          authorRef: selectedAuthor
-            ? doc(db, "authors", selectedAuthor.id)
-            : doc(db, "authors", user.uid),
+          authorName,
+          authorUID: user.uid,
+          authorRef: doc(db, "authors", user.uid),
 
           // Set createdAt/date if not exists (merge will keep existing)
           // Actually serverTimestamp() will always update.
@@ -410,12 +383,12 @@ export default function NewArticlePage() {
       readTime,
       slug,
       authorName,
-      selectedAuthor,
       isPublished,
       scheduledDate,
       articleId,
       router,
       toast,
+      user,
     ],
   );
 
@@ -487,43 +460,18 @@ export default function NewArticlePage() {
           </p>
         </div>
 
-        {/* Author Name with Autocomplete */}
-        <div className="mb-6 relative">
+        {/* Author */}
+        <div className="mb-6">
           <label className="block mb-2 font-medium">Author:</label>
           <Input
             value={authorName}
-            onChange={(e) => {
-              setAuthorName(e.target.value);
-              setShowSuggestions(true);
-            }}
-            onFocus={() => setShowSuggestions(true)}
-            placeholder="Start typing author name..."
-            className="w-full"
+            disabled
+            placeholder="Loading your author profile..."
+            className="w-full opacity-70 cursor-not-allowed"
           />
-          {showSuggestions && authors.length > 0 && (
-            <div
-              ref={suggestionsRef}
-              className="absolute z-10 w-full border border-white/60 bg-[#1a1a1a] mt-1 max-h-48 overflow-y-auto"
-            >
-              {authors
-                .filter((a) =>
-                  a.name.toLowerCase().includes(authorName.toLowerCase()),
-                )
-                .map((a) => (
-                  <div
-                    key={a.id}
-                    className="px-4 py-2 hover:bg-[#8a2be2]/20 cursor-pointer"
-                    onClick={() => {
-                      setAuthorName(a.name);
-                      setSelectedAuthor(a);
-                      setShowSuggestions(false);
-                    }}
-                  >
-                    {a.name}
-                  </div>
-                ))}
-            </div>
-          )}
+          <p className="text-sm text-white/50 mt-1">
+            Automatically set from your signed-in account
+          </p>
         </div>
 
         {/* Toggle Editor/Preview/Assets for Content */}
@@ -771,7 +719,7 @@ export default function NewArticlePage() {
         <div className="flex flex-wrap gap-4 mt-8">
           <Button
             onClick={handleManualSave}
-            disabled={creating}
+            disabled={creating || !authorName}
             variant="outline"
           >
             {creating && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}

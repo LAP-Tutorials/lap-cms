@@ -25,7 +25,14 @@ service cloud.firestore {
     // Articles: Public read, Admin write
     match /articles/{articleId} {
       allow read: if true;
-      allow write: if isAdmin();
+      allow create: if isAdmin() &&
+        request.resource.data.authorUID == request.auth.uid &&
+        request.resource.data.authorRef == /databases/$(database)/documents/authors/$(request.auth.uid) &&
+        request.resource.data.authorName == get(/databases/$(database)/documents/authors/$(request.auth.uid)).data.name;
+      allow update: if isAdmin() &&
+        !request.resource.data.diff(resource.data).affectedKeys()
+          .hasAny(['authorUID', 'authorRef', 'authorName']);
+      allow delete: if isAdmin();
     }
     
     // News: Public read, Admin write
