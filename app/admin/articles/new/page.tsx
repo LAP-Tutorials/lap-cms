@@ -27,6 +27,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Loader2, ImageIcon, Save } from "lucide-react";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
+import { sanitizeUrl as sanitizePreviewUrl } from "@braintree/sanitize-url";
 import { generateSlugFromTitle, sanitizeUrl } from "@/lib/utils";
 import { MarkdownToolbar } from "@/components/markdown-toolbar";
 import { AssetManager } from "@/components/admin/assets/asset-manager";
@@ -68,7 +69,10 @@ export default function NewArticlePage() {
   const trimmedImg = img.trim();
   const thumbnailPreviewSrc = (() => {
     if (!trimmedImg) return "";
-    if (trimmedImg.startsWith("/")) return trimmedImg;
+    if (trimmedImg.startsWith("/") && !trimmedImg.startsWith("//")) {
+      const sanitizedPath = sanitizePreviewUrl(trimmedImg);
+      return sanitizedPath === "about:blank" ? "" : sanitizedPath;
+    }
 
     try {
       const parsed = new URL(trimmedImg);

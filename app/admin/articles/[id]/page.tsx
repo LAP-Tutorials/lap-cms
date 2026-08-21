@@ -16,6 +16,7 @@ import {
 } from "firebase/firestore";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
+import { sanitizeUrl as sanitizePreviewUrl } from "@braintree/sanitize-url";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -76,7 +77,10 @@ export default function EditArticlePage() {
   const trimmedImg = img.trim();
   const thumbnailPreviewSrc = (() => {
     if (!trimmedImg) return "";
-    if (trimmedImg.startsWith("/")) return trimmedImg;
+    if (trimmedImg.startsWith("/") && !trimmedImg.startsWith("//")) {
+      const sanitizedPath = sanitizePreviewUrl(trimmedImg);
+      return sanitizedPath === "about:blank" ? "" : sanitizedPath;
+    }
 
     try {
       const parsed = new URL(trimmedImg);
