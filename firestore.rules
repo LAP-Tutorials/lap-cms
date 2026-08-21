@@ -6,6 +6,12 @@ service cloud.firestore {
     function isAuthenticated() {
       return request.auth != null;
     }
+
+    function isCmsUser() {
+      return isAuthenticated() &&
+        exists(/databases/$(database)/documents/authors/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/authors/$(request.auth.uid)).data.role in ['manager', 'admin', 'super'];
+    }
     
     // Helper function to check if user has admin/super role
     // NOTE: This assumes custom claims are set OR we check a user document.
@@ -28,7 +34,8 @@ service cloud.firestore {
       allow read, write: if false;
     }
     
-    // Articles: Public read, Admin write
+    // Keep article reads backward-compatible with the currently deployed Docs
+    // queries. The public site still filters to published content.
     match /articles/{articleId} {
       allow read: if true;
       allow create: if isAdmin() && (
@@ -78,22 +85,158 @@ service cloud.firestore {
       allow delete: if false;
     }
 
-    // Assets: Authenticated users can read/write
+    // Public reader accounts. Profiles are private to their owner and CMS staff.
+    match /users/{userId} {
+      allow read: if isCmsUser() || (isAuthenticated() && request.auth.uid == userId);
+      allow create: if isAuthenticated() &&
+        request.auth.uid == userId &&
+        request.auth.token.email is string &&
+        request.resource.data.keys().hasOnly([
+          'uid', 'email', 'displayName', 'photoURL', 'provider', 'handle', 'createdAt', 'updatedAt'
+        ]) &&
+        request.resource.data.uid == userId &&
+        request.resource.data.email == request.auth.token.email &&
+        request.resource.data.displayName is string &&
+        request.resource.data.displayName.size() >= 2 &&
+        request.resource.data.displayName.size() <= 80 &&
+        request.resource.data.photoURL is string &&
+        request.resource.data.photoURL.size() >= 1 &&
+        request.resource.data.photoURL.size() <= 1000 &&
+        request.resource.data.provider in ['password', 'google.com'] &&
+        request.resource.data.handle is string &&
+        request.resource.data.handle.matches('^[a-z0-9_]{3,20}$') &&
+        request.resource.data.displayName == request.resource.data.handle &&
+        existsAfter(/databases/$(database)/documents/handles/$(request.resource.data.handle)) &&
+        getAfter(/databases/$(database)/documents/handles/$(request.resource.data.handle)).data.uid == userId &&
+        request.resource.data.createdAt == request.time &&
+        request.resource.data.updatedAt == request.time;
+      allow update: if isAuthenticated() &&
+        request.auth.uid == userId &&
+        request.auth.token.email is string &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'email', 'displayName', 'photoURL', 'provider', 'handle', 'updatedAt'
+        ]) &&
+        request.resource.data.uid == resource.data.uid &&
+        request.resource.data.email == request.auth.token.email &&
+        request.resource.data.displayName is string &&
+        request.resource.data.displayName.size() >= 2 &&
+        request.resource.data.displayName.size() <= 80 &&
+        request.resource.data.photoURL is string &&
+        request.resource.data.photoURL.size() <= 1000 &&
+        request.resource.data.provider in ['password', 'google.com'] &&
+        request.resource.data.handle is string &&
+        (
+          (!resource.data.keys().hasAny(['handle']) && request.resource.data.handle == '') ||
+          (resource.data.keys().hasAny(['handle']) &&
+            request.resource.data.handle == resource.data.handle) ||
+          (request.resource.data.handle.matches('^[a-z0-9_]{3,20}$') &&
+            existsAfter(/databases/$(database)/documents/handles/$(request.resource.data.handle)) &&
+            getAfter(/databases/$(database)/documents/handles/$(request.resource.data.handle)).data.uid == userId &&
+            (
+              !resource.data.keys().hasAny(['handle']) ||
+              resource.data.handle == '' ||
+              !existsAfter(/databases/$(database)/documents/handles/$(resource.data.handle))
+            ))
+        ) &&
+        (request.resource.data.handle == '' ||
+          request.resource.data.displayName == request.resource.data.handle) &&
+        request.resource.data.createdAt == resource.data.createdAt &&
+        request.resource.data.updatedAt == request.time;
+      allow delete: if false;
+    }
+
+    // Exact handles can be checked during authenticated onboarding, but the
+    // collection cannot be enumerated.
+    match /handles/{handle} {
+      allow get: if isAuthenticated();
+      allow list: if false;
+      allow create: if isAuthenticated() &&
+        handle.matches('^[a-z0-9_]{3,20}$') &&
+        request.resource.data.keys().hasOnly(['uid', 'createdAt']) &&
+        request.resource.data.uid == request.auth.uid &&
+        request.resource.data.createdAt == request.time &&
+        getAfter(/databases/$(database)/documents/users/$(request.auth.uid)).data.handle == handle;
+      allow update: if false;
+      allow delete: if isAuthenticated() &&
+        resource.data.uid == request.auth.uid &&
+        getAfter(/databases/$(database)/documents/users/$(request.auth.uid)).data.handle != handle;
+    }
+
+    // Comments are publicly readable when visible. Owners can edit their own
+    // text, while CMS staff can hide, restore, or delete any comment.
+    match /comments/{commentId} {
+      allow read: if resource.data.status == 'visible' ||
+        isCmsUser() ||
+        (isAuthenticated() && resource.data.authorId == request.auth.uid);
+      allow create: if isAuthenticated() &&
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        exists(/databases/$(database)/documents/articles/$(request.resource.data.articleId)) &&
+        get(/databases/$(database)/documents/articles/$(request.resource.data.articleId)).data.publish == true &&
+        request.resource.data.keys().hasOnly([
+          'articleId', 'articleSlug', 'articleTitle', 'authorId', 'authorName',
+          'authorHandle', 'authorPhotoURL', 'content', 'status', 'createdAt', 'updatedAt', 'edited'
+        ]) &&
+        request.resource.data.authorId == request.auth.uid &&
+        request.resource.data.authorName ==
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.displayName &&
+        request.resource.data.authorHandle ==
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.handle &&
+        request.resource.data.authorHandle.matches('^[a-z0-9_]{3,20}$') &&
+        request.resource.data.authorPhotoURL ==
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.photoURL &&
+        request.resource.data.articleId is string &&
+        request.resource.data.articleSlug ==
+          get(/databases/$(database)/documents/articles/$(request.resource.data.articleId)).data.slug &&
+        request.resource.data.articleTitle ==
+          get(/databases/$(database)/documents/articles/$(request.resource.data.articleId)).data.title &&
+        request.resource.data.content is string &&
+        request.resource.data.content.size() >= 1 &&
+        request.resource.data.content.size() <= 2000 &&
+        request.resource.data.status == 'visible' &&
+        request.resource.data.edited == false &&
+        request.resource.data.createdAt == request.time &&
+        request.resource.data.updatedAt == request.time;
+      allow update: if (
+        isAuthenticated() &&
+        resource.data.authorId == request.auth.uid &&
+        resource.data.status == 'visible' &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'content', 'updatedAt', 'edited'
+        ]) &&
+        request.resource.data.content is string &&
+        request.resource.data.content.size() >= 1 &&
+        request.resource.data.content.size() <= 2000 &&
+        request.resource.data.updatedAt == request.time &&
+        request.resource.data.edited == true
+      ) || (
+        isCmsUser() &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'status', 'moderatedAt', 'moderatedBy'
+        ]) &&
+        request.resource.data.status in ['visible', 'hidden'] &&
+        request.resource.data.moderatedAt == request.time &&
+        request.resource.data.moderatedBy == request.auth.uid
+      );
+      allow delete: if isCmsUser() ||
+        (isAuthenticated() && resource.data.authorId == request.auth.uid);
+    }
+
+    // Assets are restricted to CMS users. Public account authentication must
+    // never grant access to the content library.
     match /assets/{assetId} {
-      allow read: if isAuthenticated();
-      allow write: if isAuthenticated();
+      allow read, write: if isCmsUser();
     }
 
 
     // Meta (Stats): Authenticated users can read
     match /meta/{docId} {
-      allow read: if isAuthenticated();
+      allow read: if isCmsUser();
       allow write: if isAdmin();
     }
 
     // Asset Index: Authenticated users can read (for search/stats)
     match /assets_index/{docId} {
-      allow read: if isAuthenticated();
+      allow read: if isCmsUser();
     }
   }
 }

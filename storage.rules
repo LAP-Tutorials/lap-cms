@@ -2,9 +2,25 @@ rules_version = '2';
 
 service firebase.storage {
   match /b/{bucket}/o {
+    function isCmsUser() {
+      return request.auth != null &&
+        firestore.exists(/databases/(default)/documents/authors/$(request.auth.uid)) &&
+        firestore.get(/databases/(default)/documents/authors/$(request.auth.uid)).data.role in ['manager', 'admin', 'super'];
+    }
+
+    match /users/{userId}/profile/{fileName} {
+      allow read: if true;
+      allow create, update: if request.auth != null &&
+        request.auth.uid == userId &&
+        fileName == 'avatar' &&
+        request.resource.size <= 5 * 1024 * 1024 &&
+        request.resource.contentType.matches('image/(jpeg|png|webp)');
+      allow delete: if (request.auth != null && request.auth.uid == userId) || isCmsUser();
+    }
+
     match /{allPaths=**} {
       allow read: if true;
-      allow write: if request.auth != null;
+      allow write: if isCmsUser();
     }
   }
 }

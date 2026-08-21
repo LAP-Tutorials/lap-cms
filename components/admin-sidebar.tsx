@@ -15,6 +15,7 @@ import {
   User,
   LogOut,
   FolderOpen,
+  MessageSquare,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/button";
@@ -86,6 +87,11 @@ export default function AdminSidebar() {
       href: "/admin/assets",
       label: "Assets",
       icon: <FolderOpen className="h-5 w-5" />,
+    },
+    {
+      href: "/admin/comments",
+      label: "Comments",
+      icon: <MessageSquare className="h-5 w-5" />,
     },
     { href: "/admin/team", label: "Team", icon: <Users className="h-5 w-5" /> },
 

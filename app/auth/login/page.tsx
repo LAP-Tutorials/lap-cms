@@ -6,7 +6,6 @@ import {
   GoogleAuthProvider,
   signInWithPopup,
   signOut,
-  deleteUser,
 } from "firebase/auth";
 import { doc, getDoc } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
@@ -39,8 +38,7 @@ export default function LoginPage() {
       const userDoc = await getDoc(userDocRef);
 
       if (!userDoc.exists()) {
-        // User is not authorized, delete from Auth if they manage to log in without a profile
-        await deleteUser(user);
+        // Public reader accounts share Firebase Auth but never receive CMS access.
         await signOut(auth);
         setError("You do not have access to this site.");
         return;
@@ -68,8 +66,7 @@ export default function LoginPage() {
       const userDoc = await getDoc(userDocRef);
 
       if (!userDoc.exists()) {
-        // User is not authorized, prevent account creation by deleting the auth profile
-        await deleteUser(user);
+        // Do not delete public reader accounts that try the CMS.
         await signOut(auth);
         setError("You do not have access to this site.");
         return;
