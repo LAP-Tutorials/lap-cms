@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { Breadcrumb } from "@/components/breadcrumb";
+import PageTitle from "@/components/PageTitle";
 import {
   Loader2,
   AlertTriangle,
@@ -264,8 +265,14 @@ export default function NewTeamMemberPage() {
         <Breadcrumb items={breadcrumbItems} />
       </div>
 
-      <h1 className="text-subtitle font-bold mb-8 mt-4">New Member</h1>
-
+      <PageTitle
+               className="sr-only"
+               imgSrc="/images/titles/new-member.svg"
+               imgAlt="New Member"
+             >
+               New Member
+      </PageTitle>
+      
       <form onSubmit={handleCreate} className="max-w-4xl">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
           {/* Left column - Avatar */}

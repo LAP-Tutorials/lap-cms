@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input"
 import { useToast } from "@/hooks/use-toast"
 import { useAuth } from "@/lib/auth-context"
 import { functions } from "@/lib/firebase"
+import PageTitle from "@/components/PageTitle";
 
 interface ReaderCandidate {
   uid: string
@@ -121,20 +122,17 @@ export default function PromoteModeratorPage() {
         />
       </div>
 
+        <PageTitle
+          className="sr-only"
+          imgSrc="/images/titles/prmote-a-moderator.svg"
+          imgAlt="Promote A Moderator"
+        >
+          Promote A Moderator
+      </PageTitle>
+      
       <main className="mx-auto max-w-4xl">
-        <header className="border-b border-white/15 pb-6">
-          <p className="mb-2 text-xs font-semibold uppercase tracking-[0.22em] text-[#8a2ae3]">
-            Existing reader
-          </p>
-          <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">
-            Promote a moderator
-          </h1>
-          <p className="mt-2 max-w-2xl text-sm text-white/55">
-            Their Docs login, handle, profile picture, and comments stay connected to the same account.
-          </p>
-        </header>
 
-        <div className="border-x border-b border-white/15 p-4">
+        <div className="border-x border border-white/15 p-4">
           <label htmlFor="reader-search" className="mb-2 block text-sm font-medium">
             Find a reader
           </label>

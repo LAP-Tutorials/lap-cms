@@ -295,7 +295,7 @@ service cloud.firestore {
         request.resource.data.moderatedAt == request.time &&
         request.resource.data.moderatedBy == request.auth.uid
       );
-      allow delete: if canModerate() ||
+      allow delete: if isCmsUser() ||
         (isAuthenticated() && resource.data.authorId == request.auth.uid);
     }
 
@@ -356,8 +356,12 @@ service cloud.firestore {
         request.resource.data.moderatedAt == request.time &&
         request.resource.data.moderatedBy == request.auth.uid
       );
-      allow delete: if canModerate() ||
-        (isAuthenticated() && resource.data.authorId == request.auth.uid);
+      allow delete: if isCmsUser() ||
+        (isAuthenticated() && (
+          resource.data.authorId == request.auth.uid ||
+          (exists(/databases/$(database)/documents/comments/$(resource.data.parentCommentId)) &&
+            get(/databases/$(database)/documents/comments/$(resource.data.parentCommentId)).data.authorId == request.auth.uid)
+        ));
     }
 
     // Reactions are written by a trusted callable function so counts cannot be

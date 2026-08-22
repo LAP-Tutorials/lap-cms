@@ -79,6 +79,7 @@ function ModerationRow({
   busyId,
   compact = false,
   contextOnly = false,
+  canDelete = true,
   reaction,
   reactionBusyId,
   onReact,
@@ -89,6 +90,7 @@ function ModerationRow({
   busyId: string | null
   compact?: boolean
   contextOnly?: boolean
+  canDelete?: boolean
   reaction?: CommentReaction
   reactionBusyId: string | null
   onReact?: (commentId: string, reaction: CommentReaction) => void
@@ -173,7 +175,9 @@ function ModerationRow({
         <Button variant="ghost" size="icon" disabled={isBusy} title={entry.status === "visible" ? "Hide" : "Restore"} aria-label={entry.status === "visible" ? `Hide ${entry.kind}` : `Restore ${entry.kind}`} onClick={() => onStatusChange(entry, entry.status === "visible" ? "hidden" : "visible")} className="h-8 w-8 text-white/40 transition-colors duration-200 hover:bg-white/[0.07] hover:text-white focus-visible:ring-[#8a2ae3]">
           {entry.status === "visible" ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
         </Button>
-        <Button variant="ghost" size="icon" disabled={isBusy} title="Delete permanently" aria-label={`Delete ${entry.kind}`} onClick={() => onDelete(entry)} className="h-8 w-8 text-white/30 transition-colors duration-200 hover:bg-red-400/10 hover:text-red-300 focus-visible:ring-red-300"><Trash2 className="h-4 w-4" /></Button>
+        {canDelete && (
+          <Button variant="ghost" size="icon" disabled={isBusy} title="Delete permanently" aria-label={`Delete ${entry.kind}`} onClick={() => onDelete(entry)} className="h-8 w-8 text-white/30 transition-colors duration-200 hover:bg-red-400/10 hover:text-red-300 focus-visible:ring-red-300"><Trash2 className="h-4 w-4" /></Button>
+        )}
       </div>
     </div>
   )
@@ -182,7 +186,7 @@ function ModerationRow({
 type TypeFilter = "all" | "comment" | "reply" | "mentions"
 
 export default function CommentsModerationPage() {
-  const { user } = useAuth()
+  const { user, userRole } = useAuth()
   const [comments, setComments] = useState<ModeratedEntry[]>([])
   const [replies, setReplies] = useState<ModeratedEntry[]>([])
   const [commentsLoaded, setCommentsLoaded] = useState(false)
@@ -393,6 +397,10 @@ export default function CommentsModerationPage() {
   }
 
   const removeEntry = async (entry: ModeratedEntry) => {
+    if (userRole === "moderator" && entry.authorId !== user?.uid) {
+      setError("Moderators can only hide or restore comments, not delete them.")
+      return
+    }
     const noun = entry.kind === "comment" ? "comment and its replies" : "reply"
     if (!window.confirm(`Delete this ${noun} permanently?`)) return
     setBusyId(`${entry.kind}:${entry.id}`)
@@ -584,6 +592,7 @@ export default function CommentsModerationPage() {
               entry={thread.parent}
               busyId={busyId}
               contextOnly={thread.parentIsContext}
+              canDelete={userRole !== "moderator" || (Boolean(user?.uid) && thread.parent.authorId === user?.uid)}
               reaction={reactions[thread.parent.id]}
               reactionBusyId={reactionBusyId}
               onReact={reactToComment}
@@ -658,6 +667,7 @@ export default function CommentsModerationPage() {
                       entry={reply}
                       busyId={busyId}
                       compact
+                      canDelete={userRole !== "moderator" || (Boolean(user?.uid) && reply.authorId === user?.uid)}
                       reactionBusyId={reactionBusyId}
                       onStatusChange={setEntryStatus}
                       onDelete={removeEntry}

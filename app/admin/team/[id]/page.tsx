@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { Breadcrumb } from "@/components/breadcrumb";
+import PageTitle from "@/components/PageTitle";
 import {
   Loader2,
   AlertTriangle,
@@ -384,7 +385,13 @@ export default function EditTeamMemberPage() {
         <Breadcrumb items={breadcrumbItems} />
       </div>
 
-      <h1 className="text-subtitle font-bold mb-8 mt-4">Edit Member</h1>
+      <PageTitle
+        className="sr-only"
+        imgSrc="/images/titles/edit-member.svg"
+        imgAlt="Edit Member"
+      >
+        Edit Member
+    </PageTitle>
 
       <div className="max-w-4xl">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
