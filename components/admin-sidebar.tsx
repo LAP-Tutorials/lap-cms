@@ -16,7 +16,7 @@ import {
   LogOut,
   FolderOpen,
   MessageSquare,
-  KeyRound,
+  AtSign,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/button";
@@ -100,7 +100,7 @@ export default function AdminSidebar() {
     {
       href: "/admin/handles",
       label: "Handles",
-      icon: <KeyRound className="h-5 w-5" />,
+      icon: <AtSign className="h-5 w-5" />,
       superOnly: true,
     },
 

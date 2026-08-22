@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { httpsCallable } from "firebase/functions"
-import { AlertTriangle, AtSign, Check, KeyRound, Loader2, Pencil, RefreshCw, Search, ShieldCheck, Trash2, UserRoundCog } from "lucide-react"
+import { AlertTriangle, AtSign, Check, Loader2, Pencil, RefreshCw, Search, ShieldCheck, Trash2, UserRoundCog } from "lucide-react"
 import { Breadcrumb } from "@/components/breadcrumb"
 import { Button } from "@/components/ui/button"
 import PageTitle from "@/components/PageTitle";
@@ -66,7 +66,6 @@ export default function HandlesPage() {
   const [loading, setLoading] = useState(true)
   const [busyAction, setBusyAction] = useState("")
   const [reservationHandle, setReservationHandle] = useState("")
-  const [reservationOwner, setReservationOwner] = useState("")
   const [accountUid, setAccountUid] = useState("")
   const [accountHandle, setAccountHandle] = useState("")
   const [officialOwner, setOfficialOwner] = useState("")
@@ -124,23 +123,22 @@ export default function HandlesPage() {
   }, [registry.claims, registrySearch])
 
   const saveReservation = async () => {
-    if (!reservationHandle || !reservationOwner) return
+    if (!reservationHandle) return
     setBusyAction("reservation")
     try {
       const save = httpsCallable(functions, "upsertHandleReservation")
-      await save({ handle: reservationHandle, ownerUid: reservationOwner })
+      await save({ handle: reservationHandle })
       toast({
         title: "Reservation saved",
-        description: `@${reservationHandle} is protected for the selected account.`,
+        description: `@${reservationHandle} is now protected.`,
         variant: "success",
       })
       setReservationHandle("")
-      setReservationOwner("")
       await loadRegistry()
     } catch (error: any) {
       toast({
         title: "Could not save reservation",
-        description: error?.message || "Check the handle and owner.",
+        description: error?.message || "Check the handle and try again.",
         variant: "destructive",
       })
     } finally {
@@ -230,7 +228,6 @@ export default function HandlesPage() {
 
   const editReservation = (reservation: HandleReservation) => {
     setReservationHandle(cleanHandle(reservation.label))
-    setReservationOwner(reservation.ownerUid)
     window.scrollTo({ top: 0, behavior: "smooth" })
   }
 
@@ -255,7 +252,7 @@ export default function HandlesPage() {
   }
 
   return (
-    <main className="px-4 py-6">
+    <main className="pt-12 sm:pt-6 md:pt-0">
       <div className="mb-2 mt-6 md:mt-0">
         <Breadcrumb items={[{ label: "Dashboard", href: "/admin" }, { label: "Handles" }]} />
       </div>
@@ -271,23 +268,12 @@ export default function HandlesPage() {
       </div>
 
       <div className="mx-auto max-w-[76rem]">
-        <header className="flex flex-col gap-4 border-b border-white/15 pb-6 sm:flex-row sm:items-end sm:justify-between">
-          <div>
-            <div className="flex items-center gap-3">
-              <span className="flex h-10 w-10 items-center justify-center bg-[#8a2ae3]/15 text-[#8a2ae3]" aria-hidden="true">
-                <KeyRound className="h-5 w-5" />
-              </span>
-              <h1 className="text-4xl font-semibold tracking-[-0.04em] sm:text-5xl">Handles</h1>
-            </div>
-            <p className="mt-2 max-w-2xl text-sm leading-6 text-white/50">
-              Reserve protected names, review claimed handles, and correct ownership.
-            </p>
-          </div>
-          <Button variant="ghost" size="sm" onClick={() => void loadRegistry()} disabled={loading} className="self-start border border-white/15 text-white/60 hover:bg-white/[0.06] hover:text-white sm:self-auto">
+        <div className="flex justify-end">
+          <Button variant="ghost" size="sm" onClick={() => void loadRegistry()} disabled={loading} className="border border-white/15 text-white/60 hover:bg-white/[0.06] hover:text-white">
             <RefreshCw className={`mr-2 h-4 w-4 ${loading ? "animate-spin" : ""}`} />
             Refresh
           </Button>
-        </header>
+        </div>
 
         <dl className="flex flex-wrap items-center gap-x-7 gap-y-3 border-b border-white/15 py-4">
           <div className="flex items-center gap-2.5">
@@ -316,7 +302,7 @@ export default function HandlesPage() {
               </span>
               <div>
                 <h2 className="font-semibold">Reserve a handle</h2>
-                <p className="mt-0.5 text-sm text-white/45">Protect a name for a specific account.</p>
+                <p className="mt-0.5 text-sm text-white/45">Protect a name until you assign it.</p>
               </div>
             </div>
             <div className="space-y-3">
@@ -329,21 +315,9 @@ export default function HandlesPage() {
                   className="border-white/15 bg-white/[0.025] pl-8 focus-visible:ring-[#8a2ae3]"
                 />
               </div>
-              <select
-                value={reservationOwner}
-                onChange={(event) => setReservationOwner(event.target.value)}
-                className="h-10 w-full border border-white/15 bg-[#151515] px-3 text-sm text-white outline-none transition-colors focus:border-[#8a2ae3] focus-visible:ring-2 focus-visible:ring-[#8a2ae3]"
-              >
-                <option value="">Choose owner</option>
-                {registry.owners.map((owner) => (
-                  <option key={owner.uid} value={owner.uid}>
-                    {owner.name} · {owner.role}{owner.handle ? ` · @${owner.handle}` : ""}
-                  </option>
-                ))}
-              </select>
               <Button
                 onClick={saveReservation}
-                disabled={busyAction === "reservation" || reservationHandle.length < 3 || !reservationOwner}
+                disabled={busyAction === "reservation" || reservationHandle.length < 3}
                 size="sm"
                 className="mt-1"
               >
@@ -432,14 +406,14 @@ export default function HandlesPage() {
           </section>
         )}
 
-        <section className="sticky top-0 z-20 mt-3 flex flex-col gap-3 border-b border-white/15 bg-[#121212]/95 py-3 backdrop-blur sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex bg-white/[0.025] p-0.5">
+        <section className="sticky top-0 z-20 mt-3 flex flex-col gap-3 border-b border-white/15 bg-[#121212]/95 py-3 backdrop-blur lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex w-full overflow-x-auto bg-white/[0.025] p-0.5 lg:w-auto">
             {(["reserved", "taken"] as const).map((view) => (
               <button
                 key={view}
                 type="button"
                 onClick={() => setRegistryView(view)}
-                className={`inline-flex items-center gap-2 px-3 py-2 text-xs font-medium capitalize transition-colors duration-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#8a2ae3] active:translate-y-px ${
+                className={`inline-flex min-w-0 flex-1 shrink-0 items-center justify-center gap-2 px-3 py-2 text-xs font-medium capitalize transition-colors duration-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#8a2ae3] active:translate-y-px lg:flex-none ${
                   registryView === view
                     ? "!bg-[#8a2ae3] !text-white"
                     : "text-white/50 hover:bg-white/5 hover:text-white"
@@ -450,7 +424,7 @@ export default function HandlesPage() {
               </button>
             ))}
           </div>
-          <div className="relative w-full sm:max-w-sm">
+          <div className="relative w-full lg:max-w-sm">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/35" />
             <Input
               value={registrySearch}
@@ -472,16 +446,16 @@ export default function HandlesPage() {
             </div>
           </div>
           <div className="overflow-x-auto border border-white/10 bg-white/[0.01]">
-            <table className="min-w-full divide-y divide-white/10 text-sm">
+            <table className="min-w-[44rem] divide-y divide-white/10 text-sm">
               <thead className="bg-white/[0.025] text-left text-xs font-medium text-white/40">
-                <tr><th className="px-4 py-3">Reservation</th><th className="px-4 py-3">Owner</th><th className="px-4 py-3">Status</th><th className="px-4 py-3 text-right">Actions</th></tr>
+                <tr><th className="px-4 py-3">Reservation</th><th className="px-4 py-3">Assigned to</th><th className="px-4 py-3">Status</th><th className="px-4 py-3 text-right">Actions</th></tr>
               </thead>
               <tbody className="divide-y divide-white/10">
                 {filteredReservations.map((reservation) => (
                   <tr key={reservation.key} className="transition-colors duration-200 hover:bg-white/[0.025]">
                     <td className="px-4 py-3.5 font-semibold">@{reservation.label}</td>
                     <td className="px-4 py-3.5 text-white/75">{reservation.ownerName}</td>
-                    <td className="px-4 py-3.5">{reservation.claimedHandles.length ? <span className="inline-flex items-center gap-1.5 text-emerald-300"><Check className="h-3.5 w-3.5" /> Claimed as @{reservation.claimedHandles.join(", @")}</span> : <span className="text-white/40">Available to owner</span>}</td>
+                    <td className="px-4 py-3.5">{reservation.claimedHandles.length ? <span className="inline-flex items-center gap-1.5 text-emerald-300"><Check className="h-3.5 w-3.5" /> Claimed as @{reservation.claimedHandles.join(", @")}</span> : <span className="text-white/40">Protected</span>}</td>
                     <td className="px-4 py-3.5"><div className="flex justify-end gap-1"><Button variant="ghost" size="icon" title="Edit reservation" aria-label={`Edit @${reservation.label}`} onClick={() => editReservation(reservation)} className="h-8 w-8 text-white/40 hover:bg-white/[0.07] hover:text-white focus-visible:ring-[#8a2ae3]"><Pencil className="h-4 w-4" /></Button><Button variant="ghost" size="icon" title="Remove reservation" aria-label={`Remove @${reservation.label}`} disabled={busyAction === `remove:${reservation.key}`} onClick={() => void removeReservation(reservation)} className="h-8 w-8 text-white/30 hover:bg-red-400/10 hover:text-red-300 focus-visible:ring-red-300">{busyAction === `remove:${reservation.key}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}</Button></div></td>
                   </tr>
                 ))}
@@ -500,7 +474,7 @@ export default function HandlesPage() {
             </div>
           </div>
           <div className="overflow-x-auto border border-white/10 bg-white/[0.01]">
-            <table className="min-w-full divide-y divide-white/10 text-sm">
+            <table className="min-w-[52rem] divide-y divide-white/10 text-sm">
               <thead className="bg-white/[0.025] text-left text-xs font-medium text-white/40">
                 <tr><th className="px-4 py-3">Handle</th><th className="px-4 py-3">Account</th><th className="px-4 py-3">Type</th><th className="px-4 py-3">Protection</th><th className="px-4 py-3 text-right">Actions</th></tr>
               </thead>

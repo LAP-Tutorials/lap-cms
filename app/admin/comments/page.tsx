@@ -14,6 +14,7 @@ import PageTitle from "@/components/PageTitle"
 import { MentionTextarea } from "@/components/mention-textarea"
 
 type ModerationStatus = "visible" | "hidden"
+type CommentReaction = "like" | "dislike"
 type ModeratedEntry = {
   id: string
   kind: "comment" | "reply"
@@ -70,6 +71,9 @@ function ModerationRow({
   busyId,
   compact = false,
   contextOnly = false,
+  reaction,
+  reactionBusyId,
+  onReact,
   onStatusChange,
   onDelete,
 }: {
@@ -77,21 +81,34 @@ function ModerationRow({
   busyId: string | null
   compact?: boolean
   contextOnly?: boolean
+  reaction?: CommentReaction
+  reactionBusyId: string | null
+  onReact?: (commentId: string, reaction: CommentReaction) => void
   onStatusChange: (entry: ModeratedEntry, status: ModerationStatus) => void
   onDelete: (entry: ModeratedEntry) => void
 }) {
   const createdAt = entry.createdAt?.toDate()
   const isBusy = busyId === `${entry.kind}:${entry.id}`
+  const isDeletedAuthor = entry.authorId === "deleted-user"
   const statusLabel = entry.status === "visible" ? "Visible" : "Hidden"
 
   return (
-    <div className={`group grid items-start gap-3 ${compact ? "py-4 sm:grid-cols-[2rem_minmax(0,1fr)_auto]" : "py-5 sm:grid-cols-[2.5rem_minmax(0,1fr)_auto]"}`}>
+    <div className={`group grid items-start gap-3 ${compact ? "grid-cols-[2rem_minmax(0,1fr)] py-4 sm:grid-cols-[2rem_minmax(0,1fr)_auto]" : "grid-cols-[2.5rem_minmax(0,1fr)] py-5 sm:grid-cols-[2.5rem_minmax(0,1fr)_auto]"}`}>
       <div className={`flex items-center justify-center overflow-hidden bg-white/[0.07] font-semibold uppercase text-white/55 ${compact ? "h-8 w-8 text-xs" : "h-10 w-10 text-sm"}`}>
-        {entry.authorPhotoURL ? <img src={entry.authorPhotoURL} alt={`${entry.authorName}'s profile picture`} className="h-full w-full object-cover" referrerPolicy="no-referrer" /> : entry.authorName.charAt(0)}
+        {isDeletedAuthor || entry.authorPhotoURL ? (
+          <img
+            src={isDeletedAuthor ? "/logos/LAP-Logo-Color.png" : entry.authorPhotoURL}
+            alt={isDeletedAuthor ? "Deleted user profile picture" : `${entry.authorName}'s profile picture`}
+            className="h-full w-full object-cover"
+            referrerPolicy="no-referrer"
+          />
+        ) : entry.authorName.charAt(0)}
       </div>
       <div className="min-w-0">
         <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1.5">
-          <span className={`${compact ? "text-sm" : "text-[15px]"} font-semibold text-white`}>@{entry.authorHandle || entry.authorName}</span>
+          <span className={`${compact ? "text-sm" : "text-[15px]"} font-semibold ${isDeletedAuthor ? "text-white/55" : "text-white"}`}>
+            {isDeletedAuthor ? "Deleted user" : `@${entry.authorHandle || entry.authorName}`}
+          </span>
           <span className="inline-flex items-center gap-1 text-[11px] text-white/35">
             {entry.kind === "reply" ? <CornerDownRight className="h-3 w-3" /> : <MessageSquare className="h-3 w-3" />}
             {contextOnly ? "Parent comment" : entry.kind === "reply" ? "Reply" : "Comment"}
@@ -110,8 +127,35 @@ function ModerationRow({
           <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2 text-xs text-white/40">
             <span className="max-w-xl truncate">{entry.articleTitle || entry.articleId}</span>
             <span className="h-3 w-px bg-white/15" aria-hidden="true" />
-            <span className="inline-flex items-center gap-1.5 tabular-nums" title="Likes"><ThumbsUp className="h-3.5 w-3.5" /> {entry.likeCount || 0}</span>
-            <span className="inline-flex items-center gap-1.5 tabular-nums" title="Dislikes"><ThumbsDown className="h-3.5 w-3.5" /> {entry.dislikeCount || 0}</span>
+            {onReact ? (
+              <>
+                <button
+                  type="button"
+                  onClick={() => onReact(entry.id, "like")}
+                  disabled={reactionBusyId === entry.id || entry.status !== "visible"}
+                  aria-pressed={reaction === "like"}
+                  aria-label={`Like comment. ${entry.likeCount || 0} likes`}
+                  className={`inline-flex items-center gap-1.5 tabular-nums transition-colors hover:text-white disabled:cursor-not-allowed disabled:opacity-35 ${reaction === "like" ? "text-[#8a2ae3]" : ""}`}
+                >
+                  <ThumbsUp className="h-3.5 w-3.5" /> {entry.likeCount || 0}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onReact(entry.id, "dislike")}
+                  disabled={reactionBusyId === entry.id || entry.status !== "visible"}
+                  aria-pressed={reaction === "dislike"}
+                  aria-label={`Dislike comment. ${entry.dislikeCount || 0} dislikes`}
+                  className={`inline-flex items-center gap-1.5 tabular-nums transition-colors hover:text-white disabled:cursor-not-allowed disabled:opacity-35 ${reaction === "dislike" ? "text-[#8a2ae3]" : ""}`}
+                >
+                  <ThumbsDown className="h-3.5 w-3.5" /> {entry.dislikeCount || 0}
+                </button>
+              </>
+            ) : (
+              <>
+                <span className="inline-flex items-center gap-1.5 tabular-nums" title="Likes"><ThumbsUp className="h-3.5 w-3.5" /> {entry.likeCount || 0}</span>
+                <span className="inline-flex items-center gap-1.5 tabular-nums" title="Dislikes"><ThumbsDown className="h-3.5 w-3.5" /> {entry.dislikeCount || 0}</span>
+              </>
+            )}
             <span className="inline-flex items-center gap-1.5 tabular-nums" title="Replies"><CornerDownRight className="h-3.5 w-3.5" /> {entry.replyCount || 0}</span>
             {entry.articleSlug ? <Link href={`https://lap.onl/posts/${entry.articleSlug}#comments`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-white/60 transition-colors duration-200 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#8a2ae3]">Open post <ExternalLink className="h-3 w-3" /></Link> : null}
           </div>
@@ -138,6 +182,8 @@ export default function CommentsModerationPage() {
   const [statusFilter, setStatusFilter] = useState<"all" | ModerationStatus>("all")
   const [typeFilter, setTypeFilter] = useState<"all" | "comment" | "reply">("all")
   const [busyId, setBusyId] = useState<string | null>(null)
+  const [reactionBusyId, setReactionBusyId] = useState<string | null>(null)
+  const [reactions, setReactions] = useState<Record<string, CommentReaction>>({})
   const [replyingToId, setReplyingToId] = useState<string | null>(null)
   const [replyContent, setReplyContent] = useState("")
   const [replyBusy, setReplyBusy] = useState(false)
@@ -182,6 +228,28 @@ export default function CommentsModerationPage() {
 
     void loadReplyProfile()
     return () => { cancelled = true }
+  }, [user])
+
+  useEffect(() => {
+    if (!user) {
+      setReactions({})
+      return
+    }
+
+    return onSnapshot(
+      collection(db, "commentReactions", user.uid, "items"),
+      (snapshot) => {
+        const next: Record<string, CommentReaction> = {}
+        snapshot.docs.forEach((reactionDoc) => {
+          const type = reactionDoc.data().type
+          if (type === "like" || type === "dislike") next[reactionDoc.id] = type
+        })
+        setReactions(next)
+      },
+      (reactionError) => {
+        console.error("Unable to load staff comment reactions:", reactionError)
+      },
+    )
   }, [user])
 
   useEffect(() => {
@@ -294,6 +362,36 @@ export default function CommentsModerationPage() {
     } finally { setBusyId(null) }
   }
 
+  const reactToComment = async (commentId: string, reaction: CommentReaction) => {
+    if (!user || reactionBusyId) return
+    setReactionBusyId(commentId)
+    setError("")
+    try {
+      const react = httpsCallable<
+        { commentId: string; reaction: CommentReaction },
+        { commentId: string; reaction: CommentReaction | null; likeCount: number; dislikeCount: number }
+      >(functions, "reactToComment")
+      const result = await react({ commentId, reaction })
+
+      setReactions((current) => {
+        const next = { ...current }
+        if (result.data.reaction) next[commentId] = result.data.reaction
+        else delete next[commentId]
+        return next
+      })
+      setComments((current) => current.map((comment) => (
+        comment.id === commentId
+          ? { ...comment, likeCount: result.data.likeCount, dislikeCount: result.data.dislikeCount }
+          : comment
+      )))
+    } catch (reactionError) {
+      console.error("Unable to react to comment from the CMS:", reactionError)
+      setError("Your reaction could not be saved.")
+    } finally {
+      setReactionBusyId(null)
+    }
+  }
+
   const submitStaffReply = async (parent: ModeratedEntry) => {
     const content = replyContent.trim()
     if (!user || !content || replyBusy) return
@@ -335,7 +433,7 @@ export default function CommentsModerationPage() {
   }
 
   return (
-    <main className="mx-auto min-h-screen max-w-[76rem] text-white">
+    <main className="mx-auto min-h-screen max-w-[76rem] pt-12 text-white sm:pt-6 md:pt-0">
       <Breadcrumb items={[{ label: "Dashboard", href: "/admin" }, { label: "Comments" }]} />
 
       <div className="flex justify-between items-center mb-6">
@@ -348,24 +446,7 @@ export default function CommentsModerationPage() {
         </PageTitle>
       </div>
 
-      <header className="mt-8 flex flex-col gap-4 border-b border-white/15 pb-6 lg:flex-row lg:items-end lg:justify-between">
-        <div>
-          <div className="flex items-center gap-3">
-            <span className="flex h-10 w-10 items-center justify-center bg-[#8a2ae3]/15 text-[#8a2ae3]" aria-hidden="true">
-              <MessageSquare className="h-5 w-5" />
-            </span>
-            <h1 className="text-4xl font-semibold tracking-[-0.04em] sm:text-5xl">Comments</h1>
-          </div>
-          <p className="mt-2 max-w-2xl text-sm leading-6 text-white/50">
-            Review conversations, reply as the team, and manage what appears publicly.
-          </p>
-        </div>
-        <p className="text-xs tabular-nums text-white/35">
-          Showing <span className="font-medium text-white/65">{shownEntryCount}</span> of {allEntries.length}
-        </p>
-      </header>
-
-      <dl className="flex flex-wrap items-center gap-x-7 gap-y-3 border-b border-white/15 py-4">
+      <dl className="grid grid-cols-2 gap-x-4 gap-y-3 border-b border-white/15 py-4 sm:flex sm:flex-wrap sm:items-center sm:gap-x-7">
         {[
           { label: "Comments", value: comments.length, icon: MessageSquare },
           { label: "Replies", value: replies.length, icon: CornerDownRight },
@@ -379,6 +460,7 @@ export default function CommentsModerationPage() {
             <dt className="text-xs text-white/40">{label}</dt>
           </div>
         ))}
+
       </dl>
 
       <section className="sticky top-0 z-20 border-b border-white/15 bg-[#121212]/95 py-3 backdrop-blur">
@@ -388,16 +470,16 @@ export default function CommentsModerationPage() {
             <Input value={searchTerm} onChange={(event) => setSearchTerm(event.target.value)} placeholder="Search comments" className="h-10 border-white/15 bg-white/[0.025] pl-10 text-sm placeholder:text-white/30 focus-visible:ring-[#8a2ae3]" />
           </div>
           <div className="flex flex-col gap-3 sm:flex-row">
-            <div className="flex bg-white/[0.025] p-0.5" aria-label="Entry type">
+            <div className="flex w-full overflow-x-auto bg-white/[0.025] p-0.5 sm:w-auto" aria-label="Entry type">
               {(["all", "comment", "reply"] as const).map((type) => (
-                <button key={type} type="button" onClick={() => setTypeFilter(type)} className={`px-3 py-2 text-xs font-medium capitalize transition-colors duration-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#8a2ae3] active:translate-y-px ${typeFilter === type ? "!bg-[#8a2ae3] !text-white" : "text-white/50 hover:bg-white/5 hover:text-white"}`}>
+                <button key={type} type="button" onClick={() => setTypeFilter(type)} className={`min-w-0 flex-1 shrink-0 px-3 py-2 text-xs font-medium capitalize transition-colors duration-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#8a2ae3] active:translate-y-px sm:flex-none ${typeFilter === type ? "!bg-[#8a2ae3] !text-white" : "text-white/50 hover:bg-white/5 hover:text-white"}`}>
                   {type === "all" ? "All" : type === "reply" ? "Replies" : "Comments"}
                 </button>
               ))}
             </div>
-            <div className="flex bg-white/[0.025] p-0.5" aria-label="Visibility">
+            <div className="flex w-full overflow-x-auto bg-white/[0.025] p-0.5 sm:w-auto" aria-label="Visibility">
               {(["all", "visible", "hidden"] as const).map((status) => (
-                <button key={status} type="button" onClick={() => setStatusFilter(status)} className={`px-3 py-2 text-xs font-medium capitalize transition-colors duration-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#8a2ae3] active:translate-y-px ${statusFilter === status ? "bg-white/10 text-white" : "text-white/50 hover:bg-white/5 hover:text-white"}`}>
+                <button key={status} type="button" onClick={() => setStatusFilter(status)} className={`min-w-0 flex-1 shrink-0 px-3 py-2 text-xs font-medium capitalize transition-colors duration-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#8a2ae3] active:translate-y-px sm:flex-none ${statusFilter === status ? "bg-white/10 text-white" : "text-white/50 hover:bg-white/5 hover:text-white"}`}>
                   {status === "all" ? "Any" : status}
                 </button>
               ))}
@@ -405,6 +487,9 @@ export default function CommentsModerationPage() {
           </div>
         </div>
       </section>
+      <p className="text-xs tabular-nums text-white/35 pt-2">
+        Showing <span className="font-medium text-white/65">{shownEntryCount}</span> of {allEntries.length}
+      </p>
 
       {error ? <p role="alert" className="mt-4 border-l-2 border-red-300 bg-red-300/[0.06] px-4 py-3 text-sm text-red-200">{error}</p> : null}
       {loading ? (
@@ -423,11 +508,14 @@ export default function CommentsModerationPage() {
               entry={thread.parent}
               busyId={busyId}
               contextOnly={thread.parentIsContext}
+              reaction={reactions[thread.parent.id]}
+              reactionBusyId={reactionBusyId}
+              onReact={reactToComment}
               onStatusChange={setEntryStatus}
               onDelete={removeEntry}
             />
             {thread.parent.status === "visible" ? (
-              <div className="-mt-1 mb-5 ml-11 sm:ml-14">
+              <div className="-mt-1 mb-5 sm:ml-14">
                 {replyingToId === thread.parent.id ? (
                   <form
                     onSubmit={(event) => {
@@ -441,6 +529,18 @@ export default function CommentsModerationPage() {
                       id={`cms-reply-${thread.parent.id}`}
                       value={replyContent}
                       onChange={setReplyContent}
+                      onKeyDown={(event) => {
+                        if (
+                          event.key === "Enter" &&
+                          !event.shiftKey &&
+                          !event.nativeEvent.isComposing
+                        ) {
+                          event.preventDefault()
+                          if (!replyBusy && replyContent.trim()) {
+                            void submitStaffReply(thread.parent)
+                          }
+                        }
+                      }}
                       maxLength={MAX_REPLY_LENGTH}
                       rows={2}
                       autoFocus
@@ -471,7 +571,7 @@ export default function CommentsModerationPage() {
               </div>
             ) : null}
             {thread.replies.length > 0 ? (
-              <div className="mb-5 ml-3 border-l-2 border-[#8a2ae3]/35 bg-black/10 px-4 sm:ml-12 sm:px-5">
+              <div className="mb-5 border-l-2 border-[#8a2ae3]/35 bg-black/10 px-3 sm:ml-12 sm:px-5">
                 <p className="border-b border-white/10 py-3 text-xs font-medium text-white/40">
                   {thread.replies.length} {thread.replies.length === 1 ? "reply" : "replies"}
                 </p>
@@ -482,6 +582,7 @@ export default function CommentsModerationPage() {
                       entry={reply}
                       busyId={busyId}
                       compact
+                      reactionBusyId={reactionBusyId}
                       onStatusChange={setEntryStatus}
                       onDelete={removeEntry}
                     />

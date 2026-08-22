@@ -9,6 +9,7 @@ import {
   updatePassword,
   GoogleAuthProvider,
   linkWithPopup,
+  signOut,
 } from "firebase/auth"
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage"
 import PageTitle from "@/components/PageTitle"
@@ -17,7 +18,7 @@ import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { useToast } from "@/hooks/use-toast"
 import { Breadcrumb } from "@/components/breadcrumb"
-import { Eye, EyeOff, Loader2, AlertTriangle, Plus, X, Camera } from "lucide-react"
+import { Eye, EyeOff, Loader2, AlertTriangle, Plus, X, Camera, Trash2 } from "lucide-react"
 import { FcGoogle } from "react-icons/fc"
 import { AvatarCropper } from "@/components/profile/avatar-cropper"
 
@@ -54,6 +55,7 @@ export default function ProfilePage() {
   const [handleInput, setHandleInput] = useState("")
   const [claimingHandle, setClaimingHandle] = useState(false)
   const [changingPassword, setChangingPassword] = useState(false)
+  const [deletingAccount, setDeletingAccount] = useState(false)
   const [linkingGoogle, setLinkingGoogle] = useState(false)
   const [isGoogleLinked, setIsGoogleLinked] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -278,6 +280,41 @@ export default function ProfilePage() {
       })
     } finally {
       setChangingPassword(false)
+    }
+  }
+
+  const handleDeleteAccount = async () => {
+    if (!auth.currentUser || deletingAccount) return
+
+    const confirmation = window.prompt(
+      "This permanently deletes your CMS and Docs account. Articles keep your name, comments become Deleted user, and votes remain. Type DELETE to continue.",
+    )
+    if (confirmation === null) return
+    if (confirmation !== "DELETE") {
+      toast({
+        title: "Deletion cancelled",
+        description: "Type DELETE exactly to confirm.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    setDeletingAccount(true)
+    try {
+      const deleteOwnAccount = httpsCallable<
+        { confirmation: "DELETE" },
+        { deleted: boolean }
+      >(functions, "deleteOwnAccount")
+      await deleteOwnAccount({ confirmation: "DELETE" })
+      await signOut(auth).catch(() => undefined)
+      window.location.assign("/auth/login")
+    } catch (err: any) {
+      toast({
+        title: "Could not delete account",
+        description: err?.message || "Please try again.",
+        variant: "destructive",
+      })
+      setDeletingAccount(false)
     }
   }
 
@@ -749,6 +786,29 @@ export default function ProfilePage() {
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
             )}
             {changingPassword ? "Updating..." : "Update Password"}
+          </Button>
+        </div>
+
+        <hr className="my-10 border-white/10" />
+
+        <div className="max-w-md">
+          <h2 className="text-xl font-bold">Delete Account</h2>
+          <p className="mt-2 text-sm leading-6 text-white/50">
+            Permanently remove your sign-in, team profile, photos, and handle.
+            Articles and discussions will remain without your profile details.
+          </p>
+          <Button
+            onClick={handleDeleteAccount}
+            disabled={deletingAccount}
+            variant="outline"
+            className="mt-5 border-red-500/60 text-red-400 hover:bg-red-500/10 hover:text-red-300"
+          >
+            {deletingAccount ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <Trash2 className="mr-2 h-4 w-4" />
+            )}
+            {deletingAccount ? "Deleting..." : "Delete My Account"}
           </Button>
         </div>
       </div>

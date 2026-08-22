@@ -203,15 +203,14 @@ export default function EditTeamMemberPage() {
     try {
       const deleteTeamMember = httpsCallable<
         { uid: string },
-        { uid: string; demoted: boolean }
+        { uid: string; deleted: boolean }
       >(functions, "deleteTeamMember");
-      const result = await deleteTeamMember({ uid: id });
+      await deleteTeamMember({ uid: id });
 
       toast({
-        title: result.data.demoted ? "Moderator removed" : "Member deleted",
-        description: result.data.demoted
-          ? "Their CMS access was removed. Their Docs reader account is still active."
-          : "The member's profile and sign-in account were removed",
+        title: "Member deleted",
+        description:
+          "Their profile and sign-in were removed. Articles and discussions remain under the account-deletion rules.",
         variant: "success",
       });
 
@@ -628,9 +627,7 @@ export default function EditTeamMemberPage() {
               onClick={() => {
                 if (
                   window.confirm(
-                    member.promotedFromReader
-                      ? "Remove this member's CMS access? Their Docs reader account will remain active."
-                      : "Delete this team member and their sign-in account? This action cannot be undone.",
+                    "Permanently delete this member's CMS and Docs account? Articles and discussions will remain under the account-deletion rules. This action cannot be undone.",
                   )
                 ) {
                   handleDelete();
@@ -638,11 +635,7 @@ export default function EditTeamMemberPage() {
               }}
               disabled={saving || deleting}
             >
-              {deleting
-                ? "Removing..."
-                : member.promotedFromReader
-                  ? "Remove CMS Access"
-                  : "Delete Member"}
+              {deleting ? "Deleting..." : "Delete Member"}
             </Button>
           )}
 

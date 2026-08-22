@@ -98,37 +98,32 @@ function ModeratorDashboard() {
         Dashboard
       </PageTitle>
 
-      <div className="border-b border-white/15 pb-8">
-        <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[#8a2ae3]">
-          Moderator workspace
-        </p>
-        <h1 className="mt-3 text-3xl font-bold sm:text-4xl">Comment moderation</h1>
-        <p className="mt-3 max-w-2xl text-white/55">
-          Review public discussion, hide harmful replies, and restore comments when needed.
-        </p>
-      </div>
-
       {error ? (
         <p role="alert" className="mt-8 border border-red-400/30 bg-red-400/10 p-4 text-red-100">
           {error}
         </p>
       ) : null}
 
-      <div className="mt-8 grid gap-px bg-white/15 sm:grid-cols-3">
+      <dl className="mt-7 grid grid-cols-3 border-y border-white/15">
         {[
           { label: "All comments", value: counts.all, icon: MessageSquare },
           { label: "Visible", value: counts.visible, icon: Eye },
           { label: "Hidden", value: counts.hidden, icon: EyeOff },
-        ].map(({ label, value, icon: Icon }) => (
-          <div key={label} className="bg-[#121212] p-6">
-            <Icon className="h-5 w-5 text-[#8a2ae3]" aria-hidden="true" />
-            <p className="mt-6 text-sm text-white/50">{label}</p>
-            <p className="mt-1 text-3xl font-semibold tabular-nums">
+        ].map(({ label, value, icon: Icon }, index) => (
+          <div
+            key={label}
+            className={`min-w-0 py-4 sm:py-5 ${index === 0 ? "pr-3 sm:pr-6" : "border-l border-white/15 px-3 sm:px-6"}`}
+          >
+            <div className="flex items-center gap-2 text-white/45">
+              <Icon className="h-4 w-4 shrink-0 text-[#8a2ae3]" aria-hidden="true" />
+              <dt className="truncate text-[11px] sm:text-sm">{label}</dt>
+            </div>
+            <dd className="mt-3 font-mono text-2xl font-semibold tabular-nums sm:text-3xl">
               {loading ? "—" : value}
-            </p>
+            </dd>
           </div>
         ))}
-      </div>
+      </dl>
 
       <div className="mt-12">
         <div className="flex flex-wrap items-end justify-between gap-4 border-b border-white/15 pb-4">

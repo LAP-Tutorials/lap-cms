@@ -31,6 +31,22 @@ function getDb() {
   return db;
 }
 
+async function mutateDocumentsInChunks(
+  snapshots: admin.firestore.DocumentSnapshot[],
+  mutate: (
+    batch: admin.firestore.WriteBatch,
+    snapshot: admin.firestore.DocumentSnapshot
+  ) => void
+) {
+  for (let offset = 0; offset < snapshots.length; offset += 400) {
+    const batch = getDb().batch();
+    snapshots.slice(offset, offset + 400).forEach((snapshot) => {
+      mutate(batch, snapshot);
+    });
+    await batch.commit();
+  }
+}
+
 // Lazy initialization to prevent global scope crashes
 let analyticsDataClient: BetaAnalyticsDataClient | null = null;
 
@@ -90,6 +106,7 @@ async function claimHandleForUser(
   value: unknown,
   options: {
     allowChange?: boolean;
+    allowUnassignedReservation?: boolean;
     requireTeamMember?: boolean;
     syncExistingComments?: boolean;
   } = {}
@@ -151,9 +168,13 @@ async function claimHandleForUser(
       throw new HttpsError("already-exists", "That handle is already taken.");
     }
 
+    const reservationOwnerUid = reservationSnapshot.data()?.ownerUid;
+    const canAssignUnassignedReservation =
+      options.allowUnassignedReservation && !reservationOwnerUid;
     if (
       reservationSnapshot.exists &&
-      reservationSnapshot.data()?.ownerUid !== uid
+      reservationOwnerUid !== uid &&
+      !canAssignUnassignedReservation
     ) {
       throw new HttpsError(
         "already-exists",
@@ -173,6 +194,13 @@ async function claimHandleForUser(
     }
 
     const timestamp = admin.firestore.FieldValue.serverTimestamp();
+    if (reservationSnapshot.exists && canAssignUnassignedReservation) {
+      transaction.set(
+        reservationRef,
+        { ownerUid: uid, updatedAt: timestamp },
+        { merge: true }
+      );
+    }
     const oldHandles = [...new Set([currentAuthorHandle, currentPublicHandle])]
       .filter((oldHandle) => oldHandle && oldHandle !== handle);
     const oldHandleSnapshots = await Promise.all(
@@ -331,6 +359,7 @@ export const setUserHandle = onCall(
 
     const handle = await claimHandleForUser(targetUid, request.data?.handle, {
       allowChange: true,
+      allowUnassignedReservation: true,
       syncExistingComments: true,
     });
     return { handle };
@@ -433,7 +462,7 @@ export const listHandleRegistry = onCall(
             key: snapshot.id,
             label: normalizeTeamHandle(data.label || snapshot.id) || snapshot.id,
             ownerUid: data.ownerUid || "",
-            ownerName: owner?.name || data.ownerUid || "Unknown account",
+            ownerName: owner?.name || data.ownerUid || "Unassigned",
             reason: data.reason || "manual",
             claimedHandles: claimedByKey.get(snapshot.id) || [],
           };
@@ -454,44 +483,20 @@ export const upsertHandleReservation = onCall(
 
     const firestore = getDb();
     const handle = normalizeTeamHandle(request.data?.handle);
-    const ownerUid = request.data?.ownerUid;
     if (!TEAM_HANDLE_PATTERN.test(handle)) {
       throw new HttpsError(
         "invalid-argument",
         "Use 3-20 lowercase letters, numbers, hyphens, or underscores."
       );
     }
-    if (typeof ownerUid !== "string" || !ownerUid.trim()) {
-      throw new HttpsError("invalid-argument", "Choose an account owner.");
-    }
     const key = getHandleReservationKey(handle);
     if (key.length < 3 || key.length > 20) {
       throw new HttpsError("invalid-argument", "That reservation is not valid.");
     }
 
-    const [author, user, handles] = await Promise.all([
-      firestore.collection("authors").doc(ownerUid).get(),
-      firestore.collection("users").doc(ownerUid).get(),
-      firestore.collection("handles").get(),
-    ]);
-    if (!author.exists && !user.exists) {
-      throw new HttpsError("not-found", "That account no longer exists.");
-    }
-    const conflict = handles.docs.find(
-      (snapshot) =>
-        getHandleReservationKey(snapshot.id) === key &&
-        snapshot.data().uid !== ownerUid
-    );
-    if (conflict) {
-      throw new HttpsError(
-        "already-exists",
-        `@${conflict.id} already uses this reservation.`
-      );
-    }
-
     await firestore.collection("handleReservations").doc(key).set(
       {
-        ownerUid,
+        ownerUid: admin.firestore.FieldValue.delete(),
         label: handle,
         reason: "manual",
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -499,7 +504,7 @@ export const upsertHandleReservation = onCall(
       },
       { merge: true }
     );
-    return { key, handle, ownerUid };
+    return { key, handle };
   }
 );
 
@@ -537,6 +542,7 @@ export const reactToComment = onCall(
     }
 
     const firestore = getDb();
+    const accountRef = firestore.collection("users").doc(request.auth.uid);
     const commentRef = firestore.collection("comments").doc(commentId);
     const reactionRef = firestore
       .collection("commentReactions")
@@ -545,10 +551,17 @@ export const reactToComment = onCall(
       .doc(commentId);
 
     return firestore.runTransaction(async (transaction) => {
-      const [comment, reaction] = await Promise.all([
+      const [account, comment, reaction] = await Promise.all([
+        transaction.get(accountRef),
         transaction.get(commentRef),
         transaction.get(reactionRef),
       ]);
+      if (!account.exists) {
+        throw new HttpsError(
+          "failed-precondition",
+          "Complete your reader account before reacting to comments."
+        );
+      }
       if (!comment.exists || comment.data()?.status !== "visible") {
         throw new HttpsError("not-found", "That comment is not available.");
       }
@@ -647,13 +660,13 @@ export const searchMentionHandles = onCall(
       .orderBy(admin.firestore.FieldPath.documentId())
       .startAt(prefix)
       .endAt(`${prefix}\uf8ff`)
-      .limit(8)
+      .limit(12)
       .get();
 
     const suggestions = await Promise.all(
       handles.docs.map(async (handleDoc) => {
         const uid = handleDoc.data().uid;
-        if (typeof uid !== "string") return null;
+        if (typeof uid !== "string" || uid === request.auth!.uid) return null;
         const [user, author] = await Promise.all([
           firestore.collection("users").doc(uid).get(),
           firestore.collection("authors").doc(uid).get(),
@@ -675,7 +688,271 @@ export const searchMentionHandles = onCall(
       })
     );
 
-    return { suggestions: suggestions.filter(Boolean) };
+    return {
+      suggestions: suggestions
+        .filter((suggestion) => suggestion !== null)
+        .slice(0, 8),
+    };
+  }
+);
+
+async function deleteAccountData(uid: string) {
+    const firestore = getDb();
+    const userRef = firestore.collection("users").doc(uid);
+    const authorRef = firestore.collection("authors").doc(uid);
+    const reactionOwnerRef = firestore.collection("commentReactions").doc(uid);
+
+    const [user, author, authUser] = await Promise.all([
+      userRef.get(),
+      authorRef.get(),
+      admin.auth().getUser(uid).catch((error) => {
+        if ((error as { code?: string }).code === "auth/user-not-found") {
+          return null;
+        }
+        throw error;
+      }),
+    ]);
+    const userData = user.data();
+    const authorData = author.data();
+    const retainedAuthorName =
+      (typeof authorData?.name === "string" && authorData.name.trim()) ||
+      (typeof userData?.staffName === "string" && userData.staffName.trim()) ||
+      (typeof userData?.displayName === "string" &&
+        userData.displayName.trim()) ||
+      authUser?.displayName?.trim() ||
+      authUser?.email?.split("@")[0]?.trim() ||
+      "Deleted author";
+
+    const [
+      articles,
+      trashedArticles,
+      deletedTrash,
+      comments,
+      replies,
+      moderatedComments,
+      moderatedReplies,
+      handles,
+      ownedReservations,
+      updatedReservations,
+      promotedAuthors,
+      reactions,
+    ] = await Promise.all([
+      firestore.collection("articles").where("authorUID", "==", uid).get(),
+      firestore
+        .collection("articleTrash")
+        .where("article.authorUID", "==", uid)
+        .get(),
+      firestore.collection("articleTrash").where("deletedBy", "==", uid).get(),
+      firestore.collection("comments").where("authorId", "==", uid).get(),
+      firestore.collection("commentReplies").where("authorId", "==", uid).get(),
+      firestore.collection("comments").where("moderatedBy", "==", uid).get(),
+      firestore
+        .collection("commentReplies")
+        .where("moderatedBy", "==", uid)
+        .get(),
+      firestore.collection("handles").where("uid", "==", uid).get(),
+      firestore
+        .collection("handleReservations")
+        .where("ownerUid", "==", uid)
+        .get(),
+      firestore
+        .collection("handleReservations")
+        .where("updatedBy", "==", uid)
+        .get(),
+      firestore.collection("authors").where("promotedBy", "==", uid).get(),
+      reactionOwnerRef.collection("items").get(),
+    ]);
+
+    await mutateDocumentsInChunks(articles.docs, (batch, snapshot) => {
+      const existingName = snapshot.data()?.authorName;
+      batch.update(snapshot.ref, {
+        authorName:
+          typeof existingName === "string" && existingName.trim()
+            ? existingName
+            : retainedAuthorName,
+        authorUID: admin.firestore.FieldValue.delete(),
+        authorRef: admin.firestore.FieldValue.delete(),
+      });
+    });
+    await mutateDocumentsInChunks(trashedArticles.docs, (batch, snapshot) => {
+      const existingName = snapshot.data()?.article?.authorName;
+      batch.update(snapshot.ref, {
+        "article.authorName":
+          typeof existingName === "string" && existingName.trim()
+            ? existingName
+            : retainedAuthorName,
+        "article.authorUID": admin.firestore.FieldValue.delete(),
+        "article.authorRef": admin.firestore.FieldValue.delete(),
+      });
+    });
+    await mutateDocumentsInChunks(deletedTrash.docs, (batch, snapshot) => {
+      batch.update(snapshot.ref, {
+        deletedBy: admin.firestore.FieldValue.delete(),
+      });
+    });
+
+    const anonymizeDiscussion = (
+      batch: admin.firestore.WriteBatch,
+      snapshot: admin.firestore.DocumentSnapshot
+    ) => {
+      batch.update(snapshot.ref, {
+        authorId: "deleted-user",
+        authorName: "Deleted user",
+        authorHandle: admin.firestore.FieldValue.delete(),
+        authorPhotoURL: admin.firestore.FieldValue.delete(),
+      });
+    };
+    await mutateDocumentsInChunks(comments.docs, anonymizeDiscussion);
+    await mutateDocumentsInChunks(replies.docs, anonymizeDiscussion);
+
+    const removeModeratorReference = (
+      batch: admin.firestore.WriteBatch,
+      snapshot: admin.firestore.DocumentSnapshot
+    ) => {
+      batch.update(snapshot.ref, {
+        moderatedBy: admin.firestore.FieldValue.delete(),
+        moderatedAt: admin.firestore.FieldValue.delete(),
+      });
+    };
+    await mutateDocumentsInChunks(
+      moderatedComments.docs,
+      removeModeratorReference
+    );
+    await mutateDocumentsInChunks(moderatedReplies.docs, removeModeratorReference);
+    await mutateDocumentsInChunks(promotedAuthors.docs, (batch, snapshot) => {
+      batch.update(snapshot.ref, {
+        promotedBy: admin.firestore.FieldValue.delete(),
+      });
+    });
+
+    await mutateDocumentsInChunks(handles.docs, (batch, snapshot) => {
+      batch.delete(snapshot.ref);
+    });
+    await mutateDocumentsInChunks(ownedReservations.docs, (batch, snapshot) => {
+      batch.delete(snapshot.ref);
+    });
+    const ownedReservationIds = new Set(
+      ownedReservations.docs.map((snapshot) => snapshot.id)
+    );
+    await mutateDocumentsInChunks(
+      updatedReservations.docs.filter(
+        (snapshot) => !ownedReservationIds.has(snapshot.id)
+      ),
+      (batch, snapshot) => {
+        batch.update(snapshot.ref, {
+          updatedBy: admin.firestore.FieldValue.delete(),
+        });
+      }
+    );
+
+    // Votes remain in the public totals forever, but their private per-user
+    // records are removed with the account.
+    await mutateDocumentsInChunks(reactions.docs, (batch, snapshot) => {
+      batch.delete(snapshot.ref);
+    });
+    await reactionOwnerRef.delete().catch((error) => {
+      if ((error as { code?: number }).code !== 5) throw error;
+    });
+
+    const configRef = firestore.collection("handleConfig").doc("status");
+    const config = await configRef.get();
+    if (config.data()?.updatedBy === uid) {
+      await configRef.update({
+        updatedBy: admin.firestore.FieldValue.delete(),
+      });
+    }
+
+    const bucket = admin.storage().bucket();
+    const storedAvatar =
+      typeof authorData?.avatar === "string" ? authorData.avatar : "";
+    const teamNameSlug = retainedAuthorName
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/(^-|-$)+/g, "");
+    let legacyTeamAvatarPath = "";
+    if (storedAvatar) {
+      try {
+        const avatarUrl = new URL(storedAvatar);
+        const objectMarker = "/o/";
+        const markerIndex = avatarUrl.pathname.indexOf(objectMarker);
+        const objectPath =
+          markerIndex >= 0
+            ? decodeURIComponent(
+                avatarUrl.pathname.slice(markerIndex + objectMarker.length)
+              )
+            : "";
+        if (objectPath === `avatars/team/${teamNameSlug}.webp`) {
+          legacyTeamAvatarPath = objectPath;
+        }
+      } catch {
+        // A remote avatar URL is not owned by this Firebase Storage bucket.
+      }
+    }
+
+    const storageCleanup: Promise<unknown>[] = [
+      bucket.deleteFiles({ prefix: `users/${uid}/` }),
+      bucket.file(`avatars/team/${uid}.webp`).delete({ ignoreNotFound: true }),
+    ];
+    if (legacyTeamAvatarPath) {
+      storageCleanup.push(
+        bucket.file(legacyTeamAvatarPath).delete({ ignoreNotFound: true })
+      );
+    }
+
+    try {
+      await Promise.all(storageCleanup);
+    } catch (error) {
+      logger.error("Unable to remove account profile uploads", { uid, error });
+      throw new HttpsError(
+        "internal",
+        "Your profile uploads could not be removed. Please try again."
+      );
+    }
+
+    await Promise.all([userRef.delete(), authorRef.delete()]);
+    const finalReactions = await reactionOwnerRef.collection("items").get();
+    await mutateDocumentsInChunks(finalReactions.docs, (batch, snapshot) => {
+      batch.delete(snapshot.ref);
+    });
+    await reactionOwnerRef.delete();
+
+    if (authUser) {
+      try {
+        await admin.auth().deleteUser(uid);
+      } catch (error) {
+        logger.error("Account data was removed but Auth deletion failed", {
+          uid,
+          error,
+        });
+        throw new HttpsError(
+          "internal",
+          "Your profile was removed, but sign-in cleanup needs to be retried."
+        );
+      }
+    }
+
+}
+
+export const deleteOwnAccount = onCall(
+  {
+    region: "europe-west1",
+    minInstances: 0,
+    timeoutSeconds: 120,
+    memory: "512MiB",
+  },
+  async (request) => {
+    if (!request.auth) {
+      throw new HttpsError("unauthenticated", "You must be signed in.");
+    }
+    if (request.data?.confirmation !== "DELETE") {
+      throw new HttpsError(
+        "invalid-argument",
+        "Type DELETE to confirm account deletion."
+      );
+    }
+
+    await deleteAccountData(request.auth.uid);
+    return { deleted: true };
   }
 );
 
@@ -1146,7 +1423,12 @@ export const promoteReaderToModerator = onCall(
 );
 
 export const deleteTeamMember = onCall(
-  { region: "europe-west1", minInstances: 0 },
+  {
+    region: "europe-west1",
+    minInstances: 0,
+    timeoutSeconds: 120,
+    memory: "512MiB",
+  },
   async (request) => {
     if (!request.auth) {
       throw new HttpsError("unauthenticated", "You must be signed in.");
@@ -1181,46 +1463,8 @@ export const deleteTeamMember = onCall(
       throw new HttpsError("not-found", "That team member no longer exists.");
     }
 
-    if (member.data()?.promotedFromReader === true) {
-      const firestore = getDb();
-      const batch = firestore.batch();
-      batch.delete(member.ref);
-      batch.set(
-        firestore.collection("users").doc(uid),
-        {
-          staffName: admin.firestore.FieldValue.delete(),
-          staffRole: admin.firestore.FieldValue.delete(),
-          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-        },
-        { merge: true }
-      );
-      await batch.commit();
-      return { uid, demoted: true };
-    }
-
-    try {
-      await admin.auth().deleteUser(uid);
-    } catch (error) {
-      if ((error as { code?: string }).code !== "auth/user-not-found") {
-        logger.error("Failed to delete Auth user", { uid, error });
-        throw new HttpsError("internal", "Failed to delete the user account.");
-      }
-    }
-
-    try {
-      await getDb().collection("authors").doc(uid).delete();
-    } catch (error) {
-      logger.error("Auth user deleted but author cleanup failed", {
-        uid,
-        error,
-      });
-      throw new HttpsError(
-        "internal",
-        "The account was removed, but profile cleanup failed. Please retry."
-      );
-    }
-
-    return { uid, demoted: false };
+    await deleteAccountData(uid);
+    return { uid, deleted: true };
   }
 );
 
