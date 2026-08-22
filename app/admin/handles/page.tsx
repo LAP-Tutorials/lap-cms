@@ -1,8 +1,8 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { httpsCallable } from "firebase/functions"
-import { AlertTriangle, AtSign, Check, Loader2, Pencil, RefreshCw, Search, ShieldCheck, Trash2, UserRoundCog } from "lucide-react"
+import { AlertTriangle, AtSign, Check, ChevronDown, Loader2, Pencil, RefreshCw, Search, ShieldCheck, Trash2, UserRoundCog, X } from "lucide-react"
 import { Breadcrumb } from "@/components/breadcrumb"
 import { Button } from "@/components/ui/button"
 import PageTitle from "@/components/PageTitle";
@@ -41,6 +41,188 @@ interface HandleRegistry {
   owners: HandleOwner[]
   reservations: HandleReservation[]
   claims: HandleClaim[]
+}
+
+interface SearchableOption {
+  value: string
+  label: string
+  sublabel?: string
+  badge?: string
+  handle?: string
+  searchTerms?: string
+}
+
+function SearchableSelect({
+  options,
+  value,
+  onChange,
+  placeholder = "Select...",
+  searchPlaceholder = "Search...",
+  emptyText = "No matching options found.",
+  disabled = false,
+}: {
+  options: SearchableOption[]
+  value: string
+  onChange: (value: string) => void
+  placeholder?: string
+  searchPlaceholder?: string
+  emptyText?: string
+  disabled?: boolean
+}) {
+  const [isOpen, setIsOpen] = useState(false)
+  const [search, setSearch] = useState("")
+  const containerRef = useRef<HTMLDivElement>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    if (isOpen) {
+      setTimeout(() => inputRef.current?.focus(), 50)
+    } else {
+      setSearch("")
+    }
+  }, [isOpen])
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setIsOpen(false)
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside)
+    return () => document.removeEventListener("mousedown", handleClickOutside)
+  }, [])
+
+  const filteredOptions = useMemo(() => {
+    const term = search.trim().toLowerCase()
+    if (!term) return options
+    return options.filter((opt) => {
+      const matchLabel = opt.label.toLowerCase().includes(term)
+      const matchSub = opt.sublabel ? opt.sublabel.toLowerCase().includes(term) : false
+      const matchBadge = opt.badge ? opt.badge.toLowerCase().includes(term) : false
+      const matchHandle = opt.handle ? opt.handle.toLowerCase().includes(term) : false
+      const matchTerms = opt.searchTerms ? opt.searchTerms.toLowerCase().includes(term) : false
+      return matchLabel || matchSub || matchBadge || matchHandle || matchTerms
+    })
+  }, [options, search])
+
+  const selectedOption = options.find((opt) => opt.value === value)
+
+  const getBadgeStyle = (badge?: string) => {
+    switch (badge?.toLowerCase()) {
+      case "super":
+      case "admin":
+        return "border border-[#8a2ae3]/40 bg-[#8a2ae3]/20 text-[#c084fc]"
+      case "manager":
+      case "moderator":
+        return "border border-cyan-500/40 bg-cyan-500/20 text-cyan-300"
+      case "claimed":
+        return "border border-emerald-500/40 bg-emerald-500/20 text-emerald-300"
+      case "assigned":
+        return "border border-amber-500/40 bg-amber-500/20 text-amber-300"
+      case "protected":
+      case "unassigned":
+        return "border border-purple-500/40 bg-purple-500/15 text-purple-300"
+      default:
+        return "border border-white/20 bg-white/10 text-white/70"
+    }
+  }
+
+  return (
+    <div ref={containerRef} className="relative w-full">
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={() => setIsOpen((prev) => !prev)}
+        className="flex h-10 w-full items-center justify-between border border-white/15 bg-[#151515] px-3 text-left text-sm text-white outline-none transition-colors hover:border-white/30 focus:border-[#8a2ae3] focus:ring-1 focus:ring-[#8a2ae3] disabled:opacity-50"
+      >
+        <div className="flex items-center gap-2 overflow-hidden truncate">
+          {selectedOption ? (
+            <>
+              <span className="font-medium text-white truncate">{selectedOption.label}</span>
+              {selectedOption.badge && (
+                <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${getBadgeStyle(selectedOption.badge)}`}>
+                  {selectedOption.badge}
+                </span>
+              )}
+              {selectedOption.sublabel && (
+                <span className="text-xs text-white/45 truncate">({selectedOption.sublabel})</span>
+              )}
+            </>
+          ) : (
+            <span className="text-white/40">{placeholder}</span>
+          )}
+        </div>
+        <div className="flex items-center gap-1 text-white/40 pl-2 shrink-0">
+          <ChevronDown className={`h-4 w-4 transition-transform duration-200 ${isOpen ? "rotate-180 text-white" : ""}`} />
+        </div>
+      </button>
+
+      {isOpen && (
+        <div className="absolute left-0 top-full z-50 mt-1 max-h-72 w-full flex flex-col border border-white/20 bg-[#161616] shadow-2xl backdrop-blur">
+          <div className="relative border-b border-white/10 p-2">
+            <Search className="absolute left-4 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-white/40" />
+            <input
+              ref={inputRef}
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder={searchPlaceholder}
+              className="h-8 w-full border border-white/10 bg-white/[0.05] pl-8 pr-7 text-xs text-white placeholder:text-white/35 outline-none focus:border-[#8a2ae3]"
+            />
+            {search && (
+              <button
+                type="button"
+                onClick={() => setSearch("")}
+                className="absolute right-4 top-1/2 -translate-y-1/2 text-white/40 hover:text-white"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </div>
+
+          <div className="max-h-56 overflow-y-auto divide-y divide-white/[0.04]">
+            {filteredOptions.length === 0 ? (
+              <div className="p-4 text-center text-xs text-white/40">{emptyText}</div>
+            ) : (
+              filteredOptions.map((opt) => {
+                const isSelected = opt.value === value
+                return (
+                  <button
+                    key={opt.value || "__empty__"}
+                    type="button"
+                    onClick={() => {
+                      onChange(opt.value)
+                      setIsOpen(false)
+                    }}
+                    className={`flex w-full items-center justify-between p-2.5 text-left text-xs transition-colors hover:bg-white/[0.06] ${
+                      isSelected ? "bg-[#8a2ae3]/25 text-white font-medium" : "text-white/85"
+                    }`}
+                  >
+                    <div className="flex flex-col min-w-0 pr-2">
+                      <div className="flex items-center gap-2">
+                        <span className="truncate text-white font-medium">{opt.label}</span>
+                        {opt.badge && (
+                          <span className={`rounded px-1.5 py-0.2 text-[9px] font-semibold uppercase tracking-wider ${getBadgeStyle(opt.badge)}`}>
+                            {opt.badge}
+                          </span>
+                        )}
+                      </div>
+                      {opt.sublabel && (
+                        <span className="mt-0.5 text-[11px] text-white/45 truncate">
+                          {opt.sublabel}
+                        </span>
+                      )}
+                    </div>
+                    {isSelected && <Check className="h-4 w-4 shrink-0 text-[#8a2ae3]" />}
+                  </button>
+                )
+              })
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  )
 }
 
 const emptyRegistry: HandleRegistry = {
@@ -103,6 +285,72 @@ export default function HandlesPage() {
     () => registry.owners.filter((owner) => owner.role !== "reader"),
     [registry.owners],
   )
+
+  const userOptions = useMemo<SearchableOption[]>(() => {
+    return registry.owners.map((owner) => ({
+      value: owner.uid,
+      label: owner.name,
+      sublabel: owner.handle ? `@${owner.handle} · ${owner.email}` : owner.email || "No handle",
+      badge: owner.role,
+      handle: owner.handle ? `@${owner.handle}` : "",
+      searchTerms: `${owner.name} ${owner.email} ${owner.handle} ${owner.role}`,
+    }))
+  }, [registry.owners])
+
+  const assignReservationOptions = useMemo<SearchableOption[]>(() => {
+    return [
+      {
+        value: "",
+        label: "Unassigned",
+        sublabel: "Protected from all users",
+        badge: "Protected",
+        searchTerms: "unassigned protected none",
+      },
+      ...userOptions,
+    ]
+  }, [userOptions])
+
+  const reservedHandleOptions = useMemo<SearchableOption[]>(() => {
+    return [
+      {
+        value: "",
+        label: "Custom / None",
+        sublabel: "Type any custom handle below",
+        searchTerms: "clear custom new reset none",
+      },
+      ...registry.reservations.map((res) => {
+        const isClaimed = res.claimedHandles.length > 0
+        const status = isClaimed
+          ? "Claimed"
+          : res.ownerUid
+          ? `Assigned to ${res.ownerName}`
+          : "Unassigned"
+        const badge = isClaimed
+          ? "Claimed"
+          : res.ownerUid
+          ? "Assigned"
+          : "Unassigned"
+        return {
+          value: res.label,
+          label: `@${res.label}`,
+          sublabel: status,
+          badge,
+          searchTerms: `${res.label} ${res.key} ${res.ownerName} ${status} ${res.reason}`,
+        }
+      }),
+    ]
+  }, [registry.reservations])
+
+  const officialOwnerOptions = useMemo<SearchableOption[]>(() => {
+    return staffOwners.map((owner) => ({
+      value: owner.uid,
+      label: owner.name,
+      sublabel: owner.email || (owner.handle ? `@${owner.handle}` : ""),
+      badge: owner.role,
+      searchTerms: `${owner.name} ${owner.email} ${owner.role} ${owner.handle}`,
+    }))
+  }, [staffOwners])
+
   const filteredReservations = useMemo(() => {
     const term = registrySearch.trim().toLowerCase()
     if (!term) return registry.reservations
@@ -348,18 +596,14 @@ export default function HandlesPage() {
 
               <div className="space-y-1">
                 <label className="text-xs text-white/50">Assign to user (optional):</label>
-                <select
+                <SearchableSelect
+                  options={assignReservationOptions}
                   value={reservationOwnerUid}
-                  onChange={(event) => setReservationOwnerUid(event.target.value)}
-                  className="h-10 w-full border border-white/15 bg-[#151515] px-3 text-sm text-white outline-none transition-colors focus:border-[#8a2ae3] focus-visible:ring-2 focus-visible:ring-[#8a2ae3]"
-                >
-                  <option value="">Unassigned (Protected from all users)</option>
-                  {registry.owners.map((owner) => (
-                    <option key={owner.uid} value={owner.uid}>
-                      {owner.name} · {owner.role}{owner.handle ? ` · @${owner.handle}` : " · no handle"}
-                    </option>
-                  ))}
-                </select>
+                  onChange={setReservationOwnerUid}
+                  placeholder="Unassigned (Protected from all users)"
+                  searchPlaceholder="Search users by name, email, @handle, or role..."
+                  emptyText="No matching users found."
+                />
               </div>
 
               <div className="flex items-center gap-2 pt-1">
@@ -398,42 +642,33 @@ export default function HandlesPage() {
             <div className="space-y-3">
               <div className="space-y-1">
                 <label className="text-xs text-white/50">1. Select account:</label>
-                <select
+                <SearchableSelect
+                  options={userOptions}
                   value={accountUid}
-                  onChange={(event) => {
-                    const uid = event.target.value
+                  onChange={(uid) => {
                     setAccountUid(uid)
                     setAccountHandle(registry.owners.find((owner) => owner.uid === uid)?.handle || "")
                   }}
-                  className="h-10 w-full border border-white/15 bg-[#151515] px-3 text-sm text-white outline-none transition-colors focus:border-[#8a2ae3] focus-visible:ring-2 focus-visible:ring-[#8a2ae3]"
-                >
-                  <option value="">Choose account</option>
-                  {registry.owners.map((owner) => (
-                    <option key={owner.uid} value={owner.uid}>
-                      {owner.name} · {owner.role}{owner.handle ? ` · @${owner.handle}` : " · no handle"}
-                    </option>
-                  ))}
-                </select>
+                  placeholder="Choose account to modify..."
+                  searchPlaceholder="Search account by name, email, @handle, role..."
+                  emptyText="No matching accounts found."
+                />
               </div>
 
               <div className="space-y-1">
                 <label className="text-xs text-white/50">2. Pick a reserved handle (optional):</label>
-                <select
+                <SearchableSelect
+                  options={reservedHandleOptions}
                   value={registry.reservations.some((r) => r.label === accountHandle) ? accountHandle : ""}
-                  onChange={(event) => {
-                    if (event.target.value) {
-                      setAccountHandle(cleanHandle(event.target.value))
+                  onChange={(val) => {
+                    if (val) {
+                      setAccountHandle(cleanHandle(val))
                     }
                   }}
-                  className="h-10 w-full border border-white/15 bg-[#151515] px-3 text-sm text-white outline-none transition-colors focus:border-[#8a2ae3] focus-visible:ring-2 focus-visible:ring-[#8a2ae3]"
-                >
-                  <option value="">-- Or choose from reserved handles --</option>
-                  {registry.reservations.map((res) => (
-                    <option key={res.key} value={res.label}>
-                      @{res.label} ({res.claimedHandles.length ? "Claimed" : res.ownerUid ? `Assigned to ${res.ownerName}` : "Unassigned"})
-                    </option>
-                  ))}
-                </select>
+                  placeholder="-- Or pick from reserved handles --"
+                  searchPlaceholder="Search reserved names by handle, assigned user..."
+                  emptyText="No matching reserved handles found."
+                />
               </div>
 
               <div className="space-y-1">
@@ -473,17 +708,17 @@ export default function HandlesPage() {
                 </p>
               </div>
             </div>
-            <div className="mt-4 flex flex-col gap-3 sm:flex-row">
-              <select
-                value={officialOwner}
-                onChange={(event) => setOfficialOwner(event.target.value)}
-                className="h-10 flex-1 border border-white/15 bg-[#151515] px-3 text-sm text-white outline-none focus:border-[#8a2ae3]"
-              >
-                <option value="">Choose official owner</option>
-                {staffOwners.map((owner) => (
-                  <option key={owner.uid} value={owner.uid}>{owner.name} · {owner.role}</option>
-                ))}
-              </select>
+            <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center">
+              <div className="flex-1">
+                <SearchableSelect
+                  options={officialOwnerOptions}
+                  value={officialOwner}
+                  onChange={setOfficialOwner}
+                  placeholder="Choose official brand owner..."
+                  searchPlaceholder="Search staff member by name, role, email..."
+                  emptyText="No staff members found."
+                />
+              </div>
               <Button size="sm" onClick={syncDefaults} disabled={!officialOwner || busyAction === "sync"}>
                 {busyAction === "sync" && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                 Protect defaults

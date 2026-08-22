@@ -142,6 +142,20 @@ async function claimHandleForUser(
         transaction.get(reservationRef),
       ]);
 
+    const currentAuthorHandle = normalizeTeamHandle(
+      authorSnapshot.data()?.handle
+    );
+    const currentPublicHandle = normalizeTeamHandle(userSnapshot.data()?.handle);
+    const oldHandles = [...new Set([currentAuthorHandle, currentPublicHandle])]
+      .filter((oldHandle) => oldHandle && oldHandle !== handle);
+
+    // CRITICAL: All reads must happen before any writes in a Firestore transaction!
+    const oldHandleSnapshots = await Promise.all(
+      oldHandles.map((oldHandle) =>
+        transaction.get(firestore.collection("handles").doc(oldHandle))
+      )
+    );
+
     if (
       options.requireTeamMember &&
       (!authorSnapshot.exists ||
@@ -153,10 +167,6 @@ async function claimHandleForUser(
       );
     }
 
-    const currentAuthorHandle = normalizeTeamHandle(
-      authorSnapshot.data()?.handle
-    );
-    const currentPublicHandle = normalizeTeamHandle(userSnapshot.data()?.handle);
     if (
       !options.allowChange &&
       ((currentAuthorHandle && currentAuthorHandle !== handle) ||
@@ -198,6 +208,7 @@ async function claimHandleForUser(
     }
 
     const timestamp = admin.firestore.FieldValue.serverTimestamp();
+
     if (reservationSnapshot.exists && options.allowUnassignedReservation) {
       transaction.set(
         reservationRef,
@@ -205,13 +216,6 @@ async function claimHandleForUser(
         { merge: true }
       );
     }
-    const oldHandles = [...new Set([currentAuthorHandle, currentPublicHandle])]
-      .filter((oldHandle) => oldHandle && oldHandle !== handle);
-    const oldHandleSnapshots = await Promise.all(
-      oldHandles.map((oldHandle) =>
-        transaction.get(firestore.collection("handles").doc(oldHandle))
-      )
-    );
 
     oldHandleSnapshots.forEach((snapshot) => {
       if (snapshot.exists && snapshot.data()?.uid === uid) {
@@ -222,6 +226,7 @@ async function claimHandleForUser(
     if (authorSnapshot.exists && currentAuthorHandle !== handle) {
       transaction.set(authorRef, { handle }, { merge: true });
     }
+
     transaction.set(
       handleRef,
       {
@@ -231,6 +236,7 @@ async function claimHandleForUser(
       },
       { merge: true }
     );
+
     const authorData = authorSnapshot.data();
     transaction.set(
       userRef,
