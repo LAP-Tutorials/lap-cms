@@ -493,7 +493,7 @@ export default function EditArticlePage() {
   if (loading) {
     return (
       <div className="flex justify-center items-center min-h-[60vh]">
-        <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-[#8a2ae3]"></div>
+        <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-[#8a2be2]"></div>
         <span className="ml-3">Loading article...</span>
       </div>
     );
@@ -630,19 +630,19 @@ export default function EditArticlePage() {
               <TabsList className="w-max min-w-full mb-0 bg-[#1a1a1a] border border-white/20 rounded-b-none p-1 gap-1">
                 <TabsTrigger
                   value="write"
-                  className="data-[state=active]:bg-[#8a2ae3]/20 data-[state=active]:text-[#8a2ae3] px-3 sm:px-4 py-2 transition-colors text-sm whitespace-nowrap"
+                  className="data-[state=active]:bg-purple-500/20 data-[state=active]:text-purple-300 px-3 sm:px-4 py-2 transition-colors text-sm whitespace-nowrap"
                 >
                   Write
                 </TabsTrigger>
                 <TabsTrigger
                   value="preview"
-                  className="data-[state=active]:bg-[#8a2ae3]/20 data-[state=active]:text-[#8a2ae3] px-3 sm:px-4 py-2 transition-colors text-sm whitespace-nowrap"
+                  className="data-[state=active]:bg-purple-500/20 data-[state=active]:text-purple-300 px-3 sm:px-4 py-2 transition-colors text-sm whitespace-nowrap"
                 >
                   Preview
                 </TabsTrigger>
                 <TabsTrigger
                   value="assets"
-                  className="data-[state=active]:bg-[#8a2ae3]/20 data-[state=active]:text-[#8a2ae3] px-3 sm:px-4 py-2 transition-colors text-sm whitespace-nowrap"
+                  className="data-[state=active]:bg-purple-500/20 data-[state=active]:text-purple-300 px-3 sm:px-4 py-2 transition-colors text-sm whitespace-nowrap"
                 >
                   Assets
                 </TabsTrigger>
@@ -719,7 +719,7 @@ export default function EditArticlePage() {
               {...getRootProps()}
               className={`border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-all ${
                 isDragActive
-                  ? "border-[#8a2ae3] bg-[#8a2ae3]/10"
+                  ? "border-[#8a2be2] bg-[#8a2be2]/10"
                   : "border-white/20 hover:border-white/40 hover:bg-white/5"
               }`}
             >
@@ -775,7 +775,7 @@ export default function EditArticlePage() {
                 .map((l) => (
                   <div
                     key={l}
-                    className="px-4 py-2 hover:bg-[#8a2ae3]/20 cursor-pointer"
+                    className="px-4 py-2 hover:bg-[#8a2be2]/20 cursor-pointer"
                     onClick={() => {
                       setLabel(l);
                       setShowLabelSuggestions(false);
@@ -806,7 +806,7 @@ export default function EditArticlePage() {
 
           <div className="flex items-center space-x-2">
             {saveStatus === "saving" && (
-              <span className="text-xs text-[#8a2ae3] flex items-center animate-pulse">
+              <span className="text-xs text-purple-400 flex items-center animate-pulse">
                 <Loader2 className="h-3 w-3 mr-1 animate-spin" />
                 Saving...
               </span>

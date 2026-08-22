@@ -28,7 +28,7 @@ export function UploadZone({ onUpload, uploadProgress }: UploadZoneProps) {
         className={cn(
           "border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-colors max-w-2xl mx-auto",
           isDragActive
-            ? "border-[#8a2ae3] bg-[#8a2ae3]/10"
+            ? "border-purple-500 bg-purple-500/10"
             : "border-white/10 hover:border-white/20 hover:bg-white/5",
         )}
       >
@@ -61,7 +61,7 @@ export function UploadZone({ onUpload, uploadProgress }: UploadZoneProps) {
                 key={fileName}
                 className="bg-white/10 p-3 rounded-md flex items-center gap-3 border border-white/5"
               >
-                <FileIcon className="h-8 w-8 text-[#8a2ae3]" />
+                <FileIcon className="h-8 w-8 text-purple-400" />
                 <div className="flex-1 min-w-0">
                   <div className="flex justify-between mb-1">
                     <span className="text-sm font-medium truncate text-white">

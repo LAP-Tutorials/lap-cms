@@ -110,23 +110,23 @@ function Calendar({
           buttonVariants({ variant: "ghost" }),
           "h-full w-full p-0 font-normal hover:bg-neutral-800 hover:text-white transition-colors",
           // General Selection (Single or Range) - Purple
-          "aria-selected:bg-[#8a2ae3] aria-selected:text-white aria-selected:hover:bg-[#8a2ae3] aria-selected:hover:text-white",
+          "aria-selected:bg-[#8a2be2] aria-selected:text-white aria-selected:hover:bg-[#8a2be2] aria-selected:hover:text-white",
           // Range Middle - Transparent Purple
            // Note: data-range-middle might be on the button itself in v9 if configured, but let's assume it might not and we rely on modifiers via classNames mostly.
            // However, if we put valid styles here that get merged, it's safer.
-           "data-[range-middle]:!bg-[#8a2ae3]/30 data-[range-middle]:text-white data-[range-middle]:rounded-none",
+           "data-[range-middle]:!bg-[#8a2be2]/30 data-[range-middle]:text-white data-[range-middle]:rounded-none",
            // Range Start/End - Solid Purple
-           "data-[range-start]:!bg-[#8a2ae3] data-[range-start]:text-white data-[range-start]:rounded-l-md",
-           "data-[range-end]:!bg-[#8a2ae3] data-[range-end]:text-white data-[range-end]:rounded-r-md",
+           "data-[range-start]:!bg-[#8a2be2] data-[range-start]:text-white data-[range-start]:rounded-l-md",
+           "data-[range-end]:!bg-[#8a2be2] data-[range-end]:text-white data-[range-end]:rounded-r-md",
            // Today
            "[&:not([aria-selected])]:data-[today]:bg-accent [&:not([aria-selected])]:data-[today]:text-accent-foreground",
           defaultClassNames.day_button
         ),
         // Explicit modifiers mapping to classes - react-day-picker v9 uses these keys if they match modifier names
-        range_start: "bg-[#8a2ae3] text-white rounded-l-md hover:bg-[#8a2ae3] hover:text-white",
-        range_end: "bg-[#8a2ae3] text-white rounded-r-md hover:bg-[#8a2ae3] hover:text-white",
-        range_middle: "bg-[#8a2ae3]/30 text-white rounded-none hover:bg-[#8a2ae3]/30 hover:text-white",
-        selected: "bg-[#8a2ae3] text-white hover:bg-[#8a2ae3] hover:text-white",
+        range_start: "bg-[#8a2be2] text-white rounded-l-md hover:bg-[#8a2be2] hover:text-white",
+        range_end: "bg-[#8a2be2] text-white rounded-r-md hover:bg-[#8a2be2] hover:text-white",
+        range_middle: "bg-[#8a2be2]/30 text-white rounded-none hover:bg-[#8a2be2]/30 hover:text-white",
+        selected: "bg-[#8a2be2] text-white hover:bg-[#8a2be2] hover:text-white",
         today: "bg-accent text-accent-foreground",
         outside: cn(
           "day-outside text-neutral-500 aria-selected:bg-transparent aria-selected:text-neutral-400",
@@ -140,10 +140,10 @@ function Calendar({
         ...classNames,
       }}
       modifiersClassNames={{
-        range_start: "bg-[#8a2ae3] text-white rounded-l-md hover:bg-[#8a2ae3] hover:text-white",
-        range_end: "bg-[#8a2ae3] text-white rounded-r-md hover:bg-[#8a2ae3] hover:text-white",
-        range_middle: "bg-[#8a2ae3]/30 text-white rounded-none hover:bg-[#8a2ae3]/30 hover:text-white",
-        selected: "bg-[#8a2ae3] text-white hover:bg-[#8a2ae3] hover:text-white",
+        range_start: "bg-[#8a2be2] text-white rounded-l-md hover:bg-[#8a2be2] hover:text-white",
+        range_end: "bg-[#8a2be2] text-white rounded-r-md hover:bg-[#8a2be2] hover:text-white",
+        range_middle: "bg-[#8a2be2]/30 text-white rounded-none hover:bg-[#8a2be2]/30 hover:text-white",
+        selected: "bg-[#8a2be2] text-white hover:bg-[#8a2be2] hover:text-white",
         today: "bg-accent text-accent-foreground"
       }}
       components={{

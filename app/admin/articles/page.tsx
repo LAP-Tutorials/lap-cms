@@ -264,7 +264,7 @@ export default function ArticlesPage() {
       <div className="px-4 pb-4 mt-6">
         {loading && articles.length === 0 ? (
           <div className="flex justify-center items-center py-20">
-            <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-[#8a2ae3]"></div>
+            <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-[#8a2be2]"></div>
             <span className="ml-3">Loading articles...</span>
           </div>
         ) : (
@@ -455,7 +455,7 @@ export default function ArticlesPage() {
             <Button onClick={loadMore} variant="outline" disabled={loading}>
               {loading ? (
                 <>
-                  <div className="animate-spin rounded-full h-4 w-4 border-t-2 border-b-2 border-[#8a2ae3] mr-2"></div>
+                  <div className="animate-spin rounded-full h-4 w-4 border-t-2 border-b-2 border-[#8a2be2] mr-2"></div>
                   Loading...
                 </>
               ) : (

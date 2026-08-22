@@ -19,7 +19,7 @@ export default function NotFound() {
         </PageTitle>
         <h2 className="text-center text-[#fff]">
           The page you&apos;re looking for does not exist. Click{" "}
-          <Link className="font-semibold text-[#8a2ae3]" href="/">
+          <Link className="font-semibold text-[#8a2be2]" href="/">
             here to return home
           </Link>
         </h2>

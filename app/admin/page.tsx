@@ -258,7 +258,7 @@ export default function AdminDashboardPage() {
                   labelStyle={{ color: "#fff" }}
                 />
                 <Legend wrapperStyle={{ color: "#fff" }} />
-                <Bar dataKey="articles" fill="#8a2ae3" name="Posts Published" />
+                <Bar dataKey="articles" fill="#8a2be2" name="Posts Published" />
               </BarChart>
             </ResponsiveContainer>
           </div>

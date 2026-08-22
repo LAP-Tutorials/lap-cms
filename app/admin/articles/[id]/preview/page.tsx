@@ -118,7 +118,7 @@ export default function AdminArticlePreviewPage() {
     return (
       <div className="min-h-screen flex items-center justify-center bg-[#121212] text-white">
         <div className="flex flex-col items-center gap-4">
-          <div className="h-8 w-8 animate-spin rounded-full border-2 border-white/10 border-t-[#8a2ae3]" />
+          <div className="h-8 w-8 animate-spin rounded-full border-2 border-white/10 border-t-[#8a2be2]" />
           <p className="text-xs uppercase tracking-[0.3em] text-white/40 font-bold">
             Preparing Production Preview
           </p>
@@ -197,7 +197,7 @@ export default function AdminArticlePreviewPage() {
           <div className="flex flex-col sm:flex-row md:items-center gap-2 sm:gap-6 text-base font-medium">
             <span className="flex flex-wrap">
               <p className="font-semibold pr-2">Author:</p>
-              <p className="text-[#8a2ae3]">{article.authorName}</p>
+              <p className="text-[#8a2be2]">{article.authorName}</p>
             </span>
             <span className="flex flex-wrap">
               <p className="font-semibold pr-2">Published:</p>

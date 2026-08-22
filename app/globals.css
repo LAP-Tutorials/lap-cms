@@ -130,18 +130,18 @@ iframe[aria-hidden="true"] {
 
 /* Text selection */
 ::selection {
-    background: #8a2ae380;
+    background: #892be280;
     color: white;
 }
 
 ::-moz-selection {
-    background: #8a2ae380;
+    background: #8a2be280;
     color: white;
 }
 
 * {
     scrollbar-width: 4px;
-    scrollbar-color: #8a2ae3 #121212;
+    scrollbar-color: #8a2be2 #121212;
     background-color: #121212;
 }
 
@@ -177,12 +177,12 @@ body {
 
 /* button {
   cursor: pointer;
-  background-color: #8a2ae3;
+  background-color: #8a2be2;
   transition: all 0.3s;
 }
 
 button:hover {
-  background-color: #8a2ae3;
+  background-color: #7b26ca;
 }
 
 input {
@@ -205,13 +205,13 @@ input[type="datetime-local"]::-webkit-calendar-picker-indicator {
 }
 
 /* .new-article-btn {
-  background-color: #8a2ae3;
+  background-color: #8a2be2;
   color: #ffffff;
   transition: all 0.3s;
 }
 
 .new-article-btn:hover {
-  background-color: #8a2ae3;
+  background-color: #7b26ca;
 } */
 
 /* Markdown Styles */
@@ -339,7 +339,7 @@ input[type="datetime-local"]::-webkit-calendar-picker-indicator {
 }
 
 .markdown-body a:hover {
-    color: #8a2ae3;
+    color: #8a2be2;
     text-decoration: none;
 }
 
@@ -395,7 +395,7 @@ input[type="datetime-local"]::-webkit-calendar-picker-indicator {
 
 /* Highlight */
 .markdown-body mark {
-    background-color: #8a2ae380;
+    background-color: #892be280;
     color: #fff;
     padding: 0.2em;
 }

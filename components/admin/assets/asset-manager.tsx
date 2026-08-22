@@ -655,8 +655,8 @@ export function AssetManager({ rootPath = "" }: { rootPath?: string }) {
             key={asset.id}
             className={`group relative border rounded-xl overflow-hidden transition-colors ${
               selectedAssets.has(asset.id)
-                ? "border-[#8a2ae3]/50 bg-[#8a2ae3]/5"
-                : "border-white/10 bg-[#1A1A1A] hover:border-[#8a2ae3]/50"
+                ? "border-purple-500/50 bg-purple-500/5"
+                : "border-white/10 bg-[#1A1A1A] hover:border-purple-500/50"
             }`}
           >
             <div
@@ -672,7 +672,7 @@ export function AssetManager({ rootPath = "" }: { rootPath?: string }) {
                 onClick={() => toggleSelection(asset.id)}
               >
                 {selectedAssets.has(asset.id) ? (
-                  <CheckSquare className="h-4 w-4 text-[#8a2ae3]" />
+                  <CheckSquare className="h-4 w-4 text-purple-400" />
                 ) : (
                   <Square className="h-4 w-4 text-white/50" />
                 )}
@@ -865,7 +865,7 @@ export function AssetManager({ rootPath = "" }: { rootPath?: string }) {
         <div className="flex items-center justify-between px-1 mb-4">
           <div className="text-sm text-white/50">
             Folder Storage:{" "}
-            <span className="text-[#8a2ae3] font-medium">
+            <span className="text-purple-300 font-medium">
               {formatBytes(totalPersistenceSize)}
             </span>
           </div>
@@ -873,11 +873,11 @@ export function AssetManager({ rootPath = "" }: { rootPath?: string }) {
 
         {/* Action Bar */}
         {(selectedAssets.size > 0 || clipboard) && (
-          <div className="sticky top-20 z-50 flex items-center justify-between bg-[#1A1A1A] border border-[#8a2ae3]/20 p-2 sm:p-3 rounded-lg shadow-2xl mb-6 backdrop-blur-md mx-1">
+          <div className="sticky top-20 z-50 flex items-center justify-between bg-[#1A1A1A] border border-purple-500/20 p-2 sm:p-3 rounded-lg shadow-2xl mb-6 backdrop-blur-md mx-1">
             <div className="flex items-center gap-2 sm:gap-4">
               {selectedAssets.size > 0 && (
                 <div className="flex flex-col">
-                  <span className="text-sm font-medium text-[#8a2ae3]">
+                  <span className="text-sm font-medium text-purple-200">
                     {selectedAssets.size}{" "}
                     <span className="hidden sm:inline">selected</span>
                   </span>
@@ -982,7 +982,7 @@ export function AssetManager({ rootPath = "" }: { rootPath?: string }) {
                   </Button>
                   <Button
                     size="sm"
-                    className="bg-[#8a2ae3] hover:bg-[#8a2ae3] px-2 sm:px-4"
+                    className="bg-purple-600 hover:bg-purple-700 px-2 sm:px-4"
                     onClick={handlePaste}
                   >
                     <ClipboardPaste className="h-4 w-4 sm:mr-2" />{" "}
@@ -1030,7 +1030,7 @@ export function AssetManager({ rootPath = "" }: { rootPath?: string }) {
               <div className="flex-1 sm:flex-none relative">
                 <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-white/40" />
                 <Input
-                  className="pl-9 w-full sm:w-[250px] bg-white/5 border-white/10 text-white placeholder:text-white/40 focus:border-[#8a2ae3]/50"
+                  className="pl-9 w-full sm:w-[250px] bg-white/5 border-white/10 text-white placeholder:text-white/40 focus:border-purple-500/50"
                   placeholder="Search assets..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
@@ -1086,7 +1086,7 @@ export function AssetManager({ rootPath = "" }: { rootPath?: string }) {
                     </Button>
                     <Button
                       onClick={handleCreateFolder}
-                      className="bg-[#8a2ae3] hover:bg-[#8a2ae3] text-white"
+                      className="bg-purple-600 hover:bg-purple-700 text-white"
                     >
                       Create
                     </Button>
@@ -1129,7 +1129,7 @@ export function AssetManager({ rootPath = "" }: { rootPath?: string }) {
               </Button>
               <Button
                 onClick={confirmRename}
-                className="bg-[#8a2ae3] hover:bg-[#8a2ae3] text-white"
+                className="bg-purple-600 hover:bg-purple-700 text-white"
               >
                 Rename
               </Button>
@@ -1143,7 +1143,7 @@ export function AssetManager({ rootPath = "" }: { rootPath?: string }) {
           <div className="mt-8">
             {loading ? (
               <div className="flex justify-center py-12">
-                <Loader2 className="h-8 w-8 animate-spin text-[#8a2ae3]" />
+                <Loader2 className="h-8 w-8 animate-spin text-purple-500" />
               </div>
             ) : (
               <div className="space-y-8">
@@ -1159,7 +1159,7 @@ export function AssetManager({ rootPath = "" }: { rootPath?: string }) {
                           key={folder.id}
                           className={`group relative flex flex-col items-center p-6 border rounded-xl transition-all cursor-pointer ${
                             selectedAssets.has(folder.id)
-                              ? "bg-[#8a2ae3]/10 border-[#8a2ae3]/50"
+                              ? "bg-purple-500/10 border-purple-500/50"
                               : "bg-white/5 border-white/5 hover:bg-white/10"
                           }`}
                           onClick={() => {
@@ -1183,7 +1183,7 @@ export function AssetManager({ rootPath = "" }: { rootPath?: string }) {
                               onClick={() => toggleSelection(folder.id)}
                             >
                               {selectedAssets.has(folder.id) ? (
-                                <CheckSquare className="h-5 w-5 text-[#8a2ae3]" />
+                                <CheckSquare className="h-5 w-5 text-purple-400" />
                               ) : (
                                 <Square className="h-5 w-5 text-white/50" />
                               )}
@@ -1191,7 +1191,7 @@ export function AssetManager({ rootPath = "" }: { rootPath?: string }) {
                           </div>
 
                           <Folder
-                            className="h-12 w-12 text-[#8a2ae3] mb-3"
+                            className="h-12 w-12 text-purple-400 mb-3"
                             fill="currentColor"
                             fillOpacity={0.2}
                           />
