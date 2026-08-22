@@ -68,7 +68,7 @@ export default function AdminSidebar() {
   // Helper to add active styling if the link matches the current pathname
   const getLinkClasses = (href: string) =>
     `flex items-center gap-3 py-3 px-4 transition-colors hover:bg-white/10 ${
-      pathname === href ? "border-l-4 border-[#8a2be2] bg-white/5" : ""
+      pathname === href ? "border-l-4 border-[#8a2ae3] bg-white/5" : ""
     }`;
 
   const navItems = [

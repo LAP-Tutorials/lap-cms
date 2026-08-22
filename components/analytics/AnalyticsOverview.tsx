@@ -92,11 +92,11 @@ export function AnalyticsOverview() {
           <div className="flex flex-col gap-2">
             <span
               className="font-bold flex items-center gap-2"
-              style={{ color: "#8a2be2" }}
+              style={{ color: "#8a2ae3" }}
             >
               <div
                 className="w-2 h-2 rounded-full"
-                style={{ backgroundColor: "#8a2be2" }}
+                style={{ backgroundColor: "#8a2ae3" }}
               />
               {payload.find((p: any) => p.dataKey === "users")?.value} Users
             </span>
@@ -181,8 +181,8 @@ export function AnalyticsOverview() {
                   x2="0"
                   y2="1"
                 >
-                  <stop offset="5%" stopColor="#8a2be2" stopOpacity={0.3} />
-                  <stop offset="95%" stopColor="#8a2be2" stopOpacity={0} />
+                  <stop offset="5%" stopColor="#8a2ae3" stopOpacity={0.3} />
+                  <stop offset="95%" stopColor="#8a2ae3" stopOpacity={0} />
                 </linearGradient>
                 <linearGradient
                   id="colorViewsSummary"
@@ -246,7 +246,7 @@ export function AnalyticsOverview() {
               <Area
                 type="monotone"
                 dataKey="users"
-                stroke="#8a2be2"
+                stroke="#8a2ae3"
                 fill="url(#colorUsersSummary)"
                 strokeWidth={2}
                 stackId="2"

@@ -310,12 +310,12 @@ export function AnalyticsDashboard() {
                       >
                         <stop
                           offset="5%"
-                          stopColor="#8a2be2"
+                          stopColor="#8a2ae3"
                           stopOpacity={0.3}
                         />
                         <stop
                           offset="95%"
-                          stopColor="#8a2be2"
+                          stopColor="#8a2ae3"
                           stopOpacity={0}
                         />
                       </linearGradient>
@@ -423,7 +423,7 @@ export function AnalyticsDashboard() {
                     <Area
                       type="monotone"
                       dataKey="users"
-                      stroke="#8a2be2"
+                      stroke="#8a2ae3"
                       fillOpacity={1}
                       fill="url(#colorUsers)"
                       strokeWidth={2}
@@ -553,7 +553,7 @@ export function AnalyticsDashboard() {
                           {data.newVsReturning?.map((entry, index) => (
                             <Cell
                               key={`cell-${index}`}
-                              fill={index === 0 ? "#3b82f6" : "#8a2be2"}
+                              fill={index === 0 ? "#3b82f6" : "#8a2ae3"}
                             />
                           ))}
                         </Pie>
@@ -599,8 +599,8 @@ export function AnalyticsDashboard() {
                       </span>
                     </div>
                     <div className="flex items-center gap-2">
-                      <div className="w-3 h-3 rounded-full bg-[#8a2be2]" />
-                      <span className="text-sm font-medium text-[#8a2be2]">
+                      <div className="w-3 h-3 rounded-full bg-[#8a2ae3]" />
+                      <span className="text-sm font-medium text-[#8a2ae3]">
                         Returning
                       </span>
                     </div>
@@ -708,7 +708,7 @@ export function AnalyticsDashboard() {
                                   {label}
                                 </p>
                                 <div className="flex items-center gap-2">
-                                  <div className="w-2 h-2 rounded-full bg-[#8a2be2]" />
+                                  <div className="w-2 h-2 rounded-full bg-[#8a2ae3]" />
                                   <span className="text-neutral-400">
                                     Users:
                                   </span>
@@ -724,7 +724,7 @@ export function AnalyticsDashboard() {
                       />
                       <Bar
                         dataKey="users"
-                        fill="#8a2be2"
+                        fill="#8a2ae3"
                         radius={[0, 4, 4, 0]}
                         barSize={20}
                       />
