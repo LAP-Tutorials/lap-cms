@@ -217,8 +217,8 @@ export default function ArticlesPage() {
   return (
     <div className="min-h-screen text-white overflow-x-hidden w-full">
       {/* Header */}
-      <div className="w-full px-4 pt-4 md:pt-0">
-        <div className="mb-2 mt-6 md:mt-0">
+      <div className="w-full">
+        <div className="mb-2">
           <Breadcrumb items={breadcrumbItems} />
         </div>
 

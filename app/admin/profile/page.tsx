@@ -91,8 +91,8 @@ export default function ProfilePage() {
         setIsGoogleLinked(isLinked)
 
         try {
-          const ref = doc(db, "authors", user.uid)
-          const snap = await getDoc(ref)
+          const authorRef = doc(db, "authors", user.uid)
+          const snap = await getDoc(authorRef)
 
           if (snap.exists()) {
             const data = snap.data()
@@ -174,8 +174,8 @@ export default function ProfilePage() {
     setSaving(true)
 
     try {
-      const ref = doc(db, "authors", auth.currentUser.uid)
-      await updateDoc(ref, {
+      const authorRef = doc(db, "authors", auth.currentUser.uid)
+      await updateDoc(authorRef, {
         avatar: profile.avatar,
         name: profile.name,
         city: profile.city,
@@ -417,19 +417,17 @@ export default function ProfilePage() {
 
   if (error) {
     return (
-      <div className="px-4 py-6">
-        <div className="flex items-center justify-center min-h-[60vh] flex-col">
-          <AlertTriangle className="h-12 w-12 text-red-500 mb-4" />
-          <h2 className="text-xl font-bold mb-2">Error</h2>
-          <p className="text-white/70">{error}</p>
-        </div>
+      <div className="flex items-center justify-center min-h-[60vh] flex-col">
+        <AlertTriangle className="h-12 w-12 text-red-500 mb-4" />
+        <h2 className="text-xl font-bold mb-2">Error</h2>
+        <p className="text-white/70">{error}</p>
       </div>
     )
   }
 
   return (
-    <div className="px-4 py-6">
-      <div className="mb-2 mt-6 md:mt-0">
+    <div className="w-full">
+      <div className="mb-2">
         <Breadcrumb items={breadcrumbItems} />
       </div>
 

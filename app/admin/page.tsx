@@ -89,7 +89,7 @@ function ModeratorDashboard() {
   }, []);
 
   return (
-    <div className="mx-auto w-full max-w-6xl pb-16 pt-10 md:pt-2">
+    <div className="mx-auto w-full max-w-6xl pb-16 pt-2">
       <PageTitle
         className="sr-only"
         imgSrc="/images/titles/Dashboard.svg"
@@ -149,7 +149,7 @@ function ModeratorDashboard() {
           comments.map((comment) => (
             <div
               key={comment.id}
-              className="grid gap-3 border-b border-white/10 py-5 sm:grid-cols-[12rem_minmax(0,1fr)_auto] sm:items-start"
+              className="flex flex-col gap-2 border-b border-white/10 py-4 text-sm sm:flex-row sm:items-center sm:justify-between"
             >
               <p className="font-semibold text-white/80">
                 @{comment.authorHandle || comment.authorName || "reader"}
@@ -221,7 +221,6 @@ function ContentDashboard() {
       }));
       setLatestArticles(articlesList);
 
-      // 4. Fetch articles for the last 6 months for chart
       // 4. Fetch articles for the last 6 months for chart
       const now = new Date();
       // Start from the beginning of the 6-month window (5 months ago + current month)
@@ -296,8 +295,8 @@ function ContentDashboard() {
   );
 
   return (
-    <div>
-      <div className="mt-10 md:-mt-8">
+    <div className="w-full">
+      <div className="mt-2 md:-mt-8">
         <PageTitle
           className="sr-only"
           imgSrc="/images/titles/Dashboard.svg"
@@ -309,7 +308,7 @@ function ContentDashboard() {
 
       {/* Responsive Summary cards */}
       {/* Analytics Overview - Full Width */}
-      <div className="mb-8 mt-10 w-full md:w-[95%] mx-auto">
+      <div className="mb-8 mt-6 w-full md:w-[95%] mx-auto">
         <AnalyticsOverview />
       </div>
 

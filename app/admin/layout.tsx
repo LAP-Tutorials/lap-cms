@@ -100,9 +100,9 @@ export default function AdminLayout({
   }
 
   return (
-    <div className="flex text-white">
+    <div className="flex min-h-screen w-full overflow-x-hidden text-white">
       <AdminSidebar />
-      <main className="flex-1 min-w-0 ml-0 md:ml-60 p-4 pt-[calc(env(safe-area-inset-top,1rem)+1rem)] md:pt-4 relative z-[900]">
+      <main className="flex-1 min-w-0 ml-0 md:ml-64 p-4 pt-16 md:pt-6 relative z-10 overflow-x-hidden">
         {children}
       </main>
     </div>

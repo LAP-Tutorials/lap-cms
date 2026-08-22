@@ -494,8 +494,10 @@ export default function CommentsModerationPage() {
   }
 
   return (
-    <main className="mx-auto min-h-screen max-w-[76rem] pt-12 text-white sm:pt-6 md:pt-0">
-      <Breadcrumb items={[{ label: "Dashboard", href: "/admin" }, { label: "Comments" }]} />
+    <div className="mx-auto min-h-screen max-w-[76rem] w-full min-w-0 text-white">
+      <div className="mb-2">
+        <Breadcrumb items={[{ label: "Dashboard", href: "/admin" }, { label: "Comments" }]} />
+      </div>
 
       <div className="flex justify-between items-center mb-6">
         <PageTitle
@@ -679,6 +681,6 @@ export default function CommentsModerationPage() {
           </article>
         ))}
       </section>
-    </main>
+    </div>
   )
 }

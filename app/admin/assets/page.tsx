@@ -11,8 +11,8 @@ export default function AssetsPage() {
   ]
 
   return (
-    <div className="px-4 py-6">
-      <div className="mb-2 mt-6 md:mt-0">
+    <div className="w-full">
+      <div className="mb-2">
         <Breadcrumb items={breadcrumbItems} />
       </div>
 

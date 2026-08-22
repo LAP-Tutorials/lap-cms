@@ -128,24 +128,24 @@ function SearchableSelect({
   }
 
   return (
-    <div ref={containerRef} className="relative w-full">
+    <div ref={containerRef} className="relative w-full max-w-full min-w-0">
       <button
         type="button"
         disabled={disabled}
         onClick={() => setIsOpen((prev) => !prev)}
-        className="flex h-10 w-full items-center justify-between border border-white/15 bg-[#151515] px-3 text-left text-sm text-white outline-none transition-colors hover:border-white/30 focus:border-[#8a2ae3] focus:ring-1 focus:ring-[#8a2ae3] disabled:opacity-50"
+        className="flex h-10 w-full max-w-full min-w-0 items-center justify-between border border-white/15 bg-[#151515] px-3 text-left text-sm text-white outline-none transition-colors hover:border-white/30 focus:border-[#8a2ae3] focus:ring-1 focus:ring-[#8a2ae3] disabled:opacity-50"
       >
-        <div className="flex items-center gap-2 overflow-hidden truncate">
+        <div className="flex items-center gap-2 overflow-hidden truncate min-w-0 flex-1">
           {selectedOption ? (
             <>
-              <span className="font-medium text-white truncate">{selectedOption.label}</span>
+              <span className="font-medium text-white truncate shrink-0">{selectedOption.label}</span>
               {selectedOption.badge && (
-                <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${getBadgeStyle(selectedOption.badge)}`}>
+                <span className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${getBadgeStyle(selectedOption.badge)}`}>
                   {selectedOption.badge}
                 </span>
               )}
               {selectedOption.sublabel && (
-                <span className="text-xs text-white/45 truncate">({selectedOption.sublabel})</span>
+                <span className="text-xs text-white/45 truncate min-w-0">({selectedOption.sublabel})</span>
               )}
             </>
           ) : (
@@ -524,8 +524,8 @@ export default function HandlesPage() {
   }
 
   return (
-    <main className="pt-12 sm:pt-6 md:pt-0">
-      <div className="mb-2 mt-6 md:mt-0">
+    <div className="mx-auto max-w-[76rem] w-full min-w-0">
+      <div className="mb-2">
         <Breadcrumb items={[{ label: "Dashboard", href: "/admin" }, { label: "Handles" }]} />
       </div>
 
@@ -539,7 +539,7 @@ export default function HandlesPage() {
         </PageTitle>
       </div>
 
-      <div className="mx-auto max-w-[76rem]">
+      <div>
         <div className="flex justify-end">
           <Button variant="ghost" size="sm" onClick={() => void loadRegistry()} disabled={loading} className="border border-white/15 text-white/60 hover:bg-white/[0.06] hover:text-white">
             <RefreshCw className={`mr-2 h-4 w-4 ${loading ? "animate-spin" : ""}`} />
@@ -873,6 +873,6 @@ export default function HandlesPage() {
           </div>
         </section>
       </div>
-    </main>
+    </div>
   )
 }

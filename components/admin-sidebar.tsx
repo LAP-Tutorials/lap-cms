@@ -179,32 +179,43 @@ export default function AdminSidebar() {
 
   return (
     <>
-      {/* Mobile toggle button */}
-      <div className="fixed top-[env(safe-area-inset-top,1rem)] left-4 z-[1000] md:hidden mt-3">
-        <Button
-          onClick={() => setIsOpen(!isOpen)}
-          variant="ghost"
-          size="icon"
-          className="bg-[#121212] hover:bg-[#1a1a1a]"
-          aria-label="Toggle navigation menu"
-        >
-          {isOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
-        </Button>
-      </div>
+      {/* Mobile Top Header Bar */}
+      <header className="fixed top-0 left-0 right-0 z-40 flex h-14 items-center justify-between border-b border-white/10 bg-[#121212] px-4 backdrop-blur md:hidden">
+        <div className="flex items-center gap-3">
+          <Button
+            onClick={() => setIsOpen(!isOpen)}
+            variant="ghost"
+            size="icon"
+            className="h-9 w-9 text-white/80 hover:bg-white/10 hover:text-white"
+            aria-label="Toggle navigation menu"
+          >
+            {isOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+          </Button>
+          <Link href="/admin" className="flex items-center gap-2">
+            <Image
+              src="/logos/LAP-Logo-Color.png"
+              width={26}
+              height={26}
+              alt="L.A.P Logo"
+              className="rounded-full"
+            />
+            <span className="font-bold text-sm tracking-wider uppercase text-white">L.A.P CMS</span>
+          </Link>
+        </div>
 
-      {/* Mobile notifications link button */}
-      <Link
-        href="/admin/notifications"
-        aria-label={`Notifications ${unreadCount > 0 ? `(${unreadCount} unread)` : ""}`}
-        className="fixed top-[env(safe-area-inset-top,1rem)] right-4 z-[1000] md:hidden mt-3 flex items-center justify-center h-10 w-10 bg-[#121212] hover:bg-[#1a1a1a] text-white/80 hover:text-white transition-colors"
-      >
-        <Bell className="h-5 w-5" />
-        {unreadCount > 0 && (
-          <span className="absolute top-1 right-1 flex h-4 min-w-[1rem] items-center justify-center bg-[#8a2be2] px-1 font-mono text-[10px] font-bold text-white shadow-[0_0_8px_rgba(138,43,226,0.6)]">
-            {unreadCount > 99 ? "99+" : unreadCount}
-          </span>
-        )}
-      </Link>
+        <Link
+          href="/admin/notifications"
+          aria-label={`Notifications ${unreadCount > 0 ? `(${unreadCount} unread)` : ""}`}
+          className="relative flex h-9 w-9 items-center justify-center text-white/80 transition-colors hover:bg-white/10 hover:text-white"
+        >
+          <Bell className="h-5 w-5" />
+          {unreadCount > 0 && (
+            <span className="absolute top-1 right-1 flex h-4 min-w-[1rem] items-center justify-center bg-[#8a2be2] px-1 font-mono text-[10px] font-bold text-white shadow-[0_0_8px_rgba(138,43,226,0.6)]">
+              {unreadCount > 99 ? "99+" : unreadCount}
+            </span>
+          )}
+        </Link>
+      </header>
 
       <AnimatePresence>
         {isOpen && (
@@ -212,9 +223,9 @@ export default function AdminSidebar() {
             {/* Overlay for mobile: clicking it will hide the sidebar */}
             <motion.div
               initial={{ opacity: 0 }}
-              animate={{ opacity: 0.5 }}
+              animate={{ opacity: 0.6 }}
               exit={{ opacity: 0 }}
-              className="fixed md:hidden top-0 left-0 w-full h-screen bg-black z-30"
+              className="fixed md:hidden inset-0 bg-black/60 z-50"
               onClick={() => setIsOpen(false)}
             />
 
@@ -225,7 +236,7 @@ export default function AdminSidebar() {
               animate="visible"
               exit="exit"
               transition={{ duration: 0.3, ease: "easeInOut" }}
-              className="fixed top-0 left-0 z-[999] w-64 border-r border-white/10 bg-[#121212] flex flex-col h-screen pt-safe"
+              className="fixed top-0 left-0 z-50 w-64 border-r border-white/10 bg-[#121212] flex flex-col h-screen pt-safe"
             >
               <div className="flex flex-col h-full">
                 {/* Logo */}

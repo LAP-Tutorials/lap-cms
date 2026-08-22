@@ -295,13 +295,15 @@ export default function NotificationsPage() {
   };
 
   return (
-    <main className="mx-auto min-h-screen max-w-[76rem] pt-12 text-white sm:pt-6 md:pt-0">
-      <Breadcrumb
-        items={[
-          { label: "Dashboard", href: "/admin" },
-          { label: "Notifications" },
-        ]}
-      />
+    <div className="mx-auto min-h-screen max-w-[76rem] w-full min-w-0 text-white">
+      <div className="mb-2">
+        <Breadcrumb
+          items={[
+            { label: "Dashboard", href: "/admin" },
+            { label: "Notifications" },
+          ]}
+        />
+      </div>
 
       {/* Header & Title */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between mb-6">
@@ -556,6 +558,6 @@ export default function NotificationsPage() {
         </div>
       )}
       </div>
-    </main>
+    </div>
   );
 }
