@@ -96,6 +96,24 @@ export default function NotificationsPage() {
     "all" | "unread" | "mention" | "new_comment" | "new_post"
   >("all");
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [browserPermission, setBrowserPermission] = useState<NotificationPermission>("default");
+
+  useEffect(() => {
+    if (typeof window !== "undefined" && "Notification" in window) {
+      setBrowserPermission(Notification.permission);
+    }
+  }, []);
+
+  const requestBrowserPermission = async () => {
+    if (typeof window !== "undefined" && "Notification" in window) {
+      try {
+        const perm = await Notification.requestPermission();
+        setBrowserPermission(perm);
+      } catch (err) {
+        console.error("Error requesting notification permission:", err);
+      }
+    }
+  };
 
   // Real-time notifications listener
   useEffect(() => {
@@ -191,13 +209,7 @@ export default function NotificationsPage() {
       }
     }
 
-    if (item.type === "new_comment" || item.type === "mention") {
-      router.push("/admin/comments");
-    } else if (item.type === "new_post" && item.metadata?.articleId) {
-      router.push(`/admin/articles/${item.metadata.articleId}`);
-    } else if (item.link) {
-      router.push(item.link);
-    }
+    router.push("/admin/comments");
   };
 
   const handleMarkAllRead = async () => {
@@ -402,13 +414,39 @@ export default function NotificationsPage() {
                 ? "You are all caught up! No unread notifications."
                 : "Notifications will appear here when readers interact or content is published."}
             </p>
+            {browserPermission === "default" && (
+              <div className="mt-4">
+                <Button
+                  onClick={requestBrowserPermission}
+                  variant="outline"
+                  size="sm"
+                  className="border-[#8a2be2]/40 bg-[#8a2be2]/10 hover:bg-[#8a2be2]/20 text-[#8a2be2]"
+                >
+                  <Bell className="h-4 w-4 mr-1.5" />
+                  Enable browser pop-ups
+                </Button>
+              </div>
+            )}
           </div>
         ) : (
           <div>
-            <div className="flex items-center justify-between pb-3 text-xs text-white/50">
-              <span>
-                Showing {filteredNotifications.length} {filteredNotifications.length === 1 ? "notification" : "notifications"}
-              </span>
+            <div className="flex flex-wrap items-center justify-between gap-3 pb-3 text-xs text-white/50">
+              <div className="flex items-center gap-3">
+                <span>
+                  Showing {filteredNotifications.length} {filteredNotifications.length === 1 ? "notification" : "notifications"}
+                </span>
+                {browserPermission === "default" && (
+                  <Button
+                    onClick={requestBrowserPermission}
+                    variant="outline"
+                    size="sm"
+                    className="h-7 px-2.5 text-xs border-[#8a2be2]/40 bg-[#8a2be2]/10 hover:bg-[#8a2be2]/20 text-[#8a2be2] font-medium"
+                  >
+                    <Bell className="h-3 w-3 mr-1.5" />
+                    Enable browser pop-ups
+                  </Button>
+                )}
+              </div>
               {notifications.length > 0 && (
                 <Button
                   onClick={handleClearAll}

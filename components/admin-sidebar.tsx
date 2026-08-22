@@ -6,7 +6,7 @@ import { auth, db } from "@/lib/firebase";
 import { collection, onSnapshot, query, where } from "firebase/firestore";
 import { useRouter, usePathname } from "next/navigation";
 import Image from "next/image";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   Menu,
   X,
@@ -30,14 +30,16 @@ export default function AdminSidebar() {
   const { user, userRole } = useAuth();
   const [isOpen, setIsOpen] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
+  const isInitialSnapshotRef = useRef(true);
 
-  // Subscribe to unread notifications count
+  // Subscribe to unread notifications count & handle native browser alerts
   useEffect(() => {
     if (!user) {
       setUnreadCount(0);
       return;
     }
 
+    isInitialSnapshotRef.current = true;
     const q = query(
       collection(db, "users", user.uid, "notifications"),
       where("read", "==", false)
@@ -47,6 +49,39 @@ export default function AdminSidebar() {
       q,
       (snapshot) => {
         setUnreadCount(snapshot.size);
+
+        if (isInitialSnapshotRef.current) {
+          isInitialSnapshotRef.current = false;
+        } else {
+          snapshot.docChanges().forEach((change) => {
+            if (change.type === "added") {
+              const data = change.doc.data();
+              if (
+                typeof window !== "undefined" &&
+                "Notification" in window &&
+                Notification.permission === "granted"
+              ) {
+                try {
+                  const popup = new Notification(
+                    data.title || "New CMS Notification",
+                    {
+                      body: data.message || "You have a new notification in the CMS.",
+                      icon: "/favicon.ico",
+                      tag: change.doc.id,
+                    }
+                  );
+                  popup.onclick = () => {
+                    window.focus();
+                    router.push("/admin/comments");
+                    popup.close();
+                  };
+                } catch (popupErr) {
+                  console.error("Error displaying native CMS notification:", popupErr);
+                }
+              }
+            }
+          });
+        }
       },
       (err) => {
         console.error("Error subscribing to unread notifications count:", err);
@@ -54,7 +89,7 @@ export default function AdminSidebar() {
     );
 
     return () => unsubscribe();
-  }, [user]);
+  }, [user, router]);
 
   useEffect(() => {
     const handleResize = () => {

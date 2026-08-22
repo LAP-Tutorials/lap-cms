@@ -155,14 +155,7 @@ export default function NotificationBell({
       }
     }
 
-    // In CMS, if it's a comment/reply alert, route to /admin/comments
-    if (item.type === "new_comment" || item.type === "mention") {
-      router.push("/admin/comments");
-    } else if (item.type === "new_post" && item.metadata?.articleId) {
-      router.push(`/admin/articles/${item.metadata.articleId}`);
-    } else if (item.link) {
-      router.push(item.link);
-    }
+    router.push("/admin/comments");
   };
 
   const handleMarkAllRead = async () => {

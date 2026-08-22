@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState, type ReactNode } from "react"
 import Link from "next/link"
-import { addDoc, collection, deleteDoc, doc, getDoc, limit, onSnapshot, orderBy, query, serverTimestamp, updateDoc, type Timestamp } from "firebase/firestore"
+import { addDoc, collection, deleteDoc, doc, getDoc, getDocs, limit, onSnapshot, orderBy, query, serverTimestamp, updateDoc, where, writeBatch, type Timestamp } from "firebase/firestore"
 import { httpsCallable } from "firebase/functions"
 import { AtSign, CornerDownRight, ExternalLink, Eye, EyeOff, MessageSquare, Search, Send, ThumbsDown, ThumbsUp, Trash2 } from "lucide-react"
 import { db, functions } from "@/lib/firebase"
@@ -398,7 +398,17 @@ export default function CommentsModerationPage() {
     setBusyId(`${entry.kind}:${entry.id}`)
     setError("")
     try {
-      await deleteDoc(doc(db, entry.kind === "comment" ? "comments" : "commentReplies", entry.id))
+      if (entry.kind === "comment") {
+        const batch = writeBatch(db)
+        batch.delete(doc(db, "comments", entry.id))
+        const repliesSnap = await getDocs(
+          query(collection(db, "commentReplies"), where("parentCommentId", "==", entry.id))
+        )
+        repliesSnap.forEach((r) => batch.delete(r.ref))
+        await batch.commit()
+      } else {
+        await deleteDoc(doc(db, "commentReplies", entry.id))
+      }
     } catch (deleteError) {
       console.error("Unable to delete entry:", deleteError)
       setError(`The ${entry.kind} could not be deleted.`)

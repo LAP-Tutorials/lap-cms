@@ -2838,3 +2838,48 @@ export const checkPasswordResetEligibility = onCall(
     return { allowed: true, isStaff: false };
   }
 );
+
+export const onCommentDeleted = onDocumentDeleted(
+  {
+    document: "comments/{commentId}",
+    region: "europe-west1",
+  },
+  async (event) => {
+    const commentId = event.params.commentId;
+    logger.info(`Comment ${commentId} deleted. Cleaning up child replies...`);
+
+    try {
+      const firestore = getDb();
+      const repliesSnapshot = await firestore
+        .collection("commentReplies")
+        .where("parentCommentId", "==", commentId)
+        .get();
+
+      if (repliesSnapshot.empty) {
+        logger.info(`No child replies to delete for comment ${commentId}.`);
+        return;
+      }
+
+      const BATCH_SIZE = 400;
+      let batch = firestore.batch();
+      let count = 0;
+
+      for (const replyDoc of repliesSnapshot.docs) {
+        batch.delete(replyDoc.ref);
+        count++;
+        if (count % BATCH_SIZE === 0) {
+          await batch.commit();
+          batch = firestore.batch();
+        }
+      }
+
+      if (count % BATCH_SIZE !== 0) {
+        await batch.commit();
+      }
+
+      logger.info(`Successfully deleted ${count} child replies for comment ${commentId}.`);
+    } catch (error) {
+      logger.error(`Error deleting child replies for comment ${commentId}:`, error);
+    }
+  }
+);
