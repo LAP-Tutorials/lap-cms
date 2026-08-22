@@ -200,11 +200,15 @@ export default function ProfilePage() {
   }
 
   const handleClaim = async () => {
-    const handle = handleInput.trim().toLowerCase().replace(/^@+/, "")
-    if (!/^[a-z0-9_]{3,20}$/.test(handle)) {
+    const handle = handleInput
+      .trim()
+      .toLowerCase()
+      .replace(/^@+/, "")
+      .replace(/\s+/g, "_")
+    if (!/^[a-z0-9_-]{3,20}$/.test(handle)) {
       toast({
         title: "Invalid handle",
-        description: "Use 3-20 lowercase letters, numbers, or underscores.",
+        description: "Use 3-20 lowercase letters, numbers, hyphens, or underscores.",
         variant: "destructive",
       })
       return
@@ -492,7 +496,8 @@ export default function ProfilePage() {
                             event.target.value
                               .toLowerCase()
                               .replace(/^@+/, "")
-                              .replace(/[^a-z0-9_]/g, "")
+                              .replace(/\s+/g, "_")
+                              .replace(/[^a-z0-9_-]/g, "")
                               .slice(0, 20),
                           )
                         }

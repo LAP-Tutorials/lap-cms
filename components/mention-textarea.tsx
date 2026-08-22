@@ -25,7 +25,7 @@ export function MentionTextarea({ value, onChange, className, ...props }: Mentio
   const [loading, setLoading] = useState(false)
 
   const updateMentionContext = (nextValue: string, caret: number) => {
-    const match = nextValue.slice(0, caret).match(/(?:^|[^a-z0-9_.-])@([a-z0-9_]{1,20})$/i)
+    const match = nextValue.slice(0, caret).match(/(?:^|[^a-z0-9_.-])@([a-z0-9_-]{1,20})$/i)
     if (!match) {
       setQuery("")
       setSuggestions([])

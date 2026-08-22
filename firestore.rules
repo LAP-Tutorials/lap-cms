@@ -24,7 +24,7 @@ service cloud.firestore {
     }
 
     function handleReservationKey(handle) {
-      return handle.lower().replace('[_0-9]+', '');
+      return handle.lower().replace('[-_0-9]+', '');
     }
 
     function confusableBrandKey(handle) {
@@ -32,7 +32,7 @@ service cloud.firestore {
         .replace('1', 'l')
         .replace('4', 'a')
         .replace('9', 'p')
-        .replace('[_0-9]+', '');
+        .replace('[-_0-9]+', '');
     }
 
     // Protect official brand names and common impersonation qualifiers without
@@ -155,7 +155,7 @@ service cloud.firestore {
         request.resource.data.photoURL.size() <= 1000 &&
         request.resource.data.provider in ['password', 'google.com'] &&
         request.resource.data.handle is string &&
-        request.resource.data.handle.matches('^[a-z0-9_]{3,20}$') &&
+        request.resource.data.handle.matches('^[a-z0-9_-]{3,20}$') &&
         canClaimHandle(request.resource.data.handle) &&
         request.resource.data.displayName == request.resource.data.handle &&
         existsAfter(/databases/$(database)/documents/handles/$(request.resource.data.handle)) &&
@@ -184,7 +184,7 @@ service cloud.firestore {
           (resource.data.keys().hasAny(['handle']) &&
             request.resource.data.handle == resource.data.handle) ||
           ((!resource.data.keys().hasAny(['handle']) || resource.data.handle == '') &&
-            request.resource.data.handle.matches('^[a-z0-9_]{3,20}$') &&
+            request.resource.data.handle.matches('^[a-z0-9_-]{3,20}$') &&
             isHandleSystemReady() &&
             canClaimHandle(request.resource.data.handle) &&
             existsAfter(/databases/$(database)/documents/handles/$(request.resource.data.handle)) &&
@@ -204,7 +204,7 @@ service cloud.firestore {
       allow list: if false;
       allow create: if isAuthenticated() &&
         isHandleSystemReady() &&
-        handle.matches('^[a-z0-9_]{3,20}$') &&
+        handle.matches('^[a-z0-9_-]{3,20}$') &&
         canClaimHandle(handle) &&
         request.resource.data.keys().hasOnly(['uid', 'createdAt']) &&
         request.resource.data.uid == request.auth.uid &&
@@ -246,7 +246,7 @@ service cloud.firestore {
           get(/databases/$(database)/documents/users/$(request.auth.uid)).data.displayName &&
         request.resource.data.authorHandle ==
           get(/databases/$(database)/documents/users/$(request.auth.uid)).data.handle &&
-        request.resource.data.authorHandle.matches('^[a-z0-9_]{3,20}$') &&
+        request.resource.data.authorHandle.matches('^[a-z0-9_-]{3,20}$') &&
         request.resource.data.authorPhotoURL ==
           get(/databases/$(database)/documents/users/$(request.auth.uid)).data.photoURL &&
         request.resource.data.articleId is string &&

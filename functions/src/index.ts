@@ -55,11 +55,11 @@ const OFFICIAL_HANDLE_KEYS = [
   "lapain",
   "arclapain",
 ];
-const TEAM_HANDLE_PATTERN = /^[a-z0-9_]{3,20}$/;
+const TEAM_HANDLE_PATTERN = /^[a-z0-9_-]{3,20}$/;
 
 function normalizeTeamHandle(value: unknown) {
   return typeof value === "string"
-    ? value.trim().toLowerCase().replace(/^@+/, "")
+    ? value.trim().toLowerCase().replace(/^@+/, "").replace(/\s+/g, "_")
     : "";
 }
 
@@ -99,7 +99,7 @@ async function claimHandleForUser(
   if (!TEAM_HANDLE_PATTERN.test(handle)) {
     throw new HttpsError(
       "invalid-argument",
-      "Use 3-20 lowercase letters, numbers, or underscores."
+      "Use 3-20 lowercase letters, numbers, hyphens, or underscores."
     );
   }
 
@@ -354,6 +354,30 @@ export const listHandleRegistry = onCall(
       firestore.collection("handleConfig").doc("status").get(),
     ]);
 
+    const reservationLabelUpdates = reservations.docs.flatMap((snapshot) => {
+      const currentLabel = snapshot.data().label;
+      const normalizedLabel =
+        normalizeTeamHandle(currentLabel || snapshot.id) || snapshot.id;
+      return normalizedLabel !== currentLabel
+        ? [{ ref: snapshot.ref, label: normalizedLabel }]
+        : [];
+    });
+    if (reservationLabelUpdates.length > 0) {
+      const batch = firestore.batch();
+      reservationLabelUpdates.forEach(({ ref, label }) => {
+        batch.set(
+          ref,
+          {
+            label,
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+            updatedBy: request.auth!.uid,
+          },
+          { merge: true }
+        );
+      });
+      await batch.commit();
+    }
+
     const owners = new Map<
       string,
       { uid: string; name: string; email: string; role: string; handle: string }
@@ -407,7 +431,7 @@ export const listHandleRegistry = onCall(
           const owner = owners.get(data.ownerUid);
           return {
             key: snapshot.id,
-            label: data.label || snapshot.id,
+            label: normalizeTeamHandle(data.label || snapshot.id) || snapshot.id,
             ownerUid: data.ownerUid || "",
             ownerName: owner?.name || data.ownerUid || "Unknown account",
             reason: data.reason || "manual",
@@ -434,7 +458,7 @@ export const upsertHandleReservation = onCall(
     if (!TEAM_HANDLE_PATTERN.test(handle)) {
       throw new HttpsError(
         "invalid-argument",
-        "Use 3-20 lowercase letters, numbers, or underscores."
+        "Use 3-20 lowercase letters, numbers, hyphens, or underscores."
       );
     }
     if (typeof ownerUid !== "string" || !ownerUid.trim()) {
@@ -613,7 +637,7 @@ export const searchMentionHandles = onCall(
     }
 
     const prefix = normalizeTeamHandle(request.data?.prefix);
-    if (!prefix || !/^[a-z0-9_]{1,20}$/.test(prefix)) {
+    if (!prefix || !/^[a-z0-9_-]{1,20}$/.test(prefix)) {
       return { suggestions: [] };
     }
 
@@ -860,9 +884,10 @@ export const syncHandleReservations = onCall(
       { merge: true }
     );
 
-    const [authorsSnapshot, handlesSnapshot] = await Promise.all([
+    const [authorsSnapshot, handlesSnapshot, reservationsSnapshot] = await Promise.all([
       firestore.collection("authors").get(),
       firestore.collection("handles").get(),
+      firestore.collection("handleReservations").get(),
     ]);
     const desired = new Map<
       string,
@@ -898,7 +923,7 @@ export const syncHandleReservations = onCall(
       const handle = normalizeTeamHandle(data.handle);
       if (!handle) return;
       const key = getHandleReservationKey(handle);
-      addReservation(key, authorDoc.id, data.name || key, "team-member");
+      addReservation(key, authorDoc.id, handle, "team-member");
     });
 
     const claimedOwners = new Map<string, Set<string>>();
@@ -920,15 +945,30 @@ export const syncHandleReservations = onCall(
       claimedOwners.set(key, owners);
     });
 
-    const reservationRefs = [...desired.keys()].map((key) =>
-      firestore.collection("handleReservations").doc(key)
-    );
-    const currentReservations = await firestore.getAll(...reservationRefs);
     const currentByKey = new Map(
-      currentReservations.map((snapshot) => [snapshot.id, snapshot]),
+      reservationsSnapshot.docs.map((snapshot) => [snapshot.id, snapshot]),
     );
     const batch = firestore.batch();
     let reserved = 0;
+    let updated = 0;
+
+    reservationsSnapshot.docs.forEach((snapshot) => {
+      if (desired.has(snapshot.id)) return;
+      const currentLabel = snapshot.data().label;
+      const normalizedLabel =
+        normalizeTeamHandle(currentLabel || snapshot.id) || snapshot.id;
+      if (normalizedLabel === currentLabel) return;
+      batch.set(
+        snapshot.ref,
+        {
+          label: normalizedLabel,
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          updatedBy: request.auth!.uid,
+        },
+        { merge: true }
+      );
+      updated += 1;
+    });
 
     desired.forEach((reservation, key) => {
       const current = currentByKey.get(key);
@@ -951,6 +991,7 @@ export const syncHandleReservations = onCall(
         { merge: true }
       );
       reserved += 1;
+      if (current?.data()?.label !== reservation.label) updated += 1;
     });
 
     if (conflicts.length > 0) {
@@ -968,7 +1009,7 @@ export const syncHandleReservations = onCall(
     );
     await batch.commit();
 
-    return { reserved, conflicts: [], ready: true };
+    return { reserved, updated, conflicts: [], ready: true };
   }
 );
 

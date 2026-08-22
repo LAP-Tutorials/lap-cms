@@ -53,7 +53,8 @@ function cleanHandle(value: string) {
   return value
     .toLowerCase()
     .replace(/^@+/, "")
-    .replace(/[^a-z0-9_]/g, "")
+    .replace(/\s+/g, "_")
+    .replace(/[^a-z0-9_-]/g, "")
     .slice(0, 20)
 }
 
@@ -203,7 +204,7 @@ export default function HandlesPage() {
     try {
       const sync = httpsCallable<
         { officialOwnerUid: string },
-        { reserved: number; conflicts: string[]; ready: boolean }
+        { reserved: number; updated: number; conflicts: string[]; ready: boolean }
       >(functions, "syncHandleReservations")
       const result = await sync({ officialOwnerUid: officialOwner })
       if (!result.data.ready) {
@@ -211,7 +212,7 @@ export default function HandlesPage() {
       }
       toast({
         title: "Default reservations protected",
-        description: `${result.data.reserved} reservations are active.`,
+        description: `${result.data.reserved} reservations are active; ${result.data.updated || 0} labels were normalized.`,
         variant: "success",
       })
       await loadRegistry()
