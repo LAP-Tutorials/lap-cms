@@ -10,6 +10,7 @@ import { useAuth } from "@/lib/auth-context"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Breadcrumb } from "@/components/breadcrumb"
+import PageTitle from "@/components/PageTitle"
 import { MentionTextarea } from "@/components/mention-textarea"
 
 type ModerationStatus = "visible" | "hidden"
@@ -57,7 +58,7 @@ function MentionText({ content }: { content: string }) {
     const matchIndex = match.index ?? 0
     const mentionIndex = matchIndex + match[1].length
     if (mentionIndex > cursor) nodes.push(content.slice(cursor, mentionIndex))
-    nodes.push(<span key={`${mentionIndex}-${match[2]}`} className="font-medium text-[#c084fc]">{match[2]}</span>)
+    nodes.push(<span key={`${mentionIndex}-${match[2]}`} className="font-medium text-[#8a2ae3]">{match[2]}</span>)
     cursor = mentionIndex + match[2].length
   }
   if (cursor < content.length) nodes.push(content.slice(cursor))
@@ -112,12 +113,12 @@ function ModerationRow({
             <span className="inline-flex items-center gap-1.5 tabular-nums" title="Likes"><ThumbsUp className="h-3.5 w-3.5" /> {entry.likeCount || 0}</span>
             <span className="inline-flex items-center gap-1.5 tabular-nums" title="Dislikes"><ThumbsDown className="h-3.5 w-3.5" /> {entry.dislikeCount || 0}</span>
             <span className="inline-flex items-center gap-1.5 tabular-nums" title="Replies"><CornerDownRight className="h-3.5 w-3.5" /> {entry.replyCount || 0}</span>
-            {entry.articleSlug ? <Link href={`https://lap.onl/posts/${entry.articleSlug}#comments`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-white/60 transition-colors duration-200 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#9b5fc7]">Open post <ExternalLink className="h-3 w-3" /></Link> : null}
+            {entry.articleSlug ? <Link href={`https://lap.onl/posts/${entry.articleSlug}#comments`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-white/60 transition-colors duration-200 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#8a2ae3]">Open post <ExternalLink className="h-3 w-3" /></Link> : null}
           </div>
         ) : null}
       </div>
       <div className="col-start-2 row-start-2 flex items-start justify-end gap-1 sm:col-start-3 sm:row-start-1">
-        <Button variant="ghost" size="icon" disabled={isBusy} title={entry.status === "visible" ? "Hide" : "Restore"} aria-label={entry.status === "visible" ? `Hide ${entry.kind}` : `Restore ${entry.kind}`} onClick={() => onStatusChange(entry, entry.status === "visible" ? "hidden" : "visible")} className="h-8 w-8 text-white/40 transition-colors duration-200 hover:bg-white/[0.07] hover:text-white focus-visible:ring-[#9b5fc7]">
+        <Button variant="ghost" size="icon" disabled={isBusy} title={entry.status === "visible" ? "Hide" : "Restore"} aria-label={entry.status === "visible" ? `Hide ${entry.kind}` : `Restore ${entry.kind}`} onClick={() => onStatusChange(entry, entry.status === "visible" ? "hidden" : "visible")} className="h-8 w-8 text-white/40 transition-colors duration-200 hover:bg-white/[0.07] hover:text-white focus-visible:ring-[#8a2ae3]">
           {entry.status === "visible" ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
         </Button>
         <Button variant="ghost" size="icon" disabled={isBusy} title="Delete permanently" aria-label={`Delete ${entry.kind}`} onClick={() => onDelete(entry)} className="h-8 w-8 text-white/30 transition-colors duration-200 hover:bg-red-400/10 hover:text-red-300 focus-visible:ring-red-300"><Trash2 className="h-4 w-4" /></Button>
@@ -337,10 +338,20 @@ export default function CommentsModerationPage() {
     <main className="mx-auto min-h-screen max-w-[76rem] text-white">
       <Breadcrumb items={[{ label: "Dashboard", href: "/admin" }, { label: "Comments" }]} />
 
+      <div className="flex justify-between items-center mb-6">
+        <PageTitle
+          className="sr-only"
+          imgSrc="/images/titles/comments.svg"
+          imgAlt="Comments"
+        >
+          Comments
+        </PageTitle>
+      </div>
+
       <header className="mt-8 flex flex-col gap-4 border-b border-white/15 pb-6 lg:flex-row lg:items-end lg:justify-between">
         <div>
           <div className="flex items-center gap-3">
-            <span className="flex h-10 w-10 items-center justify-center bg-[#9b5fc7]/15 text-[#c084fc]" aria-hidden="true">
+            <span className="flex h-10 w-10 items-center justify-center bg-[#8a2ae3]/15 text-[#8a2ae3]" aria-hidden="true">
               <MessageSquare className="h-5 w-5" />
             </span>
             <h1 className="text-4xl font-semibold tracking-[-0.04em] sm:text-5xl">Comments</h1>
@@ -374,19 +385,19 @@ export default function CommentsModerationPage() {
         <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
           <div className="relative w-full xl:max-w-lg">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/35" />
-            <Input value={searchTerm} onChange={(event) => setSearchTerm(event.target.value)} placeholder="Search comments" className="h-10 border-white/15 bg-white/[0.025] pl-10 text-sm placeholder:text-white/30 focus-visible:ring-[#9b5fc7]" />
+            <Input value={searchTerm} onChange={(event) => setSearchTerm(event.target.value)} placeholder="Search comments" className="h-10 border-white/15 bg-white/[0.025] pl-10 text-sm placeholder:text-white/30 focus-visible:ring-[#8a2ae3]" />
           </div>
           <div className="flex flex-col gap-3 sm:flex-row">
             <div className="flex bg-white/[0.025] p-0.5" aria-label="Entry type">
               {(["all", "comment", "reply"] as const).map((type) => (
-                <button key={type} type="button" onClick={() => setTypeFilter(type)} className={`px-3 py-2 text-xs font-medium capitalize transition-colors duration-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#9b5fc7] active:translate-y-px ${typeFilter === type ? "!bg-[#9b5fc7] !text-white" : "text-white/50 hover:bg-white/5 hover:text-white"}`}>
+                <button key={type} type="button" onClick={() => setTypeFilter(type)} className={`px-3 py-2 text-xs font-medium capitalize transition-colors duration-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#8a2ae3] active:translate-y-px ${typeFilter === type ? "!bg-[#8a2ae3] !text-white" : "text-white/50 hover:bg-white/5 hover:text-white"}`}>
                   {type === "all" ? "All" : type === "reply" ? "Replies" : "Comments"}
                 </button>
               ))}
             </div>
             <div className="flex bg-white/[0.025] p-0.5" aria-label="Visibility">
               {(["all", "visible", "hidden"] as const).map((status) => (
-                <button key={status} type="button" onClick={() => setStatusFilter(status)} className={`px-3 py-2 text-xs font-medium capitalize transition-colors duration-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#9b5fc7] active:translate-y-px ${statusFilter === status ? "bg-white/10 text-white" : "text-white/50 hover:bg-white/5 hover:text-white"}`}>
+                <button key={status} type="button" onClick={() => setStatusFilter(status)} className={`px-3 py-2 text-xs font-medium capitalize transition-colors duration-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#8a2ae3] active:translate-y-px ${statusFilter === status ? "bg-white/10 text-white" : "text-white/50 hover:bg-white/5 hover:text-white"}`}>
                   {status === "all" ? "Any" : status}
                 </button>
               ))}
@@ -423,7 +434,7 @@ export default function CommentsModerationPage() {
                       event.preventDefault()
                       void submitStaffReply(thread.parent)
                     }}
-                    className="max-w-3xl border-l-2 border-[#9b5fc7] pl-4"
+                    className="max-w-3xl border-l-2 border-[#8a2ae3] pl-4"
                   >
                     <label htmlFor={`cms-reply-${thread.parent.id}`} className="sr-only">Reply to @{thread.parent.authorHandle || thread.parent.authorName}</label>
                     <MentionTextarea
@@ -434,13 +445,13 @@ export default function CommentsModerationPage() {
                       rows={2}
                       autoFocus
                       placeholder={`Reply as @${replyProfile?.handle || "staff"}…`}
-                      className="w-full resize-y border-0 border-b border-white/25 bg-transparent px-0 py-2 text-sm leading-6 text-white outline-none placeholder:text-white/30 focus:border-[#9b5fc7] focus:ring-0"
+                      className="w-full resize-y border-0 border-b border-white/25 bg-transparent px-0 py-2 text-sm leading-6 text-white outline-none placeholder:text-white/30 focus:border-[#8a2ae3] focus:ring-0"
                     />
                     <div className="mt-2 flex flex-wrap items-center justify-between gap-3">
                       <span className="font-mono text-[10px] tabular-nums text-white/30">{replyContent.length}/{MAX_REPLY_LENGTH}</span>
                       <div className="flex items-center gap-4 text-xs font-semibold uppercase">
                         <button type="button" onClick={() => { setReplyingToId(null); setReplyContent("") }} className="text-white/45 transition-colors hover:text-white">Cancel</button>
-                        <button type="submit" disabled={replyBusy || !replyContent.trim()} className="inline-flex items-center gap-2 text-[#c084fc] transition-colors hover:text-white disabled:opacity-35">
+                        <button type="submit" disabled={replyBusy || !replyContent.trim()} className="inline-flex items-center gap-2 text-[#8a2ae3] transition-colors hover:text-white disabled:opacity-35">
                           <Send className="h-3.5 w-3.5" /> {replyBusy ? "Posting…" : "Post reply"}
                         </button>
                       </div>
@@ -450,7 +461,7 @@ export default function CommentsModerationPage() {
                   <button
                     type="button"
                     onClick={() => { setReplyingToId(thread.parent.id); setReplyContent("") }}
-                    className="inline-flex items-center gap-2 text-xs font-medium text-white/45 transition-colors duration-200 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#9b5fc7]"
+                    className="inline-flex items-center gap-2 text-xs font-medium text-white/45 transition-colors duration-200 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#8a2ae3]"
                   >
                     <CornerDownRight className="h-3.5 w-3.5" /> Reply as @{replyProfile.handle}
                   </button>
@@ -460,7 +471,7 @@ export default function CommentsModerationPage() {
               </div>
             ) : null}
             {thread.replies.length > 0 ? (
-              <div className="mb-5 ml-3 border-l-2 border-[#9b5fc7]/35 bg-black/10 px-4 sm:ml-12 sm:px-5">
+              <div className="mb-5 ml-3 border-l-2 border-[#8a2ae3]/35 bg-black/10 px-4 sm:ml-12 sm:px-5">
                 <p className="border-b border-white/10 py-3 text-xs font-medium text-white/40">
                   {thread.replies.length} {thread.replies.length === 1 ? "reply" : "replies"}
                 </p>

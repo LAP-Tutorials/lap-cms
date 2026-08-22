@@ -5,6 +5,7 @@ import { httpsCallable } from "firebase/functions"
 import { AlertTriangle, AtSign, Check, KeyRound, Loader2, Pencil, RefreshCw, Search, ShieldCheck, Trash2, UserRoundCog } from "lucide-react"
 import { Breadcrumb } from "@/components/breadcrumb"
 import { Button } from "@/components/ui/button"
+import PageTitle from "@/components/PageTitle";
 import { Input } from "@/components/ui/input"
 import { useToast } from "@/hooks/use-toast"
 import { useAuth } from "@/lib/auth-context"
@@ -246,7 +247,7 @@ export default function HandlesPage() {
   if (userRole !== "super") {
     return (
       <div className="flex min-h-[60vh] flex-col items-center justify-center px-4 text-center">
-        <AlertTriangle className="mb-4 h-10 w-10 text-[#8a2be2]" />
+        <AlertTriangle className="mb-4 h-10 w-10 text-[#8a2ae3]" />
         <h1 className="text-2xl font-bold">Superadmin access required</h1>
         <p className="mt-2 text-white/55">Only the superadmin can manage handle ownership.</p>
       </div>
@@ -259,11 +260,21 @@ export default function HandlesPage() {
         <Breadcrumb items={[{ label: "Dashboard", href: "/admin" }, { label: "Handles" }]} />
       </div>
 
+      <div className="flex justify-between items-center mb-6">
+        <PageTitle
+          className="sr-only"
+          imgSrc="/images/titles/handles.svg"
+          imgAlt="Handles"
+        >
+          Handles
+        </PageTitle>
+      </div>
+
       <div className="mx-auto max-w-[76rem]">
         <header className="flex flex-col gap-4 border-b border-white/15 pb-6 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <div className="flex items-center gap-3">
-              <span className="flex h-10 w-10 items-center justify-center bg-[#9b5fc7]/15 text-[#c084fc]" aria-hidden="true">
+              <span className="flex h-10 w-10 items-center justify-center bg-[#8a2ae3]/15 text-[#8a2ae3]" aria-hidden="true">
                 <KeyRound className="h-5 w-5" />
               </span>
               <h1 className="text-4xl font-semibold tracking-[-0.04em] sm:text-5xl">Handles</h1>
@@ -300,7 +311,7 @@ export default function HandlesPage() {
         <section className="grid gap-4 py-5 lg:grid-cols-2">
           <div className="border border-white/10 bg-white/[0.012] p-5">
             <div className="mb-5 flex items-start gap-3">
-              <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center bg-white/[0.05] text-[#c084fc]" aria-hidden="true">
+              <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center bg-white/[0.05] text-[#8a2ae3]" aria-hidden="true">
                 <ShieldCheck className="h-4 w-4" />
               </span>
               <div>
@@ -315,13 +326,13 @@ export default function HandlesPage() {
                   value={reservationHandle}
                   onChange={(event) => setReservationHandle(cleanHandle(event.target.value))}
                   placeholder="reserved_name"
-                  className="border-white/15 bg-white/[0.025] pl-8 focus-visible:ring-[#9b5fc7]"
+                  className="border-white/15 bg-white/[0.025] pl-8 focus-visible:ring-[#8a2ae3]"
                 />
               </div>
               <select
                 value={reservationOwner}
                 onChange={(event) => setReservationOwner(event.target.value)}
-                className="h-10 w-full border border-white/15 bg-[#151515] px-3 text-sm text-white outline-none transition-colors focus:border-[#9b5fc7] focus-visible:ring-2 focus-visible:ring-[#9b5fc7]"
+                className="h-10 w-full border border-white/15 bg-[#151515] px-3 text-sm text-white outline-none transition-colors focus:border-[#8a2ae3] focus-visible:ring-2 focus-visible:ring-[#8a2ae3]"
               >
                 <option value="">Choose owner</option>
                 {registry.owners.map((owner) => (
@@ -344,7 +355,7 @@ export default function HandlesPage() {
 
           <div className="border border-white/10 bg-white/[0.012] p-5">
             <div className="mb-5 flex items-start gap-3">
-              <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center bg-white/[0.05] text-[#c084fc]" aria-hidden="true">
+              <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center bg-white/[0.05] text-[#8a2ae3]" aria-hidden="true">
                 <UserRoundCog className="h-4 w-4" />
               </span>
               <div>
@@ -360,7 +371,7 @@ export default function HandlesPage() {
                   setAccountUid(uid)
                   setAccountHandle(registry.owners.find((owner) => owner.uid === uid)?.handle || "")
                 }}
-                className="h-10 w-full border border-white/15 bg-[#151515] px-3 text-sm text-white outline-none transition-colors focus:border-[#9b5fc7] focus-visible:ring-2 focus-visible:ring-[#9b5fc7]"
+                className="h-10 w-full border border-white/15 bg-[#151515] px-3 text-sm text-white outline-none transition-colors focus:border-[#8a2ae3] focus-visible:ring-2 focus-visible:ring-[#8a2ae3]"
               >
                 <option value="">Choose account</option>
                 {registry.owners.map((owner) => (
@@ -375,7 +386,7 @@ export default function HandlesPage() {
                   value={accountHandle}
                   onChange={(event) => setAccountHandle(cleanHandle(event.target.value))}
                   placeholder="new_handle"
-                  className="border-white/15 bg-white/[0.025] pl-8 focus-visible:ring-[#9b5fc7]"
+                  className="border-white/15 bg-white/[0.025] pl-8 focus-visible:ring-[#8a2ae3]"
                 />
               </div>
               <Button
@@ -406,7 +417,7 @@ export default function HandlesPage() {
               <select
                 value={officialOwner}
                 onChange={(event) => setOfficialOwner(event.target.value)}
-                className="h-10 flex-1 border border-white/15 bg-[#151515] px-3 text-sm text-white outline-none focus:border-[#9b5fc7]"
+                className="h-10 flex-1 border border-white/15 bg-[#151515] px-3 text-sm text-white outline-none focus:border-[#8a2ae3]"
               >
                 <option value="">Choose official owner</option>
                 {staffOwners.map((owner) => (
@@ -428,9 +439,9 @@ export default function HandlesPage() {
                 key={view}
                 type="button"
                 onClick={() => setRegistryView(view)}
-                className={`inline-flex items-center gap-2 px-3 py-2 text-xs font-medium capitalize transition-colors duration-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#9b5fc7] active:translate-y-px ${
+                className={`inline-flex items-center gap-2 px-3 py-2 text-xs font-medium capitalize transition-colors duration-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#8a2ae3] active:translate-y-px ${
                   registryView === view
-                    ? "!bg-[#9b5fc7] !text-white"
+                    ? "!bg-[#8a2ae3] !text-white"
                     : "text-white/50 hover:bg-white/5 hover:text-white"
                 }`}
               >
@@ -445,7 +456,7 @@ export default function HandlesPage() {
               value={registrySearch}
               onChange={(event) => setRegistrySearch(event.target.value)}
               placeholder="Search handle or owner"
-              className="h-10 border-white/15 bg-white/[0.025] pl-10 text-sm placeholder:text-white/30 focus-visible:ring-[#9b5fc7]"
+              className="h-10 border-white/15 bg-white/[0.025] pl-10 text-sm placeholder:text-white/30 focus-visible:ring-[#8a2ae3]"
             />
           </div>
         </section>
@@ -453,7 +464,7 @@ export default function HandlesPage() {
         <section className={registryView === "reserved" ? "mt-5" : "hidden"}>
           <div className="mb-4 flex items-end justify-between">
             <div className="flex items-start gap-3">
-              <ShieldCheck className="mt-0.5 h-5 w-5 text-[#c084fc]" aria-hidden="true" />
+              <ShieldCheck className="mt-0.5 h-5 w-5 text-[#8a2ae3]" aria-hidden="true" />
               <div>
                 <h2 className="text-xl font-semibold">Reserved handles</h2>
                 <p className="mt-0.5 text-sm text-white/45">Protected names and who may claim them.</p>
@@ -471,7 +482,7 @@ export default function HandlesPage() {
                     <td className="px-4 py-3.5 font-semibold">@{reservation.label}</td>
                     <td className="px-4 py-3.5 text-white/75">{reservation.ownerName}</td>
                     <td className="px-4 py-3.5">{reservation.claimedHandles.length ? <span className="inline-flex items-center gap-1.5 text-emerald-300"><Check className="h-3.5 w-3.5" /> Claimed as @{reservation.claimedHandles.join(", @")}</span> : <span className="text-white/40">Available to owner</span>}</td>
-                    <td className="px-4 py-3.5"><div className="flex justify-end gap-1"><Button variant="ghost" size="icon" title="Edit reservation" aria-label={`Edit @${reservation.label}`} onClick={() => editReservation(reservation)} className="h-8 w-8 text-white/40 hover:bg-white/[0.07] hover:text-white focus-visible:ring-[#9b5fc7]"><Pencil className="h-4 w-4" /></Button><Button variant="ghost" size="icon" title="Remove reservation" aria-label={`Remove @${reservation.label}`} disabled={busyAction === `remove:${reservation.key}`} onClick={() => void removeReservation(reservation)} className="h-8 w-8 text-white/30 hover:bg-red-400/10 hover:text-red-300 focus-visible:ring-red-300">{busyAction === `remove:${reservation.key}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}</Button></div></td>
+                    <td className="px-4 py-3.5"><div className="flex justify-end gap-1"><Button variant="ghost" size="icon" title="Edit reservation" aria-label={`Edit @${reservation.label}`} onClick={() => editReservation(reservation)} className="h-8 w-8 text-white/40 hover:bg-white/[0.07] hover:text-white focus-visible:ring-[#8a2ae3]"><Pencil className="h-4 w-4" /></Button><Button variant="ghost" size="icon" title="Remove reservation" aria-label={`Remove @${reservation.label}`} disabled={busyAction === `remove:${reservation.key}`} onClick={() => void removeReservation(reservation)} className="h-8 w-8 text-white/30 hover:bg-red-400/10 hover:text-red-300 focus-visible:ring-red-300">{busyAction === `remove:${reservation.key}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}</Button></div></td>
                   </tr>
                 ))}
                 {!loading && filteredReservations.length === 0 && <tr><td colSpan={4} className="p-10 text-center text-white/45"><Search className="mx-auto mb-3 h-5 w-5 text-white/20" />No reserved handles match this view.</td></tr>}
@@ -482,7 +493,7 @@ export default function HandlesPage() {
 
         <section className={registryView === "taken" ? "mt-5" : "hidden"}>
           <div className="mb-4 flex items-start gap-3">
-            <AtSign className="mt-0.5 h-5 w-5 text-[#c084fc]" aria-hidden="true" />
+            <AtSign className="mt-0.5 h-5 w-5 text-[#8a2ae3]" aria-hidden="true" />
             <div>
               <h2 className="text-xl font-semibold">Taken handles</h2>
               <p className="mt-0.5 text-sm text-white/45">Handles currently attached to an account.</p>
@@ -499,8 +510,8 @@ export default function HandlesPage() {
                     <td className="px-4 py-3.5 font-semibold">@{claim.handle}</td>
                     <td className="px-4 py-3.5 text-white/75">{claim.ownerName}</td>
                     <td className="px-4 py-3.5 capitalize text-white/50">{claim.ownerRole}</td>
-                    <td className="px-4 py-3.5">{claim.reserved ? <span className="inline-flex items-center gap-1.5 text-[#c084fc]"><ShieldCheck className="h-3.5 w-3.5" /> Reserved</span> : <span className="text-white/40">Claimed</span>}</td>
-                    <td className="px-4 py-3.5 text-right"><Button variant="ghost" size="icon" title="Change handle" aria-label={`Change @${claim.handle}`} onClick={() => editClaim(claim)} className="h-8 w-8 text-white/40 hover:bg-white/[0.07] hover:text-white focus-visible:ring-[#9b5fc7]"><Pencil className="h-4 w-4" /></Button></td>
+                    <td className="px-4 py-3.5">{claim.reserved ? <span className="inline-flex items-center gap-1.5 text-[#8a2ae3]"><ShieldCheck className="h-3.5 w-3.5" /> Reserved</span> : <span className="text-white/40">Claimed</span>}</td>
+                    <td className="px-4 py-3.5 text-right"><Button variant="ghost" size="icon" title="Change handle" aria-label={`Change @${claim.handle}`} onClick={() => editClaim(claim)} className="h-8 w-8 text-white/40 hover:bg-white/[0.07] hover:text-white focus-visible:ring-[#8a2ae3]"><Pencil className="h-4 w-4" /></Button></td>
                   </tr>
                 ))}
                 {!loading && filteredClaims.length === 0 && <tr><td colSpan={5} className="p-10 text-center text-white/45"><Search className="mx-auto mb-3 h-5 w-5 text-white/20" />No taken handles match this view.</td></tr>}

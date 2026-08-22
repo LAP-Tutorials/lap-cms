@@ -153,7 +153,7 @@ export default function LoginPage() {
             variant="outline"
             type="submit"
             disabled={loading || googleLoading}
-            className="text-center w-full py-3 font-medium hover:bg-[#8a2be2] transition ease-in-out duration-300"
+            className="text-center w-full py-3 font-medium hover:bg-[#8a2ae3] transition ease-in-out duration-300"
           >
             {loading ? "Verifying..." : "Sign In"}
           </Button>

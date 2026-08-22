@@ -99,7 +99,7 @@ function ModeratorDashboard() {
       </PageTitle>
 
       <div className="border-b border-white/15 pb-8">
-        <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[#a855f7]">
+        <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[#8a2ae3]">
           Moderator workspace
         </p>
         <h1 className="mt-3 text-3xl font-bold sm:text-4xl">Comment moderation</h1>
@@ -121,7 +121,7 @@ function ModeratorDashboard() {
           { label: "Hidden", value: counts.hidden, icon: EyeOff },
         ].map(({ label, value, icon: Icon }) => (
           <div key={label} className="bg-[#121212] p-6">
-            <Icon className="h-5 w-5 text-[#a855f7]" aria-hidden="true" />
+            <Icon className="h-5 w-5 text-[#8a2ae3]" aria-hidden="true" />
             <p className="mt-6 text-sm text-white/50">{label}</p>
             <p className="mt-1 text-3xl font-semibold tabular-nums">
               {loading ? "—" : value}
@@ -140,7 +140,7 @@ function ModeratorDashboard() {
           </div>
           <Link
             href="/admin/comments"
-            className="border-b border-[#a855f7] pb-1 text-sm font-semibold uppercase hover:text-[#a855f7]"
+            className="border-b border-[#8a2ae3] pb-1 text-sm font-semibold uppercase hover:text-[#8a2ae3]"
           >
             Manage all comments
           </Link>
@@ -409,7 +409,7 @@ function ContentDashboard() {
                   labelStyle={{ color: "#fff" }}
                 />
                 <Legend wrapperStyle={{ color: "#fff" }} />
-                <Bar dataKey="articles" fill="#8a2be2" name="Posts Published" />
+                <Bar dataKey="articles" fill="#8a2ae3" name="Posts Published" />
               </BarChart>
             </ResponsiveContainer>
           </div>

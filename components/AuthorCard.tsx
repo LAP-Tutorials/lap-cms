@@ -76,7 +76,7 @@ function AuthorCard({ authorData }: AuthorCardProps) {
                   href={link.href as string}
                   target="_blank"
                   aria-label={link.ariaLabel}
-                  className="text-white text-2xl hover:text-purple-500 transition ease-in-out duration-300"
+                  className="text-white text-2xl hover:text-[#8a2ae3] transition ease-in-out duration-300"
                 >
                   <link.Icon size={24} />
                 </Link>

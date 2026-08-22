@@ -102,7 +102,7 @@ export default function PromoteModeratorPage() {
   if (!canPromote) {
     return (
       <div className="flex min-h-[60vh] flex-col items-center justify-center px-4 text-center">
-        <AlertTriangle className="mb-4 h-10 w-10 text-[#8a2be2]" />
+        <AlertTriangle className="mb-4 h-10 w-10 text-[#8a2ae3]" />
         <h1 className="text-2xl font-bold">Access denied</h1>
         <p className="mt-2 text-white/55">Only admins can promote readers.</p>
       </div>
@@ -123,7 +123,7 @@ export default function PromoteModeratorPage() {
 
       <main className="mx-auto max-w-4xl">
         <header className="border-b border-white/15 pb-6">
-          <p className="mb-2 text-xs font-semibold uppercase tracking-[0.22em] text-[#a855f7]">
+          <p className="mb-2 text-xs font-semibold uppercase tracking-[0.22em] text-[#8a2ae3]">
             Existing reader
           </p>
           <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">
@@ -165,7 +165,7 @@ export default function PromoteModeratorPage() {
                     type="button"
                     onClick={() => setSelectedUid(candidate.uid)}
                     className={`flex w-full items-center gap-4 p-4 text-left transition-colors hover:bg-white/[0.04] ${
-                      isSelected ? "bg-[#8a2be2]/10" : ""
+                      isSelected ? "bg-[#8a2ae3]/10" : ""
                     }`}
                   >
                     {candidate.photoURL ? (
@@ -188,7 +188,7 @@ export default function PromoteModeratorPage() {
                     <span
                       className={`flex h-5 w-5 shrink-0 items-center justify-center border ${
                         isSelected
-                          ? "border-[#a855f7] bg-[#8a2be2]"
+                          ? "border-[#8a2ae3] bg-[#8a2ae3]"
                           : "border-white/30"
                       }`}
                       aria-hidden="true"

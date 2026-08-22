@@ -153,11 +153,11 @@ export function DatePickerWithRange({
                         >
                             <span className={cn(
                                 "text-xs uppercase font-semibold transition-colors",
-                                activeInput === 'start' ? "text-[#8a2be2]" : "text-neutral-500 group-hover:text-neutral-300"
+                                activeInput === 'start' ? "text-[#8a2ae3]" : "text-neutral-500 group-hover:text-neutral-300"
                             )}>Start Date</span>
                             <div className={cn(
                                 "text-sm font-medium text-white bg-neutral-900 px-3 py-1.5 border min-w-[120px] transition-colors truncate",
-                                activeInput === 'start' ? "border-[#8a2be2]" : "border-neutral-800 group-hover:border-neutral-700"
+                                activeInput === 'start' ? "border-[#8a2ae3]" : "border-neutral-800 group-hover:border-neutral-700"
                             )}>
                                 {tempDate?.from ? format(tempDate.from, "MMM dd, yyyy") : "Select date"}
                             </div>
@@ -168,11 +168,11 @@ export function DatePickerWithRange({
                         >
                             <span className={cn(
                                 "text-xs uppercase font-semibold transition-colors",
-                                activeInput === 'end' ? "text-[#8a2be2]" : "text-neutral-500 group-hover:text-neutral-300"
+                                activeInput === 'end' ? "text-[#8a2ae3]" : "text-neutral-500 group-hover:text-neutral-300"
                             )}>End Date</span>
                             <div className={cn(
                                 "text-sm font-medium text-white bg-neutral-900 px-3 py-1.5 border min-w-[120px] transition-colors truncate",
-                                activeInput === 'end' ? "border-[#8a2be2]" : "border-neutral-800 group-hover:border-neutral-700"
+                                activeInput === 'end' ? "border-[#8a2ae3]" : "border-neutral-800 group-hover:border-neutral-700"
                             )}>
                                 {tempDate?.to ? format(tempDate.to, "MMM dd, yyyy") : "Select date"}
                             </div>
@@ -191,7 +191,7 @@ export function DatePickerWithRange({
                     <Button variant="ghost" size="sm" onClick={cancelChanges} className="text-neutral-400 hover:text-white">
                         Cancel
                     </Button>
-                    <Button size="sm" onClick={applyChanges} className="bg-[#8a2be2] hover:bg-[#7a26c9] text-white">
+                    <Button size="sm" onClick={applyChanges} className="bg-[#8a2ae3] hover:bg-[#8a2ae3] text-white">
                         Apply
                     </Button>
                 </div>

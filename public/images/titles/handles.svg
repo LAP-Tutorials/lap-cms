@@ -1,11 +1,11 @@
 <?xml version="1.0" encoding="UTF-8" standalone="no"?>
 <!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
 <svg width="100%" height="100%" viewBox="0 0 1520 231" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" xml:space="preserve" xmlns:serif="http://www.serif.com/" style="fill-rule:evenodd;clip-rule:evenodd;stroke-linejoin:round;stroke-miterlimit:2;">
-    <g transform="matrix(17.51613,0,0,17.51613,-2278.005554,-1470.018056)">
-        <g transform="matrix(1.1,0,0,1,-14.395763,0)">
-            <g transform="matrix(14.615101,0,0,14.615101,198.033762,96.474967)">
+    <g transform="matrix(17.51613,0,0,17.51613,-2278.005554,-1474.018056)">
+        <g transform="matrix(1.1,0,0,1,-13.559012,0)">
+            <g transform="matrix(15.528544,0,0,15.528544,204.879907,96.474967)">
             </g>
-            <text x="143.958px" y="96.475px" style="font-family:'Roboto-Bold', 'Roboto';font-weight:700;font-size:14.615px;fill:rgb(138,42,227);">ASSE<tspan x="180.111px 189.049px " y="96.475px 96.475px ">TS</tspan></text>
+            <text x="135.59px" y="96.475px" style="font-family:'Roboto-Bold', 'Roboto';font-weight:700;font-size:15.529px;fill:rgb(138,43,226);">H<tspan x="146.686px " y="96.475px ">A</tspan>NDLES</text>
         </g>
     </g>
 </svg>
