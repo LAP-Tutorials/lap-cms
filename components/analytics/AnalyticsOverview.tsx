@@ -21,6 +21,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { auth } from "@/lib/firebase";
 import {
   Select,
   SelectContent,
@@ -35,7 +36,11 @@ export function AnalyticsOverview() {
   const { data, isLoading } = useQuery({
     queryKey: ["analytics", days],
     queryFn: async () => {
-      const res = await fetch(`/api/analytics?days=${days}`);
+      const idToken = await auth.currentUser?.getIdToken();
+      if (!idToken) throw new Error("Authentication required");
+      const res = await fetch(`/api/analytics?days=${days}`, {
+        headers: { Authorization: `Bearer ${idToken}` },
+      });
       if (!res.ok) throw new Error("Failed to fetch analytics");
       return res.json();
     },

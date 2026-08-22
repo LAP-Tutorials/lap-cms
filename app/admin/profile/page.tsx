@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from "react"
 import { doc, getDoc, updateDoc } from "firebase/firestore"
-import { auth, db, storage } from "@/lib/firebase"
+import { httpsCallable } from "firebase/functions"
+import { auth, db, functions, storage } from "@/lib/firebase"
 import {
   onAuthStateChanged,
   updatePassword,
@@ -23,6 +24,7 @@ import { AvatarCropper } from "@/components/profile/avatar-cropper"
 interface ProfileData {
   avatar: string
   name: string
+  handle: string
   city: string
   job: string
   biography: {
@@ -36,6 +38,7 @@ export default function ProfilePage() {
   const [profile, setProfile] = useState<ProfileData>({
     avatar: "",
     name: "",
+    handle: "",
     city: "",
     job: "",
     biography: { body: "", summary: "" },
@@ -48,6 +51,8 @@ export default function ProfilePage() {
   const [socialLink, setSocialLink] = useState("")
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [handleInput, setHandleInput] = useState("")
+  const [claimingHandle, setClaimingHandle] = useState(false)
   const [changingPassword, setChangingPassword] = useState(false)
   const [linkingGoogle, setLinkingGoogle] = useState(false)
   const [isGoogleLinked, setIsGoogleLinked] = useState(false)
@@ -92,11 +97,13 @@ export default function ProfilePage() {
             setProfile({
               avatar: data.avatar || "",
               name: data.name || "",
+              handle: data.handle || "",
               city: data.city || "",
               job: data.job || "",
               biography: data.biography || { body: "", summary: "" },
               socials: data.socials || {},
             })
+            setHandleInput(data.handle || "")
           } else {
             setError("Profile not found")
           }
@@ -189,6 +196,43 @@ export default function ProfilePage() {
       })
     } finally {
       setSaving(false)
+    }
+  }
+
+  const handleClaim = async () => {
+    const handle = handleInput.trim().toLowerCase().replace(/^@+/, "")
+    if (!/^[a-z0-9_]{3,20}$/.test(handle)) {
+      toast({
+        title: "Invalid handle",
+        description: "Use 3-20 lowercase letters, numbers, or underscores.",
+        variant: "destructive",
+      })
+      return
+    }
+    if (!window.confirm(`Use @${handle}? You can only choose once.`)) return
+
+    setClaimingHandle(true)
+    try {
+      const claim = httpsCallable<{ handle: string }, { handle: string }>(
+        functions,
+        "claimTeamHandle",
+      )
+      const result = await claim({ handle })
+      setProfile((current) => ({ ...current, handle: result.data.handle }))
+      setHandleInput(result.data.handle)
+      toast({
+        title: "Handle saved",
+        description: `Your comment handle is @${result.data.handle}.`,
+        variant: "success",
+      })
+    } catch (err: any) {
+      toast({
+        title: "Could not save handle",
+        description: err?.message || "That handle may be taken or reserved.",
+        variant: "destructive",
+      })
+    } finally {
+      setClaimingHandle(false)
     }
   }
 
@@ -289,13 +333,7 @@ export default function ProfilePage() {
 
     setUploadingAvatar(true)
     try {
-      // Create a slug from the name for the file path
-      const nameSlug = profile.name
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, '-')
-        .replace(/(^-|-$)+/g, '') || auth.currentUser.uid
-
-      const storageRef = ref(storage, `avatars/team/${nameSlug}.webp`)
+      const storageRef = ref(storage, `avatars/team/${auth.currentUser.uid}.webp`)
       const uploadTask = await uploadBytes(storageRef, croppedBlob)
       const downloadURL = await getDownloadURL(uploadTask.ref)
 
@@ -430,6 +468,57 @@ export default function ProfilePage() {
                   }
                   placeholder="Your name"
                 />
+              </div>
+
+              <div>
+                <label className="block mb-2 font-medium">Comment handle:</label>
+                {profile.handle ? (
+                  <Input
+                    value={`@${profile.handle}`}
+                    readOnly
+                    aria-describedby="comment-handle-help"
+                    className="text-white/65"
+                  />
+                ) : (
+                  <div className="flex flex-col gap-3 sm:flex-row">
+                    <div className="relative flex-1">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-white/45">
+                        @
+                      </span>
+                      <Input
+                        value={handleInput}
+                        onChange={(event) =>
+                          setHandleInput(
+                            event.target.value
+                              .toLowerCase()
+                              .replace(/^@+/, "")
+                              .replace(/[^a-z0-9_]/g, "")
+                              .slice(0, 20),
+                          )
+                        }
+                        className="pl-8"
+                        placeholder="your_handle"
+                        aria-describedby="comment-handle-help"
+                      />
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={handleClaim}
+                      disabled={claimingHandle || handleInput.length < 3}
+                    >
+                      {claimingHandle && (
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      )}
+                      Choose handle
+                    </Button>
+                  </div>
+                )}
+                <p id="comment-handle-help" className="mt-1 text-sm text-white/50">
+                  {profile.handle
+                    ? "This is permanent. A superadmin can correct it from the handle registry."
+                    : "Choose the handle shown beside your comments. You can only choose once."}
+                </p>
               </div>
 
               <div>

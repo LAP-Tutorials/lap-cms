@@ -5,7 +5,7 @@ import PageTitle from "@/components/PageTitle";
 import { Button } from "@/components/ui/button";
 
 import { Breadcrumb } from "@/components/breadcrumb";
-import { Plus, Eye, Pencil, UserCircle } from "lucide-react";
+import { Plus, Eye, Pencil, ShieldPlus, UserCircle } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
 import { usePaginatedCollection } from "@/hooks/use-firestore-query";
 
@@ -16,6 +16,7 @@ interface TeamMember {
   uid: string;
   slug: string;
   avatar?: string;
+  showOnTeam?: boolean;
 }
 
 export default function TeamPage() {
@@ -50,10 +51,15 @@ export default function TeamPage() {
       </div>
 
       {(userRole === "super" || userRole === "admin") && (
-        <div className="mb-6">
+        <div className="mb-6 flex flex-wrap gap-3">
           <Button asChild variant="outline">
             <Link href="/admin/team/new">
               <Plus className="mr-2 h-4 w-4" /> New Member
+            </Link>
+          </Button>
+          <Button asChild>
+            <Link href="/admin/team/promote">
+              <ShieldPlus className="mr-2 h-4 w-4" /> Promote Moderator
             </Link>
           </Button>
         </div>
@@ -110,15 +116,18 @@ export default function TeamPage() {
                     </td>
                     <td className="p-4">
                       <div className="flex items-center space-x-2">
-                        <Button asChild size="sm" variant="ghost">
-                          <Link
-                            href={`https://lap-docs.netlify.app/team/${teamMember.slug}`}
-                            target="_blank"
-                            title="View profile"
-                          >
-                            <Eye className="h-4 w-4 mr-1" /> View
-                          </Link>
-                        </Button>
+                        {teamMember.showOnTeam !== false &&
+                        teamMember.role !== "moderator" ? (
+                          <Button asChild size="sm" variant="ghost">
+                            <Link
+                              href={`https://lap-docs.netlify.app/team/${teamMember.slug}`}
+                              target="_blank"
+                              title="View profile"
+                            >
+                              <Eye className="h-4 w-4 mr-1" /> View
+                            </Link>
+                          </Button>
+                        ) : null}
 
                         {userRole !== "manager" && (
                           <Button asChild size="sm" variant="ghost">

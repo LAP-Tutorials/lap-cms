@@ -2,7 +2,7 @@
 
 import type React from "react"
 import { useEffect } from "react"
-import { useRouter } from "next/navigation"
+import { usePathname, useRouter } from "next/navigation"
 import AdminSidebar from "@/components/admin-sidebar"
 import { useAuth } from "@/lib/auth-context"
 
@@ -11,6 +11,16 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Lock } from "lucide-react"
 
+const CMS_ROLES = ["super", "admin", "manager", "moderator"]
+
+function isModeratorRoute(pathname: string) {
+  return pathname === "/admin" ||
+    pathname === "/admin/comments" ||
+    pathname.startsWith("/admin/comments/") ||
+    pathname === "/admin/profile" ||
+    pathname.startsWith("/admin/profile/")
+}
+
 export default function AdminLayout({
   children,
 }: {
@@ -18,14 +28,17 @@ export default function AdminLayout({
 }) {
   const { user, userRole, isLoading } = useAuth()
   const router = useRouter()
+  const pathname = usePathname()
 
   useEffect(() => {
     if (!isLoading && !user) {
       router.replace("/auth/login")
-    } else if (!isLoading && user && !["super", "admin", "manager"].includes(userRole || "")) {
+    } else if (!isLoading && user && !CMS_ROLES.includes(userRole || "")) {
       router.replace("/auth/login")
+    } else if (!isLoading && userRole === "moderator" && !isModeratorRoute(pathname)) {
+      router.replace("/admin")
     }
-  }, [user, userRole, isLoading, router])
+  }, [user, userRole, isLoading, pathname, router])
 
   if (isLoading) {
     return (
@@ -54,7 +67,7 @@ export default function AdminLayout({
     )
   }
 
-  if (!user || !["super", "admin", "manager"].includes(userRole || "")) {
+  if (!user || !CMS_ROLES.includes(userRole || "")) {
     return (
       <div className="flex h-screen w-full items-center justify-center bg-background p-4">
         <Card className="w-full max-w-md">
@@ -77,6 +90,10 @@ export default function AdminLayout({
         </Card>
       </div>
     )
+  }
+
+  if (userRole === "moderator" && !isModeratorRoute(pathname)) {
+    return null
   }
 
   return (

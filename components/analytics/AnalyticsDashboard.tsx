@@ -49,6 +49,7 @@ import {
 import { DateRange } from "react-day-picker";
 import { DatePickerWithRange } from "@/components/ui/date-range-picker";
 import { subDays } from "date-fns";
+import { auth } from "@/lib/firebase";
 
 type AnalyticsData = {
   timeline: {
@@ -120,7 +121,11 @@ export function AnalyticsDashboard() {
         queryParams = `?days=7`;
       }
 
-      const res = await fetch(`/api/analytics${queryParams}`);
+      const idToken = await auth.currentUser?.getIdToken();
+      if (!idToken) throw new Error("Authentication required");
+      const res = await fetch(`/api/analytics${queryParams}`, {
+        headers: { Authorization: `Bearer ${idToken}` },
+      });
       if (!res.ok) throw new Error("Failed to fetch analytics");
       return res.json();
     },

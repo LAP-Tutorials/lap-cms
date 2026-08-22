@@ -1,5 +1,9 @@
 import { onSchedule } from "firebase-functions/v2/scheduler";
 import { onCall, HttpsError } from "firebase-functions/v2/https";
+import {
+  onDocumentDeleted,
+  onDocumentWritten,
+} from "firebase-functions/v2/firestore";
 import * as logger from "firebase-functions/logger";
 import * as admin from "firebase-admin";
 import { BetaAnalyticsDataClient } from "@google-analytics/data";
@@ -41,6 +45,656 @@ function getAnalyticsClient() {
   }
   return analyticsDataClient;
 }
+
+const CONTENT_STAFF_ROLES = ["manager", "admin", "super"];
+const RESERVABLE_TEAM_ROLES = ["moderator", ...CONTENT_STAFF_ROLES];
+const OFFICIAL_HANDLE_KEYS = [
+  "lap",
+  "lapdocs",
+  "laptutorials",
+  "lapain",
+  "arclapain",
+];
+const TEAM_HANDLE_PATTERN = /^[a-z0-9_]{3,20}$/;
+
+function normalizeTeamHandle(value: unknown) {
+  return typeof value === "string"
+    ? value.trim().toLowerCase().replace(/^@+/, "")
+    : "";
+}
+
+function getHandleReservationKey(value: unknown) {
+  return typeof value === "string"
+    ? value.trim().toLowerCase().replace(/[^a-z]/g, "")
+    : "";
+}
+
+function getConfusableBrandKey(value: unknown) {
+  return typeof value === "string"
+    ? value
+        .trim()
+        .toLowerCase()
+        .replace(/1/g, "l")
+        .replace(/4/g, "a")
+        .replace(/9/g, "p")
+        .replace(/[^a-z]/g, "")
+    : "";
+}
+
+function isProtectedBrandKey(value: string) {
+  return /^(official|real|the|team|weare|my)?(lap|arclapain)/.test(value);
+}
+
+async function claimHandleForUser(
+  uid: string,
+  value: unknown,
+  options: {
+    allowChange?: boolean;
+    requireTeamMember?: boolean;
+    syncExistingComments?: boolean;
+  } = {}
+) {
+  const firestore = getDb();
+  const handle = normalizeTeamHandle(value);
+  if (!TEAM_HANDLE_PATTERN.test(handle)) {
+    throw new HttpsError(
+      "invalid-argument",
+      "Use 3-20 lowercase letters, numbers, or underscores."
+    );
+  }
+
+  const userRecord = await admin.auth().getUser(uid);
+  const authorRef = firestore.collection("authors").doc(uid);
+  const userRef = firestore.collection("users").doc(uid);
+  const handleRef = firestore.collection("handles").doc(handle);
+  const reservationKey = getHandleReservationKey(handle);
+  const reservationRef = firestore
+    .collection("handleReservations")
+    .doc(reservationKey);
+
+  await firestore.runTransaction(async (transaction) => {
+    const [authorSnapshot, userSnapshot, handleSnapshot, reservationSnapshot] =
+      await Promise.all([
+        transaction.get(authorRef),
+        transaction.get(userRef),
+        transaction.get(handleRef),
+        transaction.get(reservationRef),
+      ]);
+
+    if (
+      options.requireTeamMember &&
+      (!authorSnapshot.exists ||
+        !RESERVABLE_TEAM_ROLES.includes(authorSnapshot.data()?.role))
+    ) {
+      throw new HttpsError(
+        "permission-denied",
+        "Only L.A.P team members can claim a team handle."
+      );
+    }
+
+    const currentAuthorHandle = normalizeTeamHandle(
+      authorSnapshot.data()?.handle
+    );
+    const currentPublicHandle = normalizeTeamHandle(userSnapshot.data()?.handle);
+    if (
+      !options.allowChange &&
+      ((currentAuthorHandle && currentAuthorHandle !== handle) ||
+        (currentPublicHandle && currentPublicHandle !== handle))
+    ) {
+      throw new HttpsError(
+        "failed-precondition",
+        "Handles cannot be changed after account setup."
+      );
+    }
+
+    if (handleSnapshot.exists && handleSnapshot.data()?.uid !== uid) {
+      throw new HttpsError("already-exists", "That handle is already taken.");
+    }
+
+    if (
+      reservationSnapshot.exists &&
+      reservationSnapshot.data()?.ownerUid !== uid
+    ) {
+      throw new HttpsError(
+        "already-exists",
+        "That handle is reserved for another L.A.P team member."
+      );
+    }
+
+    if (
+      !reservationSnapshot.exists &&
+      (isProtectedBrandKey(reservationKey) ||
+        isProtectedBrandKey(getConfusableBrandKey(handle)))
+    ) {
+      throw new HttpsError(
+        "permission-denied",
+        "That official handle must be assigned through team handle reservations."
+      );
+    }
+
+    const timestamp = admin.firestore.FieldValue.serverTimestamp();
+    const oldHandles = [...new Set([currentAuthorHandle, currentPublicHandle])]
+      .filter((oldHandle) => oldHandle && oldHandle !== handle);
+    const oldHandleSnapshots = await Promise.all(
+      oldHandles.map((oldHandle) =>
+        transaction.get(firestore.collection("handles").doc(oldHandle))
+      )
+    );
+
+    oldHandleSnapshots.forEach((snapshot) => {
+      if (snapshot.exists && snapshot.data()?.uid === uid) {
+        transaction.delete(snapshot.ref);
+      }
+    });
+
+    if (authorSnapshot.exists && currentAuthorHandle !== handle) {
+      transaction.set(authorRef, { handle }, { merge: true });
+    }
+    transaction.set(
+      handleRef,
+      {
+        uid,
+        ...(!handleSnapshot.exists ? { createdAt: timestamp } : {}),
+        updatedAt: timestamp,
+      },
+      { merge: true }
+    );
+    const authorData = authorSnapshot.data();
+    transaction.set(
+      userRef,
+      {
+        uid,
+        email: userRecord.email || "",
+        displayName: handle,
+        photoURL:
+          (typeof authorData?.avatar === "string" && authorData.avatar) ||
+          (typeof userSnapshot.data()?.photoURL === "string" &&
+            userSnapshot.data()?.photoURL) ||
+          userRecord.photoURL ||
+          "",
+        provider: userRecord.providerData[0]?.providerId || "password",
+        handle,
+        ...(authorSnapshot.exists
+          ? {
+              staffName:
+                typeof authorData?.name === "string" ? authorData.name : handle,
+              staffRole: authorData?.role,
+            }
+          : {}),
+        ...(!userSnapshot.exists ? { createdAt: timestamp } : {}),
+        updatedAt: timestamp,
+      },
+      { merge: true }
+    );
+  });
+
+  await admin.auth().updateUser(uid, { displayName: handle });
+
+  if (options.syncExistingComments) {
+    try {
+      const [author, comments, replies] = await Promise.all([
+        firestore.collection("authors").doc(uid).get(),
+        firestore.collection("comments").where("authorId", "==", uid).get(),
+        firestore
+          .collection("commentReplies")
+          .where("authorId", "==", uid)
+          .get(),
+      ]);
+      const authoredEntries = [...comments.docs, ...replies.docs];
+      for (let offset = 0; offset < authoredEntries.length; offset += 400) {
+        const batch = firestore.batch();
+        authoredEntries.slice(offset, offset + 400).forEach((entry) => {
+          batch.update(entry.ref, {
+            authorHandle: handle,
+            ...(!author.exists ? { authorName: handle } : {}),
+          });
+        });
+        await batch.commit();
+      }
+    } catch (error) {
+      logger.error("The handle changed, but older comments could not be synced", {
+        uid,
+        handle,
+        error,
+      });
+    }
+  }
+
+  return handle;
+}
+
+async function claimTeamHandleForUser(uid: string, value: unknown) {
+  return claimHandleForUser(uid, value, { requireTeamMember: true });
+}
+
+async function requireSuperAdmin(uid: string) {
+  const caller = await getDb().collection("authors").doc(uid).get();
+  if (!caller.exists || caller.data()?.role !== "super") {
+    throw new HttpsError(
+      "permission-denied",
+      "Only a super admin can manage the handle registry."
+    );
+  }
+}
+
+export const syncTeamPublicProfile = onDocumentWritten(
+  { document: "authors/{uid}", region: "europe-west1" },
+  async (event) => {
+    const authorSnapshot = event.data?.after;
+    if (!authorSnapshot?.exists) return;
+
+    const authorData = authorSnapshot.data();
+    if (!authorData) return;
+    if (!RESERVABLE_TEAM_ROLES.includes(authorData.role)) return;
+
+    const handle = normalizeTeamHandle(authorData.handle);
+    if (!handle) return;
+
+    try {
+      await claimTeamHandleForUser(event.params.uid, handle);
+    } catch (error) {
+      logger.error("Failed to sync the team member's public profile", {
+        uid: event.params.uid,
+        error,
+      });
+    }
+  }
+);
+
+export const claimTeamHandle = onCall(
+  { region: "europe-west1", minInstances: 0 },
+  async (request) => {
+    if (!request.auth) {
+      throw new HttpsError("unauthenticated", "You must be signed in.");
+    }
+
+    const handle = await claimTeamHandleForUser(
+      request.auth.uid,
+      request.data?.handle
+    );
+    return { handle };
+  }
+);
+
+export const setUserHandle = onCall(
+  { region: "europe-west1", minInstances: 0 },
+  async (request) => {
+    if (!request.auth) {
+      throw new HttpsError("unauthenticated", "You must be signed in.");
+    }
+    await requireSuperAdmin(request.auth.uid);
+
+    const targetUid = request.data?.uid;
+    if (typeof targetUid !== "string" || !targetUid.trim()) {
+      throw new HttpsError("invalid-argument", "Choose an account.");
+    }
+
+    const handle = await claimHandleForUser(targetUid, request.data?.handle, {
+      allowChange: true,
+      syncExistingComments: true,
+    });
+    return { handle };
+  }
+);
+
+export const listHandleRegistry = onCall(
+  { region: "europe-west1", minInstances: 0 },
+  async (request) => {
+    if (!request.auth) {
+      throw new HttpsError("unauthenticated", "You must be signed in.");
+    }
+    await requireSuperAdmin(request.auth.uid);
+
+    const firestore = getDb();
+    const [authors, users, handles, reservations, config] = await Promise.all([
+      firestore.collection("authors").get(),
+      firestore.collection("users").get(),
+      firestore.collection("handles").get(),
+      firestore.collection("handleReservations").get(),
+      firestore.collection("handleConfig").doc("status").get(),
+    ]);
+
+    const owners = new Map<
+      string,
+      { uid: string; name: string; email: string; role: string; handle: string }
+    >();
+    users.docs.forEach((snapshot) => {
+      const data = snapshot.data();
+      owners.set(snapshot.id, {
+        uid: snapshot.id,
+        name: data.staffName || data.displayName || data.email || snapshot.id,
+        email: data.email || "",
+        role: data.staffRole || "reader",
+        handle: normalizeTeamHandle(data.handle),
+      });
+    });
+    authors.docs.forEach((snapshot) => {
+      const data = snapshot.data();
+      const current = owners.get(snapshot.id);
+      owners.set(snapshot.id, {
+        uid: snapshot.id,
+        name: data.name || current?.name || snapshot.id,
+        email: current?.email || "",
+        role: data.role || current?.role || "staff",
+        handle:
+          normalizeTeamHandle(data.handle) || normalizeTeamHandle(current?.handle),
+      });
+    });
+
+    const claimedByKey = new Map<string, string[]>();
+    const claims = handles.docs.map((snapshot) => {
+      const uid = typeof snapshot.data().uid === "string" ? snapshot.data().uid : "";
+      const key = getHandleReservationKey(snapshot.id);
+      claimedByKey.set(key, [...(claimedByKey.get(key) || []), snapshot.id]);
+      const owner = owners.get(uid);
+      return {
+        handle: snapshot.id,
+        uid,
+        ownerName: owner?.name || uid || "Unknown account",
+        ownerRole: owner?.role || "reader",
+        reserved: reservations.docs.some(
+          (reservation) => reservation.id === key
+        ),
+      };
+    });
+
+    return {
+      ready: config.data()?.ready === true,
+      owners: [...owners.values()].sort((a, b) => a.name.localeCompare(b.name)),
+      reservations: reservations.docs
+        .map((snapshot) => {
+          const data = snapshot.data();
+          const owner = owners.get(data.ownerUid);
+          return {
+            key: snapshot.id,
+            label: data.label || snapshot.id,
+            ownerUid: data.ownerUid || "",
+            ownerName: owner?.name || data.ownerUid || "Unknown account",
+            reason: data.reason || "manual",
+            claimedHandles: claimedByKey.get(snapshot.id) || [],
+          };
+        })
+        .sort((a, b) => a.key.localeCompare(b.key)),
+      claims: claims.sort((a, b) => a.handle.localeCompare(b.handle)),
+    };
+  }
+);
+
+export const upsertHandleReservation = onCall(
+  { region: "europe-west1", minInstances: 0 },
+  async (request) => {
+    if (!request.auth) {
+      throw new HttpsError("unauthenticated", "You must be signed in.");
+    }
+    await requireSuperAdmin(request.auth.uid);
+
+    const firestore = getDb();
+    const handle = normalizeTeamHandle(request.data?.handle);
+    const ownerUid = request.data?.ownerUid;
+    if (!TEAM_HANDLE_PATTERN.test(handle)) {
+      throw new HttpsError(
+        "invalid-argument",
+        "Use 3-20 lowercase letters, numbers, or underscores."
+      );
+    }
+    if (typeof ownerUid !== "string" || !ownerUid.trim()) {
+      throw new HttpsError("invalid-argument", "Choose an account owner.");
+    }
+    const key = getHandleReservationKey(handle);
+    if (key.length < 3 || key.length > 20) {
+      throw new HttpsError("invalid-argument", "That reservation is not valid.");
+    }
+
+    const [author, user, handles] = await Promise.all([
+      firestore.collection("authors").doc(ownerUid).get(),
+      firestore.collection("users").doc(ownerUid).get(),
+      firestore.collection("handles").get(),
+    ]);
+    if (!author.exists && !user.exists) {
+      throw new HttpsError("not-found", "That account no longer exists.");
+    }
+    const conflict = handles.docs.find(
+      (snapshot) =>
+        getHandleReservationKey(snapshot.id) === key &&
+        snapshot.data().uid !== ownerUid
+    );
+    if (conflict) {
+      throw new HttpsError(
+        "already-exists",
+        `@${conflict.id} already uses this reservation.`
+      );
+    }
+
+    await firestore.collection("handleReservations").doc(key).set(
+      {
+        ownerUid,
+        label: handle,
+        reason: "manual",
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        updatedBy: request.auth.uid,
+      },
+      { merge: true }
+    );
+    return { key, handle, ownerUid };
+  }
+);
+
+export const deleteHandleReservation = onCall(
+  { region: "europe-west1", minInstances: 0 },
+  async (request) => {
+    if (!request.auth) {
+      throw new HttpsError("unauthenticated", "You must be signed in.");
+    }
+    await requireSuperAdmin(request.auth.uid);
+
+    const key = getHandleReservationKey(request.data?.key);
+    if (!key) {
+      throw new HttpsError("invalid-argument", "Choose a reservation.");
+    }
+    await getDb().collection("handleReservations").doc(key).delete();
+    return { key };
+  }
+);
+
+export const reactToComment = onCall(
+  { region: "europe-west1", minInstances: 0 },
+  async (request) => {
+    if (!request.auth) {
+      throw new HttpsError("unauthenticated", "Sign in to react to comments.");
+    }
+
+    const commentId = request.data?.commentId;
+    const requestedReaction = request.data?.reaction;
+    if (typeof commentId !== "string" || !commentId.trim()) {
+      throw new HttpsError("invalid-argument", "A comment is required.");
+    }
+    if (!["like", "dislike"].includes(requestedReaction)) {
+      throw new HttpsError("invalid-argument", "Choose like or dislike.");
+    }
+
+    const firestore = getDb();
+    const commentRef = firestore.collection("comments").doc(commentId);
+    const reactionRef = firestore
+      .collection("commentReactions")
+      .doc(request.auth.uid)
+      .collection("items")
+      .doc(commentId);
+
+    return firestore.runTransaction(async (transaction) => {
+      const [comment, reaction] = await Promise.all([
+        transaction.get(commentRef),
+        transaction.get(reactionRef),
+      ]);
+      if (!comment.exists || comment.data()?.status !== "visible") {
+        throw new HttpsError("not-found", "That comment is not available.");
+      }
+
+      const previous = reaction.exists ? reaction.data()?.type : null;
+      const next = previous === requestedReaction ? null : requestedReaction;
+      let likeCount = Math.max(0, Number(comment.data()?.likeCount) || 0);
+      let dislikeCount = Math.max(0, Number(comment.data()?.dislikeCount) || 0);
+
+      if (previous === "like") likeCount = Math.max(0, likeCount - 1);
+      if (previous === "dislike") dislikeCount = Math.max(0, dislikeCount - 1);
+      if (next === "like") likeCount += 1;
+      if (next === "dislike") dislikeCount += 1;
+
+      transaction.update(commentRef, { likeCount, dislikeCount });
+      if (next) {
+        transaction.set(reactionRef, {
+          commentId,
+          articleId:
+            typeof comment.data()?.articleId === "string"
+              ? comment.data()?.articleId
+              : "",
+          type: next,
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+      } else {
+        transaction.delete(reactionRef);
+      }
+
+      return { commentId, reaction: next, likeCount, dislikeCount };
+    });
+  }
+);
+
+export const ensureCommentCounts = onCall(
+  { region: "europe-west1", minInstances: 0 },
+  async () => {
+    const firestore = getDb();
+    const configRef = firestore.collection("commentConfig").doc("reactions");
+    const config = await configRef.get();
+    if (
+      config.data()?.countsReady === true &&
+      Number(config.data()?.schemaVersion) >= 2
+    ) {
+      return { updated: 0, ready: true };
+    }
+
+    const comments = await firestore.collection("comments").get();
+    let updated = 0;
+    for (let offset = 0; offset < comments.docs.length; offset += 400) {
+      const batch = firestore.batch();
+      comments.docs.slice(offset, offset + 400).forEach((comment) => {
+        const data = comment.data();
+        const missingLikes = typeof data.likeCount !== "number";
+        const missingDislikes = typeof data.dislikeCount !== "number";
+        const missingReplies = typeof data.replyCount !== "number";
+        if (!missingLikes && !missingDislikes && !missingReplies) return;
+        batch.set(
+          comment.ref,
+          {
+            ...(missingLikes ? { likeCount: 0 } : {}),
+            ...(missingDislikes ? { dislikeCount: 0 } : {}),
+            ...(missingReplies ? { replyCount: 0 } : {}),
+          },
+          { merge: true }
+        );
+        updated += 1;
+      });
+      await batch.commit();
+    }
+
+    await configRef.set({
+      countsReady: true,
+      schemaVersion: 2,
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+    return { updated, ready: true };
+  }
+);
+
+export const searchMentionHandles = onCall(
+  { region: "europe-west1", minInstances: 0 },
+  async (request) => {
+    if (!request.auth) {
+      throw new HttpsError("unauthenticated", "Sign in to tag another user.");
+    }
+
+    const prefix = normalizeTeamHandle(request.data?.prefix);
+    if (!prefix || !/^[a-z0-9_]{1,20}$/.test(prefix)) {
+      return { suggestions: [] };
+    }
+
+    const firestore = getDb();
+    const handles = await firestore
+      .collection("handles")
+      .orderBy(admin.firestore.FieldPath.documentId())
+      .startAt(prefix)
+      .endAt(`${prefix}\uf8ff`)
+      .limit(8)
+      .get();
+
+    const suggestions = await Promise.all(
+      handles.docs.map(async (handleDoc) => {
+        const uid = handleDoc.data().uid;
+        if (typeof uid !== "string") return null;
+        const [user, author] = await Promise.all([
+          firestore.collection("users").doc(uid).get(),
+          firestore.collection("authors").doc(uid).get(),
+        ]);
+        const userData = user.data();
+        const authorData = author.data();
+        return {
+          handle: handleDoc.id,
+          name:
+            (typeof authorData?.name === "string" && authorData.name) ||
+            (typeof userData?.staffName === "string" && userData.staffName) ||
+            (typeof userData?.displayName === "string" && userData.displayName) ||
+            `@${handleDoc.id}`,
+          photoURL:
+            (typeof authorData?.avatar === "string" && authorData.avatar) ||
+            (typeof userData?.photoURL === "string" && userData.photoURL) ||
+            "",
+        };
+      })
+    );
+
+    return { suggestions: suggestions.filter(Boolean) };
+  }
+);
+
+export const syncCommentReplyCount = onDocumentWritten(
+  { document: "commentReplies/{replyId}", region: "europe-west1" },
+  async (event) => {
+    const before = event.data?.before;
+    const after = event.data?.after;
+    const beforeData = before?.exists ? before.data() : undefined;
+    const afterData = after?.exists ? after.data() : undefined;
+    const beforeVisible = beforeData?.status === "visible" ? 1 : 0;
+    const afterVisible = afterData?.status === "visible" ? 1 : 0;
+    const delta = afterVisible - beforeVisible;
+    const parentCommentId = afterData?.parentCommentId || beforeData?.parentCommentId;
+    if (!delta || typeof parentCommentId !== "string") return;
+
+    const commentRef = getDb().collection("comments").doc(parentCommentId);
+    await getDb().runTransaction(async (transaction) => {
+      const comment = await transaction.get(commentRef);
+      if (!comment.exists) return;
+      const current = Math.max(0, Number(comment.data()?.replyCount) || 0);
+      transaction.update(commentRef, { replyCount: Math.max(0, current + delta) });
+    });
+  }
+);
+
+export const removeRepliesWithComment = onDocumentDeleted(
+  { document: "comments/{commentId}", region: "europe-west1" },
+  async (event) => {
+    const firestore = getDb();
+    const replies = await firestore
+      .collection("commentReplies")
+      .where("parentCommentId", "==", event.params.commentId)
+      .get();
+    for (let offset = 0; offset < replies.docs.length; offset += 400) {
+      const batch = firestore.batch();
+      replies.docs.slice(offset, offset + 400).forEach((reply) => {
+        batch.delete(reply.ref);
+      });
+      await batch.commit();
+    }
+  }
+);
 
 // Property ID will be read inside the function
 
@@ -85,7 +739,7 @@ export const createTeamMember = onCall(
       typeof password !== "string" ||
       password.length < 6 ||
       typeof role !== "string" ||
-      !["manager", "admin", "super"].includes(role)
+      !RESERVABLE_TEAM_ROLES.includes(role)
     ) {
       throw new HttpsError("invalid-argument", "Invalid member details.");
     }
@@ -119,12 +773,13 @@ export const createTeamMember = onCall(
       });
 
     try {
-      await getDb().collection("authors").doc(newUser.uid).set({
+      const authorData = {
         uid: newUser.uid,
         name: name.trim(),
         city: optionalString(city),
         job: optionalString(job),
         role,
+        showOnTeam: role !== "moderator",
         avatar: optionalString(avatar),
         imgAlt: optionalString(imgAlt),
         biography: { body: "", summary: "" },
@@ -133,16 +788,319 @@ export const createTeamMember = onCall(
           typeof socials === "object" && socials !== null ? socials : {},
         createdAt: new Date().toISOString(),
         dateJoined: admin.firestore.FieldValue.serverTimestamp(),
-      });
+      };
+      await getDb().collection("authors").doc(newUser.uid).set(authorData);
     } catch (error) {
+      await getDb()
+        .collection("authors")
+        .doc(newUser.uid)
+        .delete()
+        .catch((cleanupError) => {
+          logger.error("Failed to roll back author profile", cleanupError);
+        });
       await admin.auth().deleteUser(newUser.uid).catch((cleanupError) => {
         logger.error("Failed to roll back Auth user", cleanupError);
       });
       logger.error("Failed to create author profile", error);
+      if (error instanceof HttpsError) throw error;
       throw new HttpsError("internal", "Failed to create the author profile.");
     }
 
     return { uid: newUser.uid };
+  }
+);
+
+export const syncHandleReservations = onCall(
+  { region: "europe-west1", minInstances: 0 },
+  async (request) => {
+    if (!request.auth) {
+      throw new HttpsError("unauthenticated", "You must be signed in.");
+    }
+
+    const firestore = getDb();
+    const caller = await firestore
+      .collection("authors")
+      .doc(request.auth.uid)
+      .get();
+    if (!caller.exists || caller.data()?.role !== "super") {
+      throw new HttpsError(
+        "permission-denied",
+        "Only a super admin can reserve team handles."
+      );
+    }
+
+    const officialOwnerUid = request.data?.officialOwnerUid;
+    if (typeof officialOwnerUid !== "string" || !officialOwnerUid.trim()) {
+      throw new HttpsError(
+        "invalid-argument",
+        "Choose the team member who owns the official L.A.P handles."
+      );
+    }
+    const officialOwner = await firestore
+      .collection("authors")
+      .doc(officialOwnerUid)
+      .get();
+    if (
+      !officialOwner.exists ||
+      !CONTENT_STAFF_ROLES.includes(officialOwner.data()?.role)
+    ) {
+      throw new HttpsError(
+        "invalid-argument",
+        "Official handles must belong to an author, admin, or super admin."
+      );
+    }
+
+    const configRef = firestore.collection("handleConfig").doc("status");
+    await configRef.set(
+      {
+        ready: false,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        updatedBy: request.auth.uid,
+      },
+      { merge: true }
+    );
+
+    const [authorsSnapshot, handlesSnapshot] = await Promise.all([
+      firestore.collection("authors").get(),
+      firestore.collection("handles").get(),
+    ]);
+    const desired = new Map<
+      string,
+      { ownerUid: string; label: string; reason: string }
+    >();
+    const conflicts: string[] = [];
+    const blockedKeys = new Set<string>();
+
+    const addReservation = (
+      key: string,
+      ownerUid: string,
+      label: string,
+      reason: string
+    ) => {
+      if (key.length < 3 || key.length > 20) return;
+      if (blockedKeys.has(key)) return;
+      const existing = desired.get(key);
+      if (existing && existing.ownerUid !== ownerUid) {
+        conflicts.push(`${key}: requested by more than one team member`);
+        desired.delete(key);
+        blockedKeys.add(key);
+        return;
+      }
+      desired.set(key, { ownerUid, label, reason });
+    };
+
+    OFFICIAL_HANDLE_KEYS.forEach((key) =>
+      addReservation(key, officialOwnerUid, key, "official-brand")
+    );
+    authorsSnapshot.docs.forEach((authorDoc) => {
+      const data = authorDoc.data();
+      if (!RESERVABLE_TEAM_ROLES.includes(data.role)) return;
+      const handle = normalizeTeamHandle(data.handle);
+      if (!handle) return;
+      const key = getHandleReservationKey(handle);
+      addReservation(key, authorDoc.id, data.name || key, "team-member");
+    });
+
+    const claimedOwners = new Map<string, Set<string>>();
+    handlesSnapshot.docs.forEach((handleDoc) => {
+      const key = getHandleReservationKey(handleDoc.id);
+      const confusableKey = getConfusableBrandKey(handleDoc.id);
+      const ownerUid = handleDoc.data().uid;
+      if (!key || typeof ownerUid !== "string") return;
+      if (
+        (isProtectedBrandKey(key) || isProtectedBrandKey(confusableKey)) &&
+        ownerUid !== officialOwnerUid
+      ) {
+        conflicts.push(
+          `${handleDoc.id}: protected L.A.P handle is owned by another account`
+        );
+      }
+      const owners = claimedOwners.get(key) || new Set<string>();
+      owners.add(ownerUid);
+      claimedOwners.set(key, owners);
+    });
+
+    const reservationRefs = [...desired.keys()].map((key) =>
+      firestore.collection("handleReservations").doc(key)
+    );
+    const currentReservations = await firestore.getAll(...reservationRefs);
+    const currentByKey = new Map(
+      currentReservations.map((snapshot) => [snapshot.id, snapshot]),
+    );
+    const batch = firestore.batch();
+    let reserved = 0;
+
+    desired.forEach((reservation, key) => {
+      const current = currentByKey.get(key);
+      if (current?.exists && current.data()?.ownerUid !== reservation.ownerUid) {
+        conflicts.push(`${key}: already reserved by another account`);
+        return;
+      }
+      const claimants = claimedOwners.get(key);
+      if (claimants && [...claimants].some((uid) => uid !== reservation.ownerUid)) {
+        conflicts.push(`${key}: already claimed by another reader`);
+        return;
+      }
+
+      batch.set(
+        firestore.collection("handleReservations").doc(key),
+        {
+          ...reservation,
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        },
+        { merge: true }
+      );
+      reserved += 1;
+    });
+
+    if (conflicts.length > 0) {
+      return { reserved: 0, conflicts: [...new Set(conflicts)], ready: false };
+    }
+
+    batch.set(
+      configRef,
+      {
+        ready: true,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        updatedBy: request.auth.uid,
+      },
+      { merge: true }
+    );
+    await batch.commit();
+
+    return { reserved, conflicts: [], ready: true };
+  }
+);
+
+export const listModeratorCandidates = onCall(
+  { region: "europe-west1", minInstances: 0 },
+  async (request) => {
+    if (!request.auth) {
+      throw new HttpsError("unauthenticated", "You must be signed in.");
+    }
+
+    const firestore = getDb();
+    const caller = await firestore
+      .collection("authors")
+      .doc(request.auth.uid)
+      .get();
+    if (!caller.exists || !["admin", "super"].includes(caller.data()?.role)) {
+      throw new HttpsError(
+        "permission-denied",
+        "You do not have permission to promote moderators."
+      );
+    }
+
+    const [users, authors] = await Promise.all([
+      firestore.collection("users").get(),
+      firestore.collection("authors").get(),
+    ]);
+    const teamUids = new Set(authors.docs.map((snapshot) => snapshot.id));
+
+    return {
+      candidates: users.docs
+        .filter((snapshot) => !teamUids.has(snapshot.id))
+        .map((snapshot) => {
+          const data = snapshot.data();
+          return {
+            uid: snapshot.id,
+            handle: normalizeTeamHandle(data.handle),
+            name: data.displayName || data.handle || data.email || "Reader",
+            email: data.email || "",
+            photoURL: data.photoURL || "",
+          };
+        })
+        .sort((a, b) => a.name.localeCompare(b.name)),
+    };
+  }
+);
+
+export const promoteReaderToModerator = onCall(
+  { region: "europe-west1", minInstances: 0 },
+  async (request) => {
+    if (!request.auth) {
+      throw new HttpsError("unauthenticated", "You must be signed in.");
+    }
+
+    const uid = request.data?.uid;
+    if (typeof uid !== "string" || !uid.trim()) {
+      throw new HttpsError("invalid-argument", "Choose a reader account.");
+    }
+
+    const firestore = getDb();
+    const caller = await firestore
+      .collection("authors")
+      .doc(request.auth.uid)
+      .get();
+    if (!caller.exists || !["admin", "super"].includes(caller.data()?.role)) {
+      throw new HttpsError(
+        "permission-denied",
+        "You do not have permission to promote moderators."
+      );
+    }
+
+    const userRecord = await admin.auth().getUser(uid).catch(() => null);
+    if (!userRecord) {
+      throw new HttpsError("not-found", "That reader's sign-in account no longer exists.");
+    }
+
+    const userRef = firestore.collection("users").doc(uid);
+    const authorRef = firestore.collection("authors").doc(uid);
+    await firestore.runTransaction(async (transaction) => {
+      const [user, author] = await Promise.all([
+        transaction.get(userRef),
+        transaction.get(authorRef),
+      ]);
+      if (!user.exists) {
+        throw new HttpsError("not-found", "That Docs reader profile no longer exists.");
+      }
+      if (author.exists) {
+        throw new HttpsError("already-exists", "That account is already a CMS team member.");
+      }
+
+      const data = user.data() || {};
+      const handle = normalizeTeamHandle(data.handle);
+      const name =
+        (typeof data.displayName === "string" && data.displayName.trim()) ||
+        handle ||
+        userRecord.email?.split("@")[0] ||
+        "Moderator";
+      const timestamp = admin.firestore.FieldValue.serverTimestamp();
+
+      transaction.set(authorRef, {
+        uid,
+        name,
+        handle,
+        role: "moderator",
+        showOnTeam: false,
+        promotedFromReader: true,
+        avatar:
+          (typeof data.photoURL === "string" && data.photoURL) ||
+          userRecord.photoURL ||
+          "",
+        imgAlt: `Profile picture of ${name}`,
+        city: "",
+        job: "Moderator",
+        biography: { body: "", summary: "" },
+        slug: handle,
+        socials: {},
+        createdAt: new Date().toISOString(),
+        dateJoined: timestamp,
+        promotedAt: timestamp,
+        promotedBy: request.auth!.uid,
+      });
+      transaction.set(
+        userRef,
+        {
+          staffName: name,
+          staffRole: "moderator",
+          updatedAt: timestamp,
+        },
+        { merge: true }
+      );
+    });
+
+    return { uid, role: "moderator" };
   }
 );
 
@@ -177,6 +1135,28 @@ export const deleteTeamMember = onCall(
       );
     }
 
+    const member = await getDb().collection("authors").doc(uid).get();
+    if (!member.exists) {
+      throw new HttpsError("not-found", "That team member no longer exists.");
+    }
+
+    if (member.data()?.promotedFromReader === true) {
+      const firestore = getDb();
+      const batch = firestore.batch();
+      batch.delete(member.ref);
+      batch.set(
+        firestore.collection("users").doc(uid),
+        {
+          staffName: admin.firestore.FieldValue.delete(),
+          staffRole: admin.firestore.FieldValue.delete(),
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        },
+        { merge: true }
+      );
+      await batch.commit();
+      return { uid, demoted: true };
+    }
+
     try {
       await admin.auth().deleteUser(uid);
     } catch (error) {
@@ -199,7 +1179,7 @@ export const deleteTeamMember = onCall(
       );
     }
 
-    return { uid };
+    return { uid, demoted: false };
   }
 );
 
@@ -398,6 +1378,20 @@ export const manageAssets = onCall(
     memory: "1GiB",
   },
   async (request) => {
+    if (!request.auth) {
+      throw new HttpsError("unauthenticated", "You must be signed in.");
+    }
+    const caller = await getDb()
+      .collection("authors")
+      .doc(request.auth.uid)
+      .get();
+    if (!caller.exists || !CONTENT_STAFF_ROLES.includes(caller.data()?.role)) {
+      throw new HttpsError(
+        "permission-denied",
+        "You do not have permission to manage assets."
+      );
+    }
+
     logger.info("Starting manageAssets function", {
       action: request.data.action,
       itemsCount: request.data.items?.length,

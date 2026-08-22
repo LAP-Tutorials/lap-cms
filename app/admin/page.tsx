@@ -1,11 +1,13 @@
 "use client";
 
-import { Youtube } from "lucide-react";
+import Link from "next/link";
+import { Eye, EyeOff, MessageSquare, Youtube } from "lucide-react";
 import { useEffect, useState } from "react";
 import PageTitle from "@/components/PageTitle";
 import {
   collection,
   getDocs,
+  getCountFromServer,
   query,
   orderBy,
   limit,
@@ -26,8 +28,157 @@ import {
   ResponsiveContainer,
 } from "recharts";
 import { AnalyticsOverview } from "@/components/analytics/AnalyticsOverview";
+import { useAuth } from "@/lib/auth-context";
 
 export default function AdminDashboardPage() {
+  const { userRole } = useAuth();
+
+  return userRole === "moderator" ? (
+    <ModeratorDashboard />
+  ) : (
+    <ContentDashboard />
+  );
+}
+
+type ModeratorComment = {
+  id: string;
+  status?: "visible" | "hidden";
+  authorHandle?: string;
+  authorName?: string;
+  articleTitle?: string;
+  content?: string;
+  createdAt?: Timestamp;
+};
+
+function ModeratorDashboard() {
+  const [comments, setComments] = useState<ModeratorComment[]>([]);
+  const [counts, setCounts] = useState({ all: 0, visible: 0, hidden: 0 });
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    const fetchComments = async () => {
+      try {
+        const commentsRef = collection(db, "comments");
+        const [snapshot, allCount, visibleCount, hiddenCount] = await Promise.all([
+          getDocs(query(commentsRef, orderBy("createdAt", "desc"), limit(5))),
+          getCountFromServer(commentsRef),
+          getCountFromServer(query(commentsRef, where("status", "==", "visible"))),
+          getCountFromServer(query(commentsRef, where("status", "==", "hidden"))),
+        ]);
+        const nextComments = snapshot.docs
+          .map((commentDoc) => ({
+            id: commentDoc.id,
+            ...commentDoc.data(),
+          })) as ModeratorComment[];
+        setComments(nextComments);
+        setCounts({
+          all: allCount.data().count,
+          visible: visibleCount.data().count,
+          hidden: hiddenCount.data().count,
+        });
+      } catch (fetchError) {
+        console.error("Unable to load the moderator dashboard:", fetchError);
+        setError("The comments dashboard could not be loaded. Check that the latest Firestore rules are deployed.");
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    void fetchComments();
+  }, []);
+
+  return (
+    <div className="mx-auto w-full max-w-6xl pb-16 pt-10 md:pt-2">
+      <PageTitle
+        className="sr-only"
+        imgSrc="/images/titles/Dashboard.svg"
+        imgAlt="Moderator dashboard"
+      >
+        Dashboard
+      </PageTitle>
+
+      <div className="border-b border-white/15 pb-8">
+        <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[#a855f7]">
+          Moderator workspace
+        </p>
+        <h1 className="mt-3 text-3xl font-bold sm:text-4xl">Comment moderation</h1>
+        <p className="mt-3 max-w-2xl text-white/55">
+          Review public discussion, hide harmful replies, and restore comments when needed.
+        </p>
+      </div>
+
+      {error ? (
+        <p role="alert" className="mt-8 border border-red-400/30 bg-red-400/10 p-4 text-red-100">
+          {error}
+        </p>
+      ) : null}
+
+      <div className="mt-8 grid gap-px bg-white/15 sm:grid-cols-3">
+        {[
+          { label: "All comments", value: counts.all, icon: MessageSquare },
+          { label: "Visible", value: counts.visible, icon: Eye },
+          { label: "Hidden", value: counts.hidden, icon: EyeOff },
+        ].map(({ label, value, icon: Icon }) => (
+          <div key={label} className="bg-[#121212] p-6">
+            <Icon className="h-5 w-5 text-[#a855f7]" aria-hidden="true" />
+            <p className="mt-6 text-sm text-white/50">{label}</p>
+            <p className="mt-1 text-3xl font-semibold tabular-nums">
+              {loading ? "—" : value}
+            </p>
+          </div>
+        ))}
+      </div>
+
+      <div className="mt-12">
+        <div className="flex flex-wrap items-end justify-between gap-4 border-b border-white/15 pb-4">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-white/40">
+              Latest activity
+            </p>
+            <h2 className="mt-2 text-2xl font-semibold">Recent comments</h2>
+          </div>
+          <Link
+            href="/admin/comments"
+            className="border-b border-[#a855f7] pb-1 text-sm font-semibold uppercase hover:text-[#a855f7]"
+          >
+            Manage all comments
+          </Link>
+        </div>
+
+        {loading ? (
+          <p className="py-10 text-white/50">Loading comments…</p>
+        ) : comments.length === 0 ? (
+          <p className="py-10 text-white/50">No comments have been posted yet.</p>
+        ) : (
+          comments.map((comment) => (
+            <div
+              key={comment.id}
+              className="grid gap-3 border-b border-white/10 py-5 sm:grid-cols-[12rem_minmax(0,1fr)_auto] sm:items-start"
+            >
+              <p className="font-semibold text-white/80">
+                @{comment.authorHandle || comment.authorName || "reader"}
+              </p>
+              <div className="min-w-0">
+                <p className="truncate text-sm text-white/45">{comment.articleTitle || "Article"}</p>
+                <p className="mt-1 line-clamp-2 text-white/75">{comment.content}</p>
+              </div>
+              <span
+                className={`w-fit text-xs font-semibold uppercase tracking-wide ${
+                  comment.status === "hidden" ? "text-amber-300" : "text-emerald-300"
+                }`}
+              >
+                {comment.status || "visible"}
+              </span>
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ContentDashboard() {
   const [articlesCount, setArticlesCount] = useState(0);
   const [teamCount, setTeamCount] = useState(0);
   const [subscriberCount, setSubscriberCount] = useState<number | null>(null);

@@ -380,6 +380,7 @@ export default function NewTeamMemberPage() {
                   )}
                   <option value="admin">Admin</option>
                   <option value="manager">Manager</option>
+                  <option value="moderator">Moderator</option>
                 </select>
               </div>
 

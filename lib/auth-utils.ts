@@ -1,7 +1,7 @@
 import { auth, db } from "./firebase";
 import { doc, getDoc } from "firebase/firestore";
 
-export async function getCurrentUserRole(): Promise<"super" | "admin" | "manager" | null> {
+export async function getCurrentUserRole(): Promise<"super" | "admin" | "manager" | "moderator" | null> {
   const user = auth.currentUser;
   if (!user) return null;
 

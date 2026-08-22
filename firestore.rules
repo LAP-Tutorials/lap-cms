@@ -12,6 +12,52 @@ service cloud.firestore {
         exists(/databases/$(database)/documents/authors/$(request.auth.uid)) &&
         get(/databases/$(database)/documents/authors/$(request.auth.uid)).data.role in ['manager', 'admin', 'super'];
     }
+
+    function isModerator() {
+      return isAuthenticated() &&
+        exists(/databases/$(database)/documents/authors/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/authors/$(request.auth.uid)).data.role == 'moderator';
+    }
+
+    function canModerate() {
+      return isCmsUser() || isModerator();
+    }
+
+    function handleReservationKey(handle) {
+      return handle.lower().replace('[_0-9]+', '');
+    }
+
+    function confusableBrandKey(handle) {
+      return handle.lower()
+        .replace('1', 'l')
+        .replace('4', 'a')
+        .replace('9', 'p')
+        .replace('[_0-9]+', '');
+    }
+
+    // Protect official brand names and common impersonation qualifiers without
+    // rejecting unrelated words such as "overlap" or "clapping".
+    function isReservedBrandKey(key) {
+      return key.matches('^(official|real|the|team|weare|my)?(lap|arclapain).*');
+    }
+
+    function canClaimHandle(handle) {
+      let key = handleReservationKey(handle);
+      let reservationPath = /databases/$(database)/documents/handleReservations/$(key);
+      return (
+        exists(reservationPath) &&
+        get(reservationPath).data.ownerUid == request.auth.uid
+      ) || (
+        !exists(reservationPath) &&
+        !isReservedBrandKey(key) &&
+        !isReservedBrandKey(confusableBrandKey(handle))
+      );
+    }
+
+    function isHandleSystemReady() {
+      return exists(/databases/$(database)/documents/handleConfig/status) &&
+        get(/databases/$(database)/documents/handleConfig/status).data.ready == true;
+    }
     
     // Helper function to check if user has admin/super role
     // NOTE: This assumes custom claims are set OR we check a user document.
@@ -75,11 +121,16 @@ service cloud.firestore {
       allow read: if true;
       allow create: if request.resource.data.uid == userId &&
         (isSuperAdmin() || (isAdmin() && request.resource.data.role != 'super'));
-      allow update: if isSuperAdmin() ||
-        (isAdmin() && resource.data.role != 'super' && request.resource.data.role != 'super') ||
-        (isAuthenticated() && request.auth.uid == userId &&
-          request.resource.data.uid == resource.data.uid &&
-          request.resource.data.role == resource.data.role);
+      allow update: if
+        !request.resource.data.diff(resource.data).affectedKeys().hasAny(['handle']) &&
+        (isSuperAdmin() ||
+          (isAdmin() && resource.data.role != 'super' && request.resource.data.role != 'super') ||
+          (isAuthenticated() && request.auth.uid == userId &&
+            request.resource.data.uid == resource.data.uid &&
+            request.resource.data.role == resource.data.role &&
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+              'avatar', 'name', 'city', 'job', 'biography', 'socials'
+            ])));
       // Team members are deleted by the server so Auth and Firestore stay in sync.
       allow delete: if false;
     }
@@ -88,6 +139,7 @@ service cloud.firestore {
     match /users/{userId} {
       allow read: if isCmsUser() || (isAuthenticated() && request.auth.uid == userId);
       allow create: if isAuthenticated() &&
+        isHandleSystemReady() &&
         request.auth.uid == userId &&
         request.auth.token.email is string &&
         request.resource.data.keys().hasOnly([
@@ -104,6 +156,7 @@ service cloud.firestore {
         request.resource.data.provider in ['password', 'google.com'] &&
         request.resource.data.handle is string &&
         request.resource.data.handle.matches('^[a-z0-9_]{3,20}$') &&
+        canClaimHandle(request.resource.data.handle) &&
         request.resource.data.displayName == request.resource.data.handle &&
         existsAfter(/databases/$(database)/documents/handles/$(request.resource.data.handle)) &&
         getAfter(/databases/$(database)/documents/handles/$(request.resource.data.handle)).data.uid == userId &&
@@ -124,18 +177,18 @@ service cloud.firestore {
         request.resource.data.photoURL.size() <= 1000 &&
         request.resource.data.provider in ['password', 'google.com'] &&
         request.resource.data.handle is string &&
+        // A handle may be claimed once during onboarding. A non-empty handle
+        // must remain unchanged for the lifetime of the reader account.
         (
           (!resource.data.keys().hasAny(['handle']) && request.resource.data.handle == '') ||
           (resource.data.keys().hasAny(['handle']) &&
             request.resource.data.handle == resource.data.handle) ||
-          (request.resource.data.handle.matches('^[a-z0-9_]{3,20}$') &&
+          ((!resource.data.keys().hasAny(['handle']) || resource.data.handle == '') &&
+            request.resource.data.handle.matches('^[a-z0-9_]{3,20}$') &&
+            isHandleSystemReady() &&
+            canClaimHandle(request.resource.data.handle) &&
             existsAfter(/databases/$(database)/documents/handles/$(request.resource.data.handle)) &&
-            getAfter(/databases/$(database)/documents/handles/$(request.resource.data.handle)).data.uid == userId &&
-            (
-              !resource.data.keys().hasAny(['handle']) ||
-              resource.data.handle == '' ||
-              !existsAfter(/databases/$(database)/documents/handles/$(resource.data.handle))
-            ))
+            getAfter(/databases/$(database)/documents/handles/$(request.resource.data.handle)).data.uid == userId)
         ) &&
         (request.resource.data.handle == '' ||
           request.resource.data.displayName == request.resource.data.handle) &&
@@ -150,22 +203,34 @@ service cloud.firestore {
       allow get: if isAuthenticated();
       allow list: if false;
       allow create: if isAuthenticated() &&
+        isHandleSystemReady() &&
         handle.matches('^[a-z0-9_]{3,20}$') &&
+        canClaimHandle(handle) &&
         request.resource.data.keys().hasOnly(['uid', 'createdAt']) &&
         request.resource.data.uid == request.auth.uid &&
         request.resource.data.createdAt == request.time &&
         getAfter(/databases/$(database)/documents/users/$(request.auth.uid)).data.handle == handle;
       allow update: if false;
-      allow delete: if isAuthenticated() &&
-        resource.data.uid == request.auth.uid &&
-        getAfter(/databases/$(database)/documents/users/$(request.auth.uid)).data.handle != handle;
+      allow delete: if false;
+    }
+
+    // Exact lookups provide a friendly onboarding message. Reservations are
+    // created only by trusted server functions and cannot be enumerated.
+    match /handleReservations/{reservationKey} {
+      allow get: if isAuthenticated();
+      allow list, create, update, delete: if false;
+    }
+
+    match /handleConfig/{configId} {
+      allow get: if isAuthenticated() && configId == 'status';
+      allow list, create, update, delete: if false;
     }
 
     // Comments are publicly readable when visible. Owners can edit their own
     // text, while CMS staff can hide, restore, or delete any comment.
     match /comments/{commentId} {
       allow read: if resource.data.status == 'visible' ||
-        isCmsUser() ||
+        canModerate() ||
         (isAuthenticated() && resource.data.authorId == request.auth.uid);
       allow create: if isAuthenticated() &&
         exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
@@ -173,7 +238,8 @@ service cloud.firestore {
         get(/databases/$(database)/documents/articles/$(request.resource.data.articleId)).data.publish == true &&
         request.resource.data.keys().hasOnly([
           'articleId', 'articleSlug', 'articleTitle', 'authorId', 'authorName',
-          'authorHandle', 'authorPhotoURL', 'content', 'status', 'createdAt', 'updatedAt', 'edited'
+          'authorHandle', 'authorPhotoURL', 'content', 'status', 'createdAt', 'updatedAt', 'edited',
+          'likeCount', 'dislikeCount', 'replyCount'
         ]) &&
         request.resource.data.authorId == request.auth.uid &&
         request.resource.data.authorName ==
@@ -188,6 +254,73 @@ service cloud.firestore {
           get(/databases/$(database)/documents/articles/$(request.resource.data.articleId)).data.slug &&
         request.resource.data.articleTitle ==
           get(/databases/$(database)/documents/articles/$(request.resource.data.articleId)).data.title &&
+        request.resource.data.content is string &&
+        request.resource.data.content.size() >= 1 &&
+        request.resource.data.content.size() <= 2000 &&
+        request.resource.data.status == 'visible' &&
+        request.resource.data.edited == false &&
+        (!request.resource.data.keys().hasAny(['likeCount']) ||
+          request.resource.data.likeCount == 0) &&
+        (!request.resource.data.keys().hasAny(['dislikeCount']) ||
+          request.resource.data.dislikeCount == 0) &&
+        (!request.resource.data.keys().hasAny(['replyCount']) ||
+          request.resource.data.replyCount == 0) &&
+        request.resource.data.createdAt == request.time &&
+        request.resource.data.updatedAt == request.time;
+      allow update: if (
+        isAuthenticated() &&
+        resource.data.authorId == request.auth.uid &&
+        resource.data.status == 'visible' &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'content', 'updatedAt', 'edited'
+        ]) &&
+        request.resource.data.content is string &&
+        request.resource.data.content.size() >= 1 &&
+        request.resource.data.content.size() <= 2000 &&
+        request.resource.data.updatedAt == request.time &&
+        request.resource.data.edited == true
+      ) || (
+        canModerate() &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'status', 'moderatedAt', 'moderatedBy'
+        ]) &&
+        request.resource.data.status in ['visible', 'hidden'] &&
+        request.resource.data.moderatedAt == request.time &&
+        request.resource.data.moderatedBy == request.auth.uid
+      );
+      allow delete: if canModerate() ||
+        (isAuthenticated() && resource.data.authorId == request.auth.uid);
+    }
+
+    // One-level public replies. Owners control their own text; CMS staff
+    // control visibility and deletion. Reply totals are maintained server-side.
+    match /commentReplies/{replyId} {
+      allow read: if resource.data.status == 'visible' ||
+        canModerate() ||
+        (isAuthenticated() && resource.data.authorId == request.auth.uid);
+      allow create: if isAuthenticated() &&
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        exists(/databases/$(database)/documents/comments/$(request.resource.data.parentCommentId)) &&
+        get(/databases/$(database)/documents/comments/$(request.resource.data.parentCommentId)).data.status == 'visible' &&
+        request.resource.data.keys().hasOnly([
+          'parentCommentId', 'articleId', 'articleSlug', 'articleTitle',
+          'authorId', 'authorName', 'authorHandle', 'authorPhotoURL',
+          'content', 'status', 'createdAt', 'updatedAt', 'edited'
+        ]) &&
+        request.resource.data.parentCommentId is string &&
+        request.resource.data.articleId ==
+          get(/databases/$(database)/documents/comments/$(request.resource.data.parentCommentId)).data.articleId &&
+        request.resource.data.articleSlug ==
+          get(/databases/$(database)/documents/comments/$(request.resource.data.parentCommentId)).data.articleSlug &&
+        request.resource.data.articleTitle ==
+          get(/databases/$(database)/documents/comments/$(request.resource.data.parentCommentId)).data.articleTitle &&
+        request.resource.data.authorId == request.auth.uid &&
+        request.resource.data.authorName ==
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.displayName &&
+        request.resource.data.authorHandle ==
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.handle &&
+        request.resource.data.authorPhotoURL ==
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.photoURL &&
         request.resource.data.content is string &&
         request.resource.data.content.size() >= 1 &&
         request.resource.data.content.size() <= 2000 &&
@@ -208,7 +341,7 @@ service cloud.firestore {
         request.resource.data.updatedAt == request.time &&
         request.resource.data.edited == true
       ) || (
-        isCmsUser() &&
+        canModerate() &&
         request.resource.data.diff(resource.data).affectedKeys().hasOnly([
           'status', 'moderatedAt', 'moderatedBy'
         ]) &&
@@ -216,8 +349,15 @@ service cloud.firestore {
         request.resource.data.moderatedAt == request.time &&
         request.resource.data.moderatedBy == request.auth.uid
       );
-      allow delete: if isCmsUser() ||
+      allow delete: if canModerate() ||
         (isAuthenticated() && resource.data.authorId == request.auth.uid);
+    }
+
+    // Reactions are written by a trusted callable function so counts cannot be
+    // forged. A signed-in user may only read their own reaction state.
+    match /commentReactions/{userId}/items/{commentId} {
+      allow read: if isAuthenticated() && request.auth.uid == userId;
+      allow create, update, delete: if false;
     }
 
     // Assets are restricted to CMS users. Public account authentication must

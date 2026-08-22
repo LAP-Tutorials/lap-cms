@@ -33,6 +33,7 @@ interface Member {
   imgAlt: string;
   socials: Record<string, string>;
   role?: string;
+  promotedFromReader?: boolean;
 }
 
 export default function EditTeamMemberPage() {
@@ -164,7 +165,10 @@ export default function EditTeamMemberPage() {
         imgAlt: `${member.name} profile pic, a member of L.A.P`,
         socials: socials,
         // Only super can change role
-        ...(currentUserRole === "super" && { role: member.role }),
+        ...(currentUserRole === "super" && {
+          role: member.role,
+          showOnTeam: member.role !== "moderator",
+        }),
       });
 
       toast({
@@ -197,12 +201,17 @@ export default function EditTeamMemberPage() {
 
     setDeleting(true);
     try {
-      const deleteTeamMember = httpsCallable(functions, "deleteTeamMember");
-      await deleteTeamMember({ uid: id });
+      const deleteTeamMember = httpsCallable<
+        { uid: string },
+        { uid: string; demoted: boolean }
+      >(functions, "deleteTeamMember");
+      const result = await deleteTeamMember({ uid: id });
 
       toast({
-        title: "Member deleted",
-        description: "The member's profile and sign-in account were removed",
+        title: result.data.demoted ? "Moderator removed" : "Member deleted",
+        description: result.data.demoted
+          ? "Their CMS access was removed. Their Docs reader account is still active."
+          : "The member's profile and sign-in account were removed",
         variant: "success",
       });
 
@@ -515,6 +524,7 @@ export default function EditTeamMemberPage() {
                     <option value="super">Super Admin</option>
                     <option value="admin">Admin</option>
                     <option value="manager">Manager</option>
+                    <option value="moderator">Moderator</option>
                   </select>
                 </div>
               )}
@@ -618,7 +628,9 @@ export default function EditTeamMemberPage() {
               onClick={() => {
                 if (
                   window.confirm(
-                    "Delete this team member and their sign-in account? This action cannot be undone.",
+                    member.promotedFromReader
+                      ? "Remove this member's CMS access? Their Docs reader account will remain active."
+                      : "Delete this team member and their sign-in account? This action cannot be undone.",
                   )
                 ) {
                   handleDelete();
@@ -626,7 +638,11 @@ export default function EditTeamMemberPage() {
               }}
               disabled={saving || deleting}
             >
-              {deleting ? "Deleting..." : "Delete Member"}
+              {deleting
+                ? "Removing..."
+                : member.promotedFromReader
+                  ? "Remove CMS Access"
+                  : "Delete Member"}
             </Button>
           )}
 

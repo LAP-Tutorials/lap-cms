@@ -16,13 +16,16 @@ import {
   LogOut,
   FolderOpen,
   MessageSquare,
+  KeyRound,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/button";
+import { useAuth } from "@/lib/auth-context";
 
 export default function AdminSidebar() {
   const router = useRouter();
   const pathname = usePathname();
+  const { userRole } = useAuth();
   const [isOpen, setIsOpen] = useState(false);
 
   // Update the useEffect for handling resize and initial state
@@ -94,13 +97,24 @@ export default function AdminSidebar() {
       icon: <MessageSquare className="h-5 w-5" />,
     },
     { href: "/admin/team", label: "Team", icon: <Users className="h-5 w-5" /> },
+    {
+      href: "/admin/handles",
+      label: "Handles",
+      icon: <KeyRound className="h-5 w-5" />,
+      superOnly: true,
+    },
 
     {
       href: "/admin/profile",
       label: "Profile",
       icon: <User className="h-5 w-5" />,
     },
-  ];
+  ].filter(
+    (item) =>
+      (!item.superOnly || userRole === "super") &&
+      (userRole !== "moderator" ||
+        ["/admin", "/admin/comments", "/admin/profile"].includes(item.href)),
+  );
 
   return (
     <>

@@ -1,7 +1,16 @@
 import { NextResponse } from 'next/server';
 import { getAnalyticsData } from '@/lib/analytics';
+import { verifyContentStaffRequest } from '@/lib/server-auth';
 
 export async function GET(request: Request) {
+  const staff = await verifyContentStaffRequest(request);
+  if (!staff.ok) {
+    return NextResponse.json(
+      { error: staff.status === 401 ? 'Authentication required' : 'Access denied' },
+      { status: staff.status },
+    );
+  }
+
   const { searchParams } = new URL(request.url);
   const days = searchParams.get('days') ? parseInt(searchParams.get('days')!, 10) : 7;
   const from = searchParams.get('from');

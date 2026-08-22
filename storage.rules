@@ -18,6 +18,22 @@ service firebase.storage {
       allow delete: if (request.auth != null && request.auth.uid == userId) || isCmsUser();
     }
 
+    // Every team member may update only the avatar named after their own UID.
+    // This lets moderators manage their profile without granting asset access.
+    match /avatars/team/{fileName} {
+      allow read: if true;
+      allow create, update: if request.auth != null &&
+        firestore.exists(/databases/(default)/documents/authors/$(request.auth.uid)) &&
+        fileName == request.auth.uid + '.webp' &&
+        request.resource.size <= 5 * 1024 * 1024 &&
+        request.resource.contentType.matches('image/(jpeg|png|webp)');
+      allow delete: if (
+        request.auth != null &&
+        firestore.exists(/databases/(default)/documents/authors/$(request.auth.uid)) &&
+        fileName == request.auth.uid + '.webp'
+      ) || isCmsUser();
+    }
+
     match /{allPaths=**} {
       allow read: if true;
       allow write: if isCmsUser();
