@@ -81,38 +81,46 @@ function ModerationRow({
 }) {
   const createdAt = entry.createdAt?.toDate()
   const isBusy = busyId === `${entry.kind}:${entry.id}`
+  const statusLabel = entry.status === "visible" ? "Visible" : "Hidden"
 
   return (
-    <div className={`grid gap-3 ${compact ? "py-4 sm:grid-cols-[2rem_minmax(0,1fr)] xl:grid-cols-[2rem_minmax(0,1fr)_auto]" : "py-5 sm:grid-cols-[2.5rem_minmax(0,1fr)] xl:grid-cols-[2.5rem_minmax(0,1fr)_auto]"}`}>
+    <div className={`group grid items-start gap-3 ${compact ? "py-4 sm:grid-cols-[2rem_minmax(0,1fr)_auto]" : "py-5 sm:grid-cols-[2.5rem_minmax(0,1fr)_auto]"}`}>
       <div className={`flex items-center justify-center overflow-hidden bg-white/[0.07] font-semibold uppercase text-white/55 ${compact ? "h-8 w-8 text-xs" : "h-10 w-10 text-sm"}`}>
         {entry.authorPhotoURL ? <img src={entry.authorPhotoURL} alt={`${entry.authorName}'s profile picture`} className="h-full w-full object-cover" referrerPolicy="no-referrer" /> : entry.authorName.charAt(0)}
       </div>
       <div className="min-w-0">
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-          <span className="font-medium">@{entry.authorHandle || entry.authorName}</span>
-          <span className="inline-flex items-center gap-1 font-mono text-[10px] uppercase tracking-wider text-white/35">
+        <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1.5">
+          <span className={`${compact ? "text-sm" : "text-[15px]"} font-semibold text-white`}>@{entry.authorHandle || entry.authorName}</span>
+          <span className="inline-flex items-center gap-1 text-[11px] text-white/35">
             {entry.kind === "reply" ? <CornerDownRight className="h-3 w-3" /> : <MessageSquare className="h-3 w-3" />}
-            {contextOnly ? "parent context" : entry.kind}
+            {contextOnly ? "Parent comment" : entry.kind === "reply" ? "Reply" : "Comment"}
           </span>
-          <span className={`text-[10px] font-semibold uppercase tracking-wider ${entry.status === "visible" ? "text-emerald-300" : "text-amber-300"}`}>{entry.status}</span>
-          <time className="font-mono text-[10px] text-white/30">{createdAt ? createdAt.toLocaleString() : "Pending timestamp"}{entry.edited ? " · edited" : ""}</time>
+          <span className={`inline-flex items-center gap-1.5 text-[11px] font-medium ${entry.status === "visible" ? "text-emerald-300" : "text-amber-300"}`}>
+            <span className={`h-1.5 w-1.5 ${entry.status === "visible" ? "bg-emerald-300" : "bg-amber-300"}`} aria-hidden="true" />
+            {statusLabel}
+          </span>
+          <time className="text-[11px] tabular-nums text-white/30">
+            {createdAt ? createdAt.toLocaleString(undefined, { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "Pending timestamp"}
+            {entry.edited ? " · edited" : ""}
+          </time>
         </div>
-        <p className={`mt-2 max-w-4xl whitespace-pre-wrap break-words leading-6 text-white/75 ${compact ? "text-[13px]" : "text-sm"}`}><MentionText content={entry.content} /></p>
+        <p className={`mt-2 max-w-3xl whitespace-pre-wrap break-words text-white/80 ${compact ? "text-sm leading-6" : "text-[15px] leading-7"}`}><MentionText content={entry.content} /></p>
         {entry.kind === "comment" ? (
-          <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-white/35">
-            <span>{entry.articleTitle || entry.articleId}</span>
-            <span className="inline-flex items-center gap-1 font-mono tabular-nums"><ThumbsUp className="h-3 w-3" /> {entry.likeCount || 0}</span>
-            <span className="inline-flex items-center gap-1 font-mono tabular-nums"><ThumbsDown className="h-3 w-3" /> {entry.dislikeCount || 0}</span>
-            <span className="inline-flex items-center gap-1 font-mono tabular-nums"><CornerDownRight className="h-3 w-3" /> {entry.replyCount || 0}</span>
-            {entry.articleSlug ? <Link href={`https://lap.onl/posts/${entry.articleSlug}#comments`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-white/60 transition-colors hover:text-white">Open post <ExternalLink className="h-3 w-3" /></Link> : null}
+          <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2 text-xs text-white/40">
+            <span className="max-w-xl truncate">{entry.articleTitle || entry.articleId}</span>
+            <span className="h-3 w-px bg-white/15" aria-hidden="true" />
+            <span className="inline-flex items-center gap-1.5 tabular-nums" title="Likes"><ThumbsUp className="h-3.5 w-3.5" /> {entry.likeCount || 0}</span>
+            <span className="inline-flex items-center gap-1.5 tabular-nums" title="Dislikes"><ThumbsDown className="h-3.5 w-3.5" /> {entry.dislikeCount || 0}</span>
+            <span className="inline-flex items-center gap-1.5 tabular-nums" title="Replies"><CornerDownRight className="h-3.5 w-3.5" /> {entry.replyCount || 0}</span>
+            {entry.articleSlug ? <Link href={`https://lap.onl/posts/${entry.articleSlug}#comments`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-white/60 transition-colors duration-200 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#9b5fc7]">Open post <ExternalLink className="h-3 w-3" /></Link> : null}
           </div>
         ) : null}
       </div>
-      <div className="col-start-2 flex items-start gap-2 xl:col-start-3">
-        <Button variant="ghost" size="icon" disabled={isBusy} title={entry.status === "visible" ? "Hide" : "Restore"} aria-label={entry.status === "visible" ? `Hide ${entry.kind}` : `Restore ${entry.kind}`} onClick={() => onStatusChange(entry, entry.status === "visible" ? "hidden" : "visible")} className="border border-white/10 text-white/55 hover:text-white">
+      <div className="col-start-2 row-start-2 flex items-start justify-end gap-1 sm:col-start-3 sm:row-start-1">
+        <Button variant="ghost" size="icon" disabled={isBusy} title={entry.status === "visible" ? "Hide" : "Restore"} aria-label={entry.status === "visible" ? `Hide ${entry.kind}` : `Restore ${entry.kind}`} onClick={() => onStatusChange(entry, entry.status === "visible" ? "hidden" : "visible")} className="h-8 w-8 text-white/40 transition-colors duration-200 hover:bg-white/[0.07] hover:text-white focus-visible:ring-[#9b5fc7]">
           {entry.status === "visible" ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
         </Button>
-        <Button variant="ghost" size="icon" disabled={isBusy} title="Delete permanently" aria-label={`Delete ${entry.kind}`} onClick={() => onDelete(entry)} className="border border-white/10 text-white/40 hover:text-red-300"><Trash2 className="h-4 w-4" /></Button>
+        <Button variant="ghost" size="icon" disabled={isBusy} title="Delete permanently" aria-label={`Delete ${entry.kind}`} onClick={() => onDelete(entry)} className="h-8 w-8 text-white/30 transition-colors duration-200 hover:bg-red-400/10 hover:text-red-300 focus-visible:ring-red-300"><Trash2 className="h-4 w-4" /></Button>
       </div>
     </div>
   )
@@ -326,49 +334,60 @@ export default function CommentsModerationPage() {
   }
 
   return (
-    <main className="mx-auto min-h-screen max-w-[88rem] text-white">
+    <main className="mx-auto min-h-screen max-w-[76rem] text-white">
       <Breadcrumb items={[{ label: "Dashboard", href: "/admin" }, { label: "Comments" }]} />
 
-      <header className="mt-7 flex flex-col gap-4 border-b border-white/15 pb-7 lg:flex-row lg:items-end lg:justify-between">
+      <header className="mt-8 flex flex-col gap-4 border-b border-white/15 pb-6 lg:flex-row lg:items-end lg:justify-between">
         <div>
-          <p className="text-xs font-medium uppercase tracking-[0.22em] text-[#b782df]">Community moderation</p>
-          <h1 className="mt-2 text-4xl font-semibold tracking-[-0.035em] sm:text-5xl">Discussion queue</h1>
-          <p className="mt-3 max-w-2xl text-sm leading-6 text-white/50">
-            Review comments and replies in one feed. Hide abuse, restore good discussion, or remove it permanently.
+          <div className="flex items-center gap-3">
+            <span className="flex h-10 w-10 items-center justify-center bg-[#9b5fc7]/15 text-[#c084fc]" aria-hidden="true">
+              <MessageSquare className="h-5 w-5" />
+            </span>
+            <h1 className="text-4xl font-semibold tracking-[-0.04em] sm:text-5xl">Comments</h1>
+          </div>
+          <p className="mt-2 max-w-2xl text-sm leading-6 text-white/50">
+            Review conversations, reply as the team, and manage what appears publicly.
           </p>
         </div>
-        <p className="font-mono text-xs uppercase tracking-wider text-white/35">
-          {shownEntryCount} shown / {allEntries.length} loaded
+        <p className="text-xs tabular-nums text-white/35">
+          Showing <span className="font-medium text-white/65">{shownEntryCount}</span> of {allEntries.length}
         </p>
       </header>
 
-      <dl className="grid grid-cols-2 border-b border-white/15 lg:grid-cols-5">
-        {[["Comments", comments.length], ["Replies", replies.length], ["Hidden", hiddenCount], ["Likes", totalLikes], ["Dislikes", totalDislikes]].map(([label, value], index) => (
-          <div key={label} className={`px-4 py-4 ${index < 4 ? "border-r border-white/10" : ""}`}>
+      <dl className="flex flex-wrap items-center gap-x-7 gap-y-3 border-b border-white/15 py-4">
+        {[
+          { label: "Comments", value: comments.length, icon: MessageSquare },
+          { label: "Replies", value: replies.length, icon: CornerDownRight },
+          { label: "Hidden", value: hiddenCount, icon: EyeOff },
+          { label: "Likes", value: totalLikes, icon: ThumbsUp },
+          { label: "Dislikes", value: totalDislikes, icon: ThumbsDown },
+        ].map(({ label, value, icon: StatIcon }) => (
+          <div key={label} className="flex items-center gap-2.5">
+            <StatIcon className="h-3.5 w-3.5 text-white/30" aria-hidden="true" />
+            <dd className="font-mono text-sm font-semibold tabular-nums text-white/85">{value}</dd>
             <dt className="text-xs text-white/40">{label}</dt>
-            <dd className="mt-1 font-mono text-xl tabular-nums">{value}</dd>
           </div>
         ))}
       </dl>
 
-      <section className="sticky top-0 z-20 border-b border-white/15 bg-[#121212]/95 py-4 backdrop-blur">
+      <section className="sticky top-0 z-20 border-b border-white/15 bg-[#121212]/95 py-3 backdrop-blur">
         <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-          <div className="relative w-full xl:max-w-md">
+          <div className="relative w-full xl:max-w-lg">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/35" />
-            <Input value={searchTerm} onChange={(event) => setSearchTerm(event.target.value)} placeholder="Search handle, article, or text" className="border-white/20 bg-transparent pl-10" />
+            <Input value={searchTerm} onChange={(event) => setSearchTerm(event.target.value)} placeholder="Search comments" className="h-10 border-white/15 bg-white/[0.025] pl-10 text-sm placeholder:text-white/30 focus-visible:ring-[#9b5fc7]" />
           </div>
           <div className="flex flex-col gap-3 sm:flex-row">
-            <div className="flex border border-white/15" aria-label="Entry type">
+            <div className="flex bg-white/[0.025] p-0.5" aria-label="Entry type">
               {(["all", "comment", "reply"] as const).map((type) => (
-                <button key={type} type="button" onClick={() => setTypeFilter(type)} className={`px-3 py-2 text-xs font-medium capitalize transition-colors active:translate-y-px ${typeFilter === type ? "!bg-white !text-black" : "text-white/55 hover:bg-white/5 hover:text-white"}`}>
-                  {type === "all" ? "All types" : `${type}s`}
+                <button key={type} type="button" onClick={() => setTypeFilter(type)} className={`px-3 py-2 text-xs font-medium capitalize transition-colors duration-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#9b5fc7] active:translate-y-px ${typeFilter === type ? "!bg-[#9b5fc7] !text-white" : "text-white/50 hover:bg-white/5 hover:text-white"}`}>
+                  {type === "all" ? "All" : type === "reply" ? "Replies" : "Comments"}
                 </button>
               ))}
             </div>
-            <div className="flex border border-white/15" aria-label="Visibility">
+            <div className="flex bg-white/[0.025] p-0.5" aria-label="Visibility">
               {(["all", "visible", "hidden"] as const).map((status) => (
-                <button key={status} type="button" onClick={() => setStatusFilter(status)} className={`px-3 py-2 text-xs font-medium capitalize transition-colors active:translate-y-px ${statusFilter === status ? "bg-[#9b5fc7] text-white" : "text-white/55 hover:bg-white/5 hover:text-white"}`}>
-                  {status === "all" ? "Any status" : status}
+                <button key={status} type="button" onClick={() => setStatusFilter(status)} className={`px-3 py-2 text-xs font-medium capitalize transition-colors duration-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#9b5fc7] active:translate-y-px ${statusFilter === status ? "bg-white/10 text-white" : "text-white/50 hover:bg-white/5 hover:text-white"}`}>
+                  {status === "all" ? "Any" : status}
                 </button>
               ))}
             </div>
@@ -376,19 +395,19 @@ export default function CommentsModerationPage() {
         </div>
       </section>
 
-      {error ? <p role="alert" className="border-b border-red-400/30 py-4 text-sm text-red-200">{error}</p> : null}
+      {error ? <p role="alert" className="mt-4 border-l-2 border-red-300 bg-red-300/[0.06] px-4 py-3 text-sm text-red-200">{error}</p> : null}
       {loading ? (
-        <div className="divide-y divide-white/10" aria-label="Loading moderation queue">
-          {[0, 1, 2, 3].map((item) => <div key={item} className="flex animate-pulse gap-4 py-6"><div className="h-10 w-10 bg-white/10" /><div className="flex-1 space-y-3"><div className="h-3 w-40 bg-white/10" /><div className="h-4 max-w-xl bg-white/[0.07]" /></div></div>)}
+        <div className="space-y-3 py-5" aria-label="Loading moderation queue">
+          {[0, 1, 2].map((item) => <div key={item} className="flex animate-pulse gap-4 border border-white/10 px-5 py-6"><div className="h-10 w-10 bg-white/10" /><div className="flex-1 space-y-3"><div className="h-3 w-40 bg-white/10" /><div className="h-4 max-w-xl bg-white/[0.07]" /></div></div>)}
         </div>
       ) : null}
       {!loading && filteredThreads.length === 0 ? (
-        <div className="border-b border-white/15 py-20 text-center"><MessageSquare className="mx-auto h-8 w-8 text-white/20" /><p className="mt-4 font-medium">Nothing matches this view.</p><p className="mt-1 text-sm text-white/40">Try a different search or filter.</p></div>
+        <div className="border-b border-white/15 py-20 text-center"><MessageSquare className="mx-auto h-8 w-8 text-white/20" /><p className="mt-4 font-medium">No comments found</p><p className="mt-1 text-sm text-white/40">Try another search or filter.</p></div>
       ) : null}
 
-      <section className="divide-y divide-white/15 pb-16" aria-label="Moderation results">
+      <section className="space-y-4 py-5 pb-16" aria-label="Moderation results">
         {filteredThreads.map((thread) => (
-          <article key={thread.parent.id} className="transition-colors hover:bg-white/[0.012]">
+          <article key={thread.parent.id} className="border border-white/10 bg-white/[0.012] px-4 transition-colors duration-200 hover:border-white/15 sm:px-5">
             <ModerationRow
               entry={thread.parent}
               busyId={busyId}
@@ -397,14 +416,14 @@ export default function CommentsModerationPage() {
               onDelete={removeEntry}
             />
             {thread.parent.status === "visible" ? (
-              <div className="-mt-1 mb-4 ml-5 sm:ml-14">
+              <div className="-mt-1 mb-5 ml-11 sm:ml-14">
                 {replyingToId === thread.parent.id ? (
                   <form
                     onSubmit={(event) => {
                       event.preventDefault()
                       void submitStaffReply(thread.parent)
                     }}
-                    className="max-w-3xl border-l border-[#9b5fc7] pl-4"
+                    className="max-w-3xl border-l-2 border-[#9b5fc7] pl-4"
                   >
                     <label htmlFor={`cms-reply-${thread.parent.id}`} className="sr-only">Reply to @{thread.parent.authorHandle || thread.parent.authorName}</label>
                     <MentionTextarea
@@ -431,7 +450,7 @@ export default function CommentsModerationPage() {
                   <button
                     type="button"
                     onClick={() => { setReplyingToId(thread.parent.id); setReplyContent("") }}
-                    className="inline-flex items-center gap-2 border-b border-transparent pb-1 text-xs font-semibold uppercase text-white/45 transition-colors hover:border-[#9b5fc7] hover:text-white"
+                    className="inline-flex items-center gap-2 text-xs font-medium text-white/45 transition-colors duration-200 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#9b5fc7]"
                   >
                     <CornerDownRight className="h-3.5 w-3.5" /> Reply as @{replyProfile.handle}
                   </button>
@@ -441,8 +460,8 @@ export default function CommentsModerationPage() {
               </div>
             ) : null}
             {thread.replies.length > 0 ? (
-              <div className="mb-5 ml-5 border-l border-[#9b5fc7]/40 pl-4 sm:ml-14 sm:pl-5">
-                <p className="border-b border-white/10 pb-2 font-mono text-[10px] uppercase tracking-[0.18em] text-white/35">
+              <div className="mb-5 ml-3 border-l-2 border-[#9b5fc7]/35 bg-black/10 px-4 sm:ml-12 sm:px-5">
+                <p className="border-b border-white/10 py-3 text-xs font-medium text-white/40">
                   {thread.replies.length} {thread.replies.length === 1 ? "reply" : "replies"}
                 </p>
                 <div className="divide-y divide-white/10">

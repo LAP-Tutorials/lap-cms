@@ -142,11 +142,11 @@ iframe[aria-hidden="true"] {
 * {
     scrollbar-width: 4px;
     scrollbar-color: #8a2be2 #121212;
-    background-color: #121212;
 }
 
 /* Safe area insets for mobile devices */
 body {
+    background-color: #121212;
     padding: env(safe-area-inset-top) env(safe-area-inset-right)
         env(safe-area-inset-bottom) env(safe-area-inset-left);
     position: relative;

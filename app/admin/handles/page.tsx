@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { httpsCallable } from "firebase/functions"
-import { AlertTriangle, Check, KeyRound, Loader2, Pencil, RefreshCw, Search, Trash2 } from "lucide-react"
+import { AlertTriangle, AtSign, Check, KeyRound, Loader2, Pencil, RefreshCw, Search, ShieldCheck, Trash2, UserRoundCog } from "lucide-react"
 import { Breadcrumb } from "@/components/breadcrumb"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -258,47 +258,53 @@ export default function HandlesPage() {
         <Breadcrumb items={[{ label: "Dashboard", href: "/admin" }, { label: "Handles" }]} />
       </div>
 
-      <div className="mx-auto max-w-[88rem]">
-        <header className="flex flex-col gap-4 border-b border-white/15 pb-7 sm:flex-row sm:items-end sm:justify-between">
+      <div className="mx-auto max-w-[76rem]">
+        <header className="flex flex-col gap-4 border-b border-white/15 pb-6 sm:flex-row sm:items-end sm:justify-between">
           <div>
-            <p className="mb-2 text-xs font-medium uppercase tracking-[0.22em] text-[#b782df]">
-              Identity registry
-            </p>
-            <h1 className="text-4xl font-semibold tracking-[-0.035em] sm:text-5xl">Handles</h1>
-            <p className="mt-2 max-w-2xl text-sm text-white/55">
-              Reserve protected names, see every claimed handle, and correct ownership when needed.
+            <div className="flex items-center gap-3">
+              <span className="flex h-10 w-10 items-center justify-center bg-[#9b5fc7]/15 text-[#c084fc]" aria-hidden="true">
+                <KeyRound className="h-5 w-5" />
+              </span>
+              <h1 className="text-4xl font-semibold tracking-[-0.04em] sm:text-5xl">Handles</h1>
+            </div>
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-white/50">
+              Reserve protected names, review claimed handles, and correct ownership.
             </p>
           </div>
-          <Button variant="outline" onClick={() => void loadRegistry()} disabled={loading}>
+          <Button variant="ghost" size="sm" onClick={() => void loadRegistry()} disabled={loading} className="self-start border border-white/15 text-white/60 hover:bg-white/[0.06] hover:text-white sm:self-auto">
             <RefreshCw className={`mr-2 h-4 w-4 ${loading ? "animate-spin" : ""}`} />
             Refresh
           </Button>
         </header>
 
-        <dl className="grid grid-cols-2 border-b border-white/15 sm:grid-cols-3">
-          <div className="border-r border-white/10 p-4">
+        <dl className="flex flex-wrap items-center gap-x-7 gap-y-3 border-b border-white/15 py-4">
+          <div className="flex items-center gap-2.5">
+            <AtSign className="h-4 w-4 text-white/30" aria-hidden="true" />
+            <dd className="font-mono text-sm font-semibold tabular-nums text-white/85">{registry.claims.length}</dd>
             <dt className="text-xs text-white/40">Taken</dt>
-            <dd className="mt-1 font-mono text-xl tabular-nums">{registry.claims.length}</dd>
           </div>
-          <div className="p-4 sm:border-r sm:border-white/10">
+          <div className="flex items-center gap-2.5">
+            <ShieldCheck className="h-4 w-4 text-white/30" aria-hidden="true" />
+            <dd className="font-mono text-sm font-semibold tabular-nums text-white/85">{registry.reservations.length}</dd>
             <dt className="text-xs text-white/40">Reserved</dt>
-            <dd className="mt-1 font-mono text-xl tabular-nums">{registry.reservations.length}</dd>
           </div>
-          <div className="col-span-2 border-t border-white/10 p-4 sm:col-span-1 sm:border-t-0">
-            <dd className={`font-mono text-sm ${registry.ready ? "text-emerald-300" : "text-amber-300"}`}>
-              {registry.ready ? "ACTIVE" : "SETUP NEEDED"}
+          <div className="flex items-center gap-2.5">
+            <span className={`h-1.5 w-1.5 ${registry.ready ? "bg-emerald-300" : "bg-amber-300"}`} aria-hidden="true" />
+            <dd className={`text-xs font-medium ${registry.ready ? "text-emerald-300" : "text-amber-300"}`}>
+              {registry.ready ? "Claims active" : "Setup needed"}
             </dd>
-            <dt className="mt-1 text-xs text-white/40">Reader claims</dt>
           </div>
         </dl>
 
-        <section className="grid border-b border-white/15 lg:grid-cols-2">
-          <div className="border-b border-white/15 p-5 lg:border-b-0 lg:border-r">
-            <div className="mb-5 flex items-center gap-3">
-              <KeyRound className="h-5 w-5 text-[#a855f7]" />
+        <section className="grid gap-4 py-5 lg:grid-cols-2">
+          <div className="border border-white/10 bg-white/[0.012] p-5">
+            <div className="mb-5 flex items-start gap-3">
+              <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center bg-white/[0.05] text-[#c084fc]" aria-hidden="true">
+                <ShieldCheck className="h-4 w-4" />
+              </span>
               <div>
-                <h2 className="font-bold">Reserve a handle</h2>
-                <p className="text-sm text-white/45">Prevent anyone else from claiming this name.</p>
+                <h2 className="font-semibold">Reserve a handle</h2>
+                <p className="mt-0.5 text-sm text-white/45">Protect a name for a specific account.</p>
               </div>
             </div>
             <div className="space-y-3">
@@ -308,13 +314,13 @@ export default function HandlesPage() {
                   value={reservationHandle}
                   onChange={(event) => setReservationHandle(cleanHandle(event.target.value))}
                   placeholder="reserved_name"
-                  className="pl-8"
+                  className="border-white/15 bg-white/[0.025] pl-8 focus-visible:ring-[#9b5fc7]"
                 />
               </div>
               <select
                 value={reservationOwner}
                 onChange={(event) => setReservationOwner(event.target.value)}
-                className="h-10 w-full border border-white bg-[#121212] px-3 text-sm text-white"
+                className="h-10 w-full border border-white/15 bg-[#151515] px-3 text-sm text-white outline-none transition-colors focus:border-[#9b5fc7] focus-visible:ring-2 focus-visible:ring-[#9b5fc7]"
               >
                 <option value="">Choose owner</option>
                 {registry.owners.map((owner) => (
@@ -326,6 +332,8 @@ export default function HandlesPage() {
               <Button
                 onClick={saveReservation}
                 disabled={busyAction === "reservation" || reservationHandle.length < 3 || !reservationOwner}
+                size="sm"
+                className="mt-1"
               >
                 {busyAction === "reservation" && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                 Save reservation
@@ -333,12 +341,14 @@ export default function HandlesPage() {
             </div>
           </div>
 
-          <div className="p-5">
-            <div className="mb-5 flex items-center gap-3">
-              <Pencil className="h-5 w-5 text-[#a855f7]" />
+          <div className="border border-white/10 bg-white/[0.012] p-5">
+            <div className="mb-5 flex items-start gap-3">
+              <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center bg-white/[0.05] text-[#c084fc]" aria-hidden="true">
+                <UserRoundCog className="h-4 w-4" />
+              </span>
               <div>
-                <h2 className="font-bold">Change an account handle</h2>
-                <p className="text-sm text-white/45">Superadmin correction for readers or staff.</p>
+                <h2 className="font-semibold">Change an account handle</h2>
+                <p className="mt-0.5 text-sm text-white/45">Correct a reader or staff handle.</p>
               </div>
             </div>
             <div className="space-y-3">
@@ -349,7 +359,7 @@ export default function HandlesPage() {
                   setAccountUid(uid)
                   setAccountHandle(registry.owners.find((owner) => owner.uid === uid)?.handle || "")
                 }}
-                className="h-10 w-full border border-white bg-[#121212] px-3 text-sm text-white"
+                className="h-10 w-full border border-white/15 bg-[#151515] px-3 text-sm text-white outline-none transition-colors focus:border-[#9b5fc7] focus-visible:ring-2 focus-visible:ring-[#9b5fc7]"
               >
                 <option value="">Choose account</option>
                 {registry.owners.map((owner) => (
@@ -364,12 +374,14 @@ export default function HandlesPage() {
                   value={accountHandle}
                   onChange={(event) => setAccountHandle(cleanHandle(event.target.value))}
                   placeholder="new_handle"
-                  className="pl-8"
+                  className="border-white/15 bg-white/[0.025] pl-8 focus-visible:ring-[#9b5fc7]"
                 />
               </div>
               <Button
                 onClick={changeHandle}
                 disabled={busyAction === "handle" || accountHandle.length < 3 || !accountUid}
+                size="sm"
+                className="mt-1"
               >
                 {busyAction === "handle" && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                 Update handle
@@ -379,23 +391,28 @@ export default function HandlesPage() {
         </section>
 
         {!registry.ready && (
-          <section className="border-x border-b border-amber-400/40 bg-amber-400/5 p-5">
-            <h2 className="font-bold text-amber-300">Enable protected handle claims</h2>
-            <p className="mt-1 text-sm text-white/55">
-              Choose the owner of the official L.A.P names. This creates the default brand and team reservations.
-            </p>
+          <section className="border-l-2 border-amber-300 bg-amber-300/[0.05] p-5">
+            <div className="flex items-start gap-3">
+              <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-300" aria-hidden="true" />
+              <div>
+                <h2 className="font-semibold text-amber-200">Enable protected handle claims</h2>
+                <p className="mt-1 text-sm text-white/55">
+                  Choose the owner of the official L.A.P names to create the default reservations.
+                </p>
+              </div>
+            </div>
             <div className="mt-4 flex flex-col gap-3 sm:flex-row">
               <select
                 value={officialOwner}
                 onChange={(event) => setOfficialOwner(event.target.value)}
-                className="h-10 flex-1 border border-white bg-[#121212] px-3 text-sm text-white"
+                className="h-10 flex-1 border border-white/15 bg-[#151515] px-3 text-sm text-white outline-none focus:border-[#9b5fc7]"
               >
                 <option value="">Choose official owner</option>
                 {staffOwners.map((owner) => (
                   <option key={owner.uid} value={owner.uid}>{owner.name} · {owner.role}</option>
                 ))}
               </select>
-              <Button onClick={syncDefaults} disabled={!officialOwner || busyAction === "sync"}>
+              <Button size="sm" onClick={syncDefaults} disabled={!officialOwner || busyAction === "sync"}>
                 {busyAction === "sync" && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                 Protect defaults
               </Button>
@@ -403,19 +420,20 @@ export default function HandlesPage() {
           </section>
         )}
 
-        <section className="sticky top-0 z-20 mt-8 flex flex-col gap-3 border-b border-white/15 bg-[#121212]/95 py-4 backdrop-blur sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex border border-white/15">
+        <section className="sticky top-0 z-20 mt-3 flex flex-col gap-3 border-b border-white/15 bg-[#121212]/95 py-3 backdrop-blur sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex bg-white/[0.025] p-0.5">
             {(["reserved", "taken"] as const).map((view) => (
               <button
                 key={view}
                 type="button"
                 onClick={() => setRegistryView(view)}
-                className={`px-4 py-2 text-xs font-medium capitalize transition-colors ${
+                className={`inline-flex items-center gap-2 px-3 py-2 text-xs font-medium capitalize transition-colors duration-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#9b5fc7] active:translate-y-px ${
                   registryView === view
-                    ? "bg-white text-black"
-                    : "text-white/55 hover:bg-white/5 hover:text-white"
+                    ? "!bg-[#9b5fc7] !text-white"
+                    : "text-white/50 hover:bg-white/5 hover:text-white"
                 }`}
               >
+                {view === "reserved" ? <ShieldCheck className="h-3.5 w-3.5" aria-hidden="true" /> : <AtSign className="h-3.5 w-3.5" aria-hidden="true" />}
                 {view} ({view === "reserved" ? registry.reservations.length : registry.claims.length})
               </button>
             ))}
@@ -426,59 +444,65 @@ export default function HandlesPage() {
               value={registrySearch}
               onChange={(event) => setRegistrySearch(event.target.value)}
               placeholder="Search handle or owner"
-              className="border-white/20 bg-transparent pl-10"
+              className="h-10 border-white/15 bg-white/[0.025] pl-10 text-sm placeholder:text-white/30 focus-visible:ring-[#9b5fc7]"
             />
           </div>
         </section>
 
-        <section className={registryView === "reserved" ? "mt-6" : "hidden"}>
-          <div className="mb-3 flex items-end justify-between">
-            <div>
-              <h2 className="text-xl font-bold">Reserved handles</h2>
-              <p className="text-sm text-white/45">Protected names and the account allowed to claim them.</p>
+        <section className={registryView === "reserved" ? "mt-5" : "hidden"}>
+          <div className="mb-4 flex items-end justify-between">
+            <div className="flex items-start gap-3">
+              <ShieldCheck className="mt-0.5 h-5 w-5 text-[#c084fc]" aria-hidden="true" />
+              <div>
+                <h2 className="text-xl font-semibold">Reserved handles</h2>
+                <p className="mt-0.5 text-sm text-white/45">Protected names and who may claim them.</p>
+              </div>
             </div>
           </div>
-          <div className="overflow-x-auto border border-white/15">
+          <div className="overflow-x-auto border border-white/10 bg-white/[0.01]">
             <table className="min-w-full divide-y divide-white/10 text-sm">
-              <thead className="bg-white/[0.04] text-left text-xs uppercase tracking-wider text-white/45">
-                <tr><th className="p-4">Reservation</th><th className="p-4">Owner</th><th className="p-4">Status</th><th className="p-4 text-right">Manage</th></tr>
+              <thead className="bg-white/[0.025] text-left text-xs font-medium text-white/40">
+                <tr><th className="px-4 py-3">Reservation</th><th className="px-4 py-3">Owner</th><th className="px-4 py-3">Status</th><th className="px-4 py-3 text-right">Actions</th></tr>
               </thead>
               <tbody className="divide-y divide-white/10">
                 {filteredReservations.map((reservation) => (
-                  <tr key={reservation.key} className="hover:bg-white/[0.03]">
-                    <td className="p-4"><span className="font-semibold">@{reservation.label}</span><span className="mt-1 block text-xs text-white/35">key: {reservation.key}</span></td>
-                    <td className="p-4">{reservation.ownerName}</td>
-                    <td className="p-4">{reservation.claimedHandles.length ? <span className="inline-flex items-center gap-1 text-emerald-400"><Check className="h-3.5 w-3.5" /> Claimed as @{reservation.claimedHandles.join(", @")}</span> : <span className="text-white/45">Available for owner</span>}</td>
-                    <td className="p-4"><div className="flex justify-end gap-1"><Button variant="ghost" size="icon" title="Edit reservation" onClick={() => editReservation(reservation)}><Pencil className="h-4 w-4" /></Button><Button variant="ghost" size="icon" title="Remove reservation" disabled={busyAction === `remove:${reservation.key}`} onClick={() => void removeReservation(reservation)}>{busyAction === `remove:${reservation.key}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}</Button></div></td>
+                  <tr key={reservation.key} className="transition-colors duration-200 hover:bg-white/[0.025]">
+                    <td className="px-4 py-3.5 font-semibold">@{reservation.label}</td>
+                    <td className="px-4 py-3.5 text-white/75">{reservation.ownerName}</td>
+                    <td className="px-4 py-3.5">{reservation.claimedHandles.length ? <span className="inline-flex items-center gap-1.5 text-emerald-300"><Check className="h-3.5 w-3.5" /> Claimed as @{reservation.claimedHandles.join(", @")}</span> : <span className="text-white/40">Available to owner</span>}</td>
+                    <td className="px-4 py-3.5"><div className="flex justify-end gap-1"><Button variant="ghost" size="icon" title="Edit reservation" aria-label={`Edit @${reservation.label}`} onClick={() => editReservation(reservation)} className="h-8 w-8 text-white/40 hover:bg-white/[0.07] hover:text-white focus-visible:ring-[#9b5fc7]"><Pencil className="h-4 w-4" /></Button><Button variant="ghost" size="icon" title="Remove reservation" aria-label={`Remove @${reservation.label}`} disabled={busyAction === `remove:${reservation.key}`} onClick={() => void removeReservation(reservation)} className="h-8 w-8 text-white/30 hover:bg-red-400/10 hover:text-red-300 focus-visible:ring-red-300">{busyAction === `remove:${reservation.key}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}</Button></div></td>
                   </tr>
                 ))}
-                {!loading && filteredReservations.length === 0 && <tr><td colSpan={4} className="p-8 text-center text-white/45">No reserved handles match this view.</td></tr>}
+                {!loading && filteredReservations.length === 0 && <tr><td colSpan={4} className="p-10 text-center text-white/45"><Search className="mx-auto mb-3 h-5 w-5 text-white/20" />No reserved handles match this view.</td></tr>}
               </tbody>
             </table>
           </div>
         </section>
 
-        <section className={registryView === "taken" ? "mt-6" : "hidden"}>
-          <div className="mb-3">
-            <h2 className="text-xl font-bold">Taken handles</h2>
-            <p className="text-sm text-white/45">Every handle currently attached to an account.</p>
+        <section className={registryView === "taken" ? "mt-5" : "hidden"}>
+          <div className="mb-4 flex items-start gap-3">
+            <AtSign className="mt-0.5 h-5 w-5 text-[#c084fc]" aria-hidden="true" />
+            <div>
+              <h2 className="text-xl font-semibold">Taken handles</h2>
+              <p className="mt-0.5 text-sm text-white/45">Handles currently attached to an account.</p>
+            </div>
           </div>
-          <div className="overflow-x-auto border border-white/15">
+          <div className="overflow-x-auto border border-white/10 bg-white/[0.01]">
             <table className="min-w-full divide-y divide-white/10 text-sm">
-              <thead className="bg-white/[0.04] text-left text-xs uppercase tracking-wider text-white/45">
-                <tr><th className="p-4">Handle</th><th className="p-4">Account</th><th className="p-4">Type</th><th className="p-4">Protection</th><th className="p-4 text-right">Manage</th></tr>
+              <thead className="bg-white/[0.025] text-left text-xs font-medium text-white/40">
+                <tr><th className="px-4 py-3">Handle</th><th className="px-4 py-3">Account</th><th className="px-4 py-3">Type</th><th className="px-4 py-3">Protection</th><th className="px-4 py-3 text-right">Actions</th></tr>
               </thead>
               <tbody className="divide-y divide-white/10">
                 {filteredClaims.map((claim) => (
-                  <tr key={claim.handle} className="hover:bg-white/[0.03]">
-                    <td className="p-4 font-semibold">@{claim.handle}</td>
-                    <td className="p-4">{claim.ownerName}</td>
-                    <td className="p-4 capitalize text-white/60">{claim.ownerRole}</td>
-                    <td className="p-4">{claim.reserved ? <span className="text-[#c084fc]">Reserved</span> : <span className="text-white/40">Claimed</span>}</td>
-                    <td className="p-4 text-right"><Button variant="ghost" size="icon" title="Change handle" onClick={() => editClaim(claim)}><Pencil className="h-4 w-4" /></Button></td>
+                  <tr key={claim.handle} className="transition-colors duration-200 hover:bg-white/[0.025]">
+                    <td className="px-4 py-3.5 font-semibold">@{claim.handle}</td>
+                    <td className="px-4 py-3.5 text-white/75">{claim.ownerName}</td>
+                    <td className="px-4 py-3.5 capitalize text-white/50">{claim.ownerRole}</td>
+                    <td className="px-4 py-3.5">{claim.reserved ? <span className="inline-flex items-center gap-1.5 text-[#c084fc]"><ShieldCheck className="h-3.5 w-3.5" /> Reserved</span> : <span className="text-white/40">Claimed</span>}</td>
+                    <td className="px-4 py-3.5 text-right"><Button variant="ghost" size="icon" title="Change handle" aria-label={`Change @${claim.handle}`} onClick={() => editClaim(claim)} className="h-8 w-8 text-white/40 hover:bg-white/[0.07] hover:text-white focus-visible:ring-[#9b5fc7]"><Pencil className="h-4 w-4" /></Button></td>
                   </tr>
                 ))}
-                {!loading && filteredClaims.length === 0 && <tr><td colSpan={5} className="p-8 text-center text-white/45">No taken handles match this view.</td></tr>}
+                {!loading && filteredClaims.length === 0 && <tr><td colSpan={5} className="p-10 text-center text-white/45"><Search className="mx-auto mb-3 h-5 w-5 text-white/20" />No taken handles match this view.</td></tr>}
               </tbody>
             </table>
           </div>
