@@ -195,6 +195,13 @@ service cloud.firestore {
         request.resource.data.createdAt == resource.data.createdAt &&
         request.resource.data.updatedAt == request.time;
       allow delete: if false;
+
+      // Notifications: user can read, mark read, and delete their own notifications.
+      // Creation is reserved for server-side Cloud Functions.
+      match /notifications/{notificationId} {
+        allow read, update, delete: if isAuthenticated() && request.auth.uid == userId;
+        allow create: if false;
+      }
     }
 
     // Exact handles can be checked during authenticated onboarding, but the

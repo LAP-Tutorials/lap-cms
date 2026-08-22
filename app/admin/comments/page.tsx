@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState, type ReactNode } from "react"
 import Link from "next/link"
 import { addDoc, collection, deleteDoc, doc, getDoc, limit, onSnapshot, orderBy, query, serverTimestamp, updateDoc, type Timestamp } from "firebase/firestore"
 import { httpsCallable } from "firebase/functions"
-import { CornerDownRight, ExternalLink, Eye, EyeOff, MessageSquare, Search, Send, ThumbsDown, ThumbsUp, Trash2 } from "lucide-react"
+import { AtSign, CornerDownRight, ExternalLink, Eye, EyeOff, MessageSquare, Search, Send, ThumbsDown, ThumbsUp, Trash2 } from "lucide-react"
 import { db, functions } from "@/lib/firebase"
 import { useAuth } from "@/lib/auth-context"
 import { Button } from "@/components/ui/button"
@@ -49,6 +49,14 @@ type StaffReplyProfile = {
 }
 
 const MAX_REPLY_LENGTH = 2000
+
+function contentMentionsHandle(content: string, handle?: string): boolean {
+  if (!content || !handle) return false
+  const targetHandle = handle.toLowerCase().replace(/^@+/, "").trim()
+  if (!targetHandle) return false
+  const pattern = new RegExp(`(^|[^a-z0-9_.-])@${targetHandle}(?![a-z0-9_-])`, "i")
+  return pattern.test(content)
+}
 
 function MentionText({ content }: { content: string }) {
   const nodes: ReactNode[] = []
@@ -171,6 +179,8 @@ function ModerationRow({
   )
 }
 
+type TypeFilter = "all" | "comment" | "reply" | "mentions"
+
 export default function CommentsModerationPage() {
   const { user } = useAuth()
   const [comments, setComments] = useState<ModeratedEntry[]>([])
@@ -180,7 +190,7 @@ export default function CommentsModerationPage() {
   const [error, setError] = useState("")
   const [searchTerm, setSearchTerm] = useState("")
   const [statusFilter, setStatusFilter] = useState<"all" | ModerationStatus>("all")
-  const [typeFilter, setTypeFilter] = useState<"all" | "comment" | "reply">("all")
+  const [typeFilter, setTypeFilter] = useState<TypeFilter>("all")
   const [busyId, setBusyId] = useState<string | null>(null)
   const [reactionBusyId, setReactionBusyId] = useState<string | null>(null)
   const [reactions, setReactions] = useState<Record<string, CommentReaction>>({})
@@ -201,7 +211,19 @@ export default function CommentsModerationPage() {
     const loadReplyProfile = async () => {
       try {
         const authorSnapshot = await getDoc(doc(db, "authors", user.uid))
-        const authorHandle = typeof authorSnapshot.data()?.handle === "string" ? authorSnapshot.data()?.handle : ""
+        const authorData = authorSnapshot.data()
+        const authorHandle = typeof authorData?.handle === "string" ? authorData.handle : ""
+        const authorName = typeof authorData?.name === "string" ? authorData.name : (user.displayName || "Staff")
+        const authorPhoto = typeof authorData?.avatar === "string" ? authorData.avatar : (user.photoURL || "")
+
+        if (authorHandle && !cancelled) {
+          setReplyProfile({
+            displayName: authorName,
+            handle: authorHandle,
+            photoURL: authorPhoto,
+          })
+        }
+
         let userSnapshot = await getDoc(doc(db, "users", user.uid))
         const current = userSnapshot.data()
 
@@ -216,7 +238,7 @@ export default function CommentsModerationPage() {
           setReplyProfile({
             displayName: data.displayName,
             handle: data.handle,
-            photoURL: typeof data.photoURL === "string" ? data.photoURL : "",
+            photoURL: typeof data.photoURL === "string" ? data.photoURL : authorPhoto,
           })
         }
       } catch (profileError) {
@@ -284,6 +306,8 @@ export default function CommentsModerationPage() {
 
   const filteredThreads = useMemo(() => {
     const needle = searchTerm.trim().toLowerCase()
+    const userHandle = replyProfile?.handle?.toLowerCase()
+
     const matches = (entry: ModeratedEntry) => {
       if (statusFilter !== "all" && entry.status !== statusFilter) return false
       if (!needle) return true
@@ -313,6 +337,15 @@ export default function CommentsModerationPage() {
       } else if (typeFilter === "reply") {
         include = matchingReplies.length > 0
         shownReplies = matchingReplies
+      } else if (typeFilter === "mentions") {
+        const parentMentionsMe = parentMatches && contentMentionsHandle(parent.content, userHandle)
+        const repliesMentioningMe = matchingReplies.filter((reply) =>
+          contentMentionsHandle(reply.content, userHandle)
+        )
+        if (parentMentionsMe || repliesMentioningMe.length > 0) {
+          include = true
+          shownReplies = matchingReplies
+        }
       } else {
         include = parentMatches || matchingReplies.length > 0
         shownReplies = matchingReplies
@@ -323,9 +356,19 @@ export default function CommentsModerationPage() {
         parent.createdAt?.toMillis() || 0,
         ...allReplies.map((reply) => reply.createdAt?.toMillis() || 0),
       )
-      return [{ parent, replies: shownReplies, parentIsContext: !parentMatches, activityAt }]
+      const parentIsContext = typeFilter === "mentions"
+        ? !contentMentionsHandle(parent.content, userHandle)
+        : !parentMatches
+
+      return [{ parent, replies: shownReplies, parentIsContext, activityAt }]
     }).sort((left, right) => right.activityAt - left.activityAt)
-  }, [comments, replies, searchTerm, statusFilter, typeFilter])
+  }, [comments, replies, searchTerm, statusFilter, typeFilter, replyProfile?.handle])
+
+  const mentionsCount = useMemo(() => {
+    const userHandle = replyProfile?.handle?.toLowerCase()
+    if (!userHandle) return 0
+    return allEntries.filter((entry) => contentMentionsHandle(entry.content, userHandle)).length
+  }, [allEntries, replyProfile?.handle])
 
   const shownEntryCount = filteredThreads.reduce((total, thread) => total + 1 + thread.replies.length, 0)
   const hiddenCount = allEntries.filter((entry) => entry.status === "hidden").length
@@ -450,6 +493,7 @@ export default function CommentsModerationPage() {
         {[
           { label: "Comments", value: comments.length, icon: MessageSquare },
           { label: "Replies", value: replies.length, icon: CornerDownRight },
+          { label: "Mentions", value: mentionsCount, icon: AtSign },
           { label: "Hidden", value: hiddenCount, icon: EyeOff },
           { label: "Likes", value: totalLikes, icon: ThumbsUp },
           { label: "Dislikes", value: totalDislikes, icon: ThumbsDown },
@@ -471,9 +515,9 @@ export default function CommentsModerationPage() {
           </div>
           <div className="flex flex-col gap-3 sm:flex-row">
             <div className="flex w-full overflow-x-auto bg-white/[0.025] p-0.5 sm:w-auto" aria-label="Entry type">
-              {(["all", "comment", "reply"] as const).map((type) => (
+              {(["all", "comment", "reply", "mentions"] as const).map((type) => (
                 <button key={type} type="button" onClick={() => setTypeFilter(type)} className={`min-w-0 flex-1 shrink-0 px-3 py-2 text-xs font-medium capitalize transition-colors duration-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#8a2ae3] active:translate-y-px sm:flex-none ${typeFilter === type ? "!bg-[#8a2ae3] !text-white" : "text-white/50 hover:bg-white/5 hover:text-white"}`}>
-                  {type === "all" ? "All" : type === "reply" ? "Replies" : "Comments"}
+                  {type === "all" ? "All" : type === "reply" ? "Replies" : type === "mentions" ? "Mentions" : "Comments"}
                 </button>
               ))}
             </div>
@@ -498,7 +542,29 @@ export default function CommentsModerationPage() {
         </div>
       ) : null}
       {!loading && filteredThreads.length === 0 ? (
-        <div className="border-b border-white/15 py-20 text-center"><MessageSquare className="mx-auto h-8 w-8 text-white/20" /><p className="mt-4 font-medium">No comments found</p><p className="mt-1 text-sm text-white/40">Try another search or filter.</p></div>
+        <div className="border-b border-white/15 py-20 text-center">
+          <MessageSquare className="mx-auto h-8 w-8 text-white/20" />
+          <p className="mt-4 font-medium">
+            {typeFilter === "mentions"
+              ? replyProfile?.handle
+                ? `No mentions found for @${replyProfile.handle}`
+                : "Set your profile handle to view mentions"
+              : "No comments found"}
+          </p>
+          <p className="mt-1 text-sm text-white/40">
+            {typeFilter === "mentions" ? (
+              replyProfile?.handle ? (
+                "You haven't been tagged in any comments or replies matching your search/filters."
+              ) : (
+                <Link href="/admin/profile" className="text-[#8a2ae3] underline hover:text-white">
+                  Go to Profile Settings to configure your handle
+                </Link>
+              )
+            ) : (
+              "Try another search or filter."
+            )}
+          </p>
+        </div>
       ) : null}
 
       <section className="space-y-4 py-5 pb-16" aria-label="Moderation results">

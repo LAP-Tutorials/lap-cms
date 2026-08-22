@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { signOut } from "firebase/auth";
-import { auth } from "@/lib/firebase";
+import { auth, db } from "@/lib/firebase";
+import { collection, onSnapshot, query, where } from "firebase/firestore";
 import { useRouter, usePathname } from "next/navigation";
 import Image from "next/image";
 import { useState, useEffect } from "react";
@@ -17,6 +18,7 @@ import {
   FolderOpen,
   MessageSquare,
   AtSign,
+  Bell,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/button";
@@ -25,10 +27,35 @@ import { useAuth } from "@/lib/auth-context";
 export default function AdminSidebar() {
   const router = useRouter();
   const pathname = usePathname();
-  const { userRole } = useAuth();
+  const { user, userRole } = useAuth();
   const [isOpen, setIsOpen] = useState(false);
+  const [unreadCount, setUnreadCount] = useState(0);
 
-  // Update the useEffect for handling resize and initial state
+  // Subscribe to unread notifications count
+  useEffect(() => {
+    if (!user) {
+      setUnreadCount(0);
+      return;
+    }
+
+    const q = query(
+      collection(db, "users", user.uid, "notifications"),
+      where("read", "==", false)
+    );
+
+    const unsubscribe = onSnapshot(
+      q,
+      (snapshot) => {
+        setUnreadCount(snapshot.size);
+      },
+      (err) => {
+        console.error("Error subscribing to unread notifications count:", err);
+      }
+    );
+
+    return () => unsubscribe();
+  }, [user]);
+
   useEffect(() => {
     const handleResize = () => {
       if (window.innerWidth >= 768) {
@@ -36,15 +63,11 @@ export default function AdminSidebar() {
       }
     };
 
-    // Set initial state
     handleResize();
-
-    // Add event listener for window resize
     window.addEventListener("resize", handleResize);
     return () => window.removeEventListener("resize", handleResize);
   }, []);
 
-  // Replace the useEffect for route changes with this version that only affects mobile
   useEffect(() => {
     if (window.innerWidth < 768) {
       setIsOpen(false);
@@ -56,7 +79,6 @@ export default function AdminSidebar() {
     router.replace("/auth/login");
   };
 
-  // Framer Motion variants for smooth slide animation
   const sidebarVariants = {
     hidden: { x: "-100%", opacity: 0 },
     visible: {
@@ -69,10 +91,9 @@ export default function AdminSidebar() {
     },
   };
 
-  // Helper to add active styling if the link matches the current pathname
   const getLinkClasses = (href: string) =>
     `flex items-center gap-3 py-3 px-4 transition-colors hover:bg-white/10 ${
-      pathname === href ? "border-l-4 border-[#8a2ae3] bg-white/5" : ""
+      pathname === href ? "border-l-4 border-[#8a2ae3] bg-white/5 font-semibold" : ""
     }`;
 
   const navItems = [
@@ -80,6 +101,12 @@ export default function AdminSidebar() {
       href: "/admin",
       label: "Dashboard",
       icon: <LayoutDashboard className="h-5 w-5" />,
+    },
+    {
+      href: "/admin/notifications",
+      label: "Notifications",
+      icon: <Bell className="h-5 w-5" />,
+      badge: unreadCount,
     },
     {
       href: "/admin/articles",
@@ -103,7 +130,6 @@ export default function AdminSidebar() {
       icon: <AtSign className="h-5 w-5" />,
       superOnly: true,
     },
-
     {
       href: "/admin/profile",
       label: "Profile",
@@ -113,7 +139,7 @@ export default function AdminSidebar() {
     (item) =>
       (!item.superOnly || userRole === "super") &&
       (userRole !== "moderator" ||
-        ["/admin", "/admin/comments", "/admin/profile"].includes(item.href)),
+        ["/admin", "/admin/notifications", "/admin/comments", "/admin/profile"].includes(item.href)),
   );
 
   return (
@@ -125,10 +151,25 @@ export default function AdminSidebar() {
           variant="ghost"
           size="icon"
           className="bg-[#121212] hover:bg-[#1a1a1a]"
+          aria-label="Toggle navigation menu"
         >
           {isOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
         </Button>
       </div>
+
+      {/* Mobile notifications link button */}
+      <Link
+        href="/admin/notifications"
+        aria-label={`Notifications ${unreadCount > 0 ? `(${unreadCount} unread)` : ""}`}
+        className="fixed top-[env(safe-area-inset-top,1rem)] right-4 z-[1000] md:hidden mt-3 flex items-center justify-center h-10 w-10 bg-[#121212] hover:bg-[#1a1a1a] text-white/80 hover:text-white transition-colors"
+      >
+        <Bell className="h-5 w-5" />
+        {unreadCount > 0 && (
+          <span className="absolute top-1 right-1 flex h-4 min-w-[1rem] items-center justify-center bg-[#8a2be2] px-1 font-mono text-[10px] font-bold text-white shadow-[0_0_8px_rgba(138,43,226,0.6)]">
+            {unreadCount > 99 ? "99+" : unreadCount}
+          </span>
+        )}
+      </Link>
 
       <AnimatePresence>
         {isOpen && (
@@ -152,7 +193,7 @@ export default function AdminSidebar() {
               className="fixed top-0 left-0 z-[999] w-64 border-r border-white/10 bg-[#121212] flex flex-col h-screen pt-safe"
             >
               <div className="flex flex-col h-full">
-                {/* Logo (centered and rounded) */}
+                {/* Logo */}
                 <div className="flex justify-center mt-6 mb-8">
                   <Image
                     src="/logos/LAP-Logo-Color.png"
@@ -174,8 +215,15 @@ export default function AdminSidebar() {
                       href={item.href}
                       className={getLinkClasses(item.href)}
                     >
-                      {item.icon}
-                      <span>{item.label}</span>
+                      <span className="relative flex items-center shrink-0">
+                        {item.icon}
+                      </span>
+                      <span className="flex-1 truncate">{item.label}</span>
+                      {item.badge !== undefined && item.badge > 0 && (
+                        <span className="ml-auto bg-[#8a2be2] text-white text-[10px] font-mono font-bold px-1.5 py-0.5 rounded-full min-w-[1.25rem] text-center shadow-[0_0_8px_rgba(138,43,226,0.5)]">
+                          {item.badge > 99 ? "99+" : item.badge}
+                        </span>
+                      )}
                     </Link>
                   ))}
                 </nav>

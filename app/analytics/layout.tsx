@@ -56,25 +56,26 @@ export default function AnalyticsLayout({
 
   if (!user || !["super", "admin", "manager"].includes(userRole || "")) {
     return (
-      <div className="flex h-screen w-full items-center justify-center bg-background p-4">
-        <Card className="w-full max-w-md">
-          <CardHeader className="text-center">
-            <div className="flex justify-center mb-4">
-              <div className="p-3 rounded-full bg-destructive/10">
-                <Lock className="h-6 w-6 text-destructive" />
-              </div>
+      <div className="flex min-h-screen w-full items-center justify-center bg-[#121212] p-4 text-white">
+        <div className="w-full max-w-md border border-white/15 bg-white/[0.03] p-8 text-center backdrop-blur">
+          <div className="flex justify-center mb-5">
+            <div className="flex h-14 w-14 items-center justify-center rounded-full bg-red-500/10 border border-red-500/25 text-red-400">
+              <Lock className="h-6 w-6" />
             </div>
-            <CardTitle>Access Denied</CardTitle>
-            <CardDescription>
-              You do not have permission to access the analytics area.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="flex justify-center">
-            <Button variant="outline" onClick={() => router.replace("/")}>
-              Return to Home
+          </div>
+          <h2 className="text-xl font-bold uppercase tracking-wider text-white">Access Denied</h2>
+          <p className="mt-2 text-sm text-white/60 leading-6">
+            You do not have permission to access the analytics area.
+          </p>
+          <div className="mt-6 flex justify-center gap-3">
+            <Button
+              onClick={() => router.replace("/admin")}
+              className="bg-[#8a2ae3] text-white hover:bg-[#7822c7] transition-colors font-semibold"
+            >
+              Return to Dashboard
             </Button>
-          </CardContent>
-        </Card>
+          </div>
+        </div>
       </div>
     )
   }

@@ -66,6 +66,8 @@ export default function HandlesPage() {
   const [loading, setLoading] = useState(true)
   const [busyAction, setBusyAction] = useState("")
   const [reservationHandle, setReservationHandle] = useState("")
+  const [reservationOwnerUid, setReservationOwnerUid] = useState("")
+  const [editingReservationKey, setEditingReservationKey] = useState<string | null>(null)
   const [accountUid, setAccountUid] = useState("")
   const [accountHandle, setAccountHandle] = useState("")
   const [officialOwner, setOfficialOwner] = useState("")
@@ -126,14 +128,25 @@ export default function HandlesPage() {
     if (!reservationHandle) return
     setBusyAction("reservation")
     try {
-      const save = httpsCallable(functions, "upsertHandleReservation")
-      await save({ handle: reservationHandle })
+      const save = httpsCallable<
+        { handle: string; ownerUid?: string },
+        { key: string; handle: string; ownerUid?: string }
+      >(functions, "upsertHandleReservation")
+      await save({
+        handle: reservationHandle,
+        ownerUid: reservationOwnerUid || undefined,
+      })
+      const assignedOwner = registry.owners.find((o) => o.uid === reservationOwnerUid)
       toast({
-        title: "Reservation saved",
-        description: `@${reservationHandle} is now protected.`,
+        title: editingReservationKey ? "Reservation updated" : "Reservation saved",
+        description: reservationOwnerUid
+          ? `@${reservationHandle} is now assigned to ${assignedOwner?.name || "the selected user"}.`
+          : `@${reservationHandle} is now protected.`,
         variant: "success",
       })
       setReservationHandle("")
+      setReservationOwnerUid("")
+      setEditingReservationKey(null)
       await loadRegistry()
     } catch (error: any) {
       toast({
@@ -144,6 +157,12 @@ export default function HandlesPage() {
     } finally {
       setBusyAction("")
     }
+  }
+
+  const cancelReservationEdit = () => {
+    setReservationHandle("")
+    setReservationOwnerUid("")
+    setEditingReservationKey(null)
   }
 
   const removeReservation = async (reservation: HandleReservation) => {
@@ -157,6 +176,9 @@ export default function HandlesPage() {
         description: "An existing claimed handle was not changed.",
         variant: "success",
       })
+      if (editingReservationKey === reservation.key) {
+        cancelReservationEdit()
+      }
       await loadRegistry()
     } catch (error: any) {
       toast({
@@ -228,6 +250,8 @@ export default function HandlesPage() {
 
   const editReservation = (reservation: HandleReservation) => {
     setReservationHandle(cleanHandle(reservation.label))
+    setReservationOwnerUid(reservation.ownerUid || "")
+    setEditingReservationKey(reservation.key)
     window.scrollTo({ top: 0, behavior: "smooth" })
   }
 
@@ -301,8 +325,14 @@ export default function HandlesPage() {
                 <ShieldCheck className="h-4 w-4" />
               </span>
               <div>
-                <h2 className="font-semibold">Reserve a handle</h2>
-                <p className="mt-0.5 text-sm text-white/45">Protect a name until you assign it.</p>
+                <h2 className="font-semibold">
+                  {editingReservationKey ? "Edit reserved handle" : "Reserve a handle"}
+                </h2>
+                <p className="mt-0.5 text-sm text-white/45">
+                  {editingReservationKey
+                    ? "Update handle or change the assigned user."
+                    : "Protect a name or assign it to a specific user."}
+                </p>
               </div>
             </div>
             <div className="space-y-3">
@@ -315,15 +345,43 @@ export default function HandlesPage() {
                   className="border-white/15 bg-white/[0.025] pl-8 focus-visible:ring-[#8a2ae3]"
                 />
               </div>
-              <Button
-                onClick={saveReservation}
-                disabled={busyAction === "reservation" || reservationHandle.length < 3}
-                size="sm"
-                className="mt-1"
-              >
-                {busyAction === "reservation" && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                Save reservation
-              </Button>
+
+              <div className="space-y-1">
+                <label className="text-xs text-white/50">Assign to user (optional):</label>
+                <select
+                  value={reservationOwnerUid}
+                  onChange={(event) => setReservationOwnerUid(event.target.value)}
+                  className="h-10 w-full border border-white/15 bg-[#151515] px-3 text-sm text-white outline-none transition-colors focus:border-[#8a2ae3] focus-visible:ring-2 focus-visible:ring-[#8a2ae3]"
+                >
+                  <option value="">Unassigned (Protected from all users)</option>
+                  {registry.owners.map((owner) => (
+                    <option key={owner.uid} value={owner.uid}>
+                      {owner.name} · {owner.role}{owner.handle ? ` · @${owner.handle}` : " · no handle"}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="flex items-center gap-2 pt-1">
+                <Button
+                  onClick={saveReservation}
+                  disabled={busyAction === "reservation" || reservationHandle.length < 3}
+                  size="sm"
+                >
+                  {busyAction === "reservation" && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  {editingReservationKey ? "Update reservation" : "Save reservation"}
+                </Button>
+                {(editingReservationKey || reservationHandle || reservationOwnerUid) && (
+                  <Button
+                    onClick={cancelReservationEdit}
+                    variant="ghost"
+                    size="sm"
+                    className="text-white/50 hover:text-white"
+                  >
+                    Cancel
+                  </Button>
+                )}
+              </div>
             </div>
           </div>
 
@@ -338,31 +396,59 @@ export default function HandlesPage() {
               </div>
             </div>
             <div className="space-y-3">
-              <select
-                value={accountUid}
-                onChange={(event) => {
-                  const uid = event.target.value
-                  setAccountUid(uid)
-                  setAccountHandle(registry.owners.find((owner) => owner.uid === uid)?.handle || "")
-                }}
-                className="h-10 w-full border border-white/15 bg-[#151515] px-3 text-sm text-white outline-none transition-colors focus:border-[#8a2ae3] focus-visible:ring-2 focus-visible:ring-[#8a2ae3]"
-              >
-                <option value="">Choose account</option>
-                {registry.owners.map((owner) => (
-                  <option key={owner.uid} value={owner.uid}>
-                    {owner.name} · {owner.role}{owner.handle ? ` · @${owner.handle}` : " · no handle"}
-                  </option>
-                ))}
-              </select>
-              <div className="relative">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40">@</span>
-                <Input
-                  value={accountHandle}
-                  onChange={(event) => setAccountHandle(cleanHandle(event.target.value))}
-                  placeholder="new_handle"
-                  className="border-white/15 bg-white/[0.025] pl-8 focus-visible:ring-[#8a2ae3]"
-                />
+              <div className="space-y-1">
+                <label className="text-xs text-white/50">1. Select account:</label>
+                <select
+                  value={accountUid}
+                  onChange={(event) => {
+                    const uid = event.target.value
+                    setAccountUid(uid)
+                    setAccountHandle(registry.owners.find((owner) => owner.uid === uid)?.handle || "")
+                  }}
+                  className="h-10 w-full border border-white/15 bg-[#151515] px-3 text-sm text-white outline-none transition-colors focus:border-[#8a2ae3] focus-visible:ring-2 focus-visible:ring-[#8a2ae3]"
+                >
+                  <option value="">Choose account</option>
+                  {registry.owners.map((owner) => (
+                    <option key={owner.uid} value={owner.uid}>
+                      {owner.name} · {owner.role}{owner.handle ? ` · @${owner.handle}` : " · no handle"}
+                    </option>
+                  ))}
+                </select>
               </div>
+
+              <div className="space-y-1">
+                <label className="text-xs text-white/50">2. Pick a reserved handle (optional):</label>
+                <select
+                  value={registry.reservations.some((r) => r.label === accountHandle) ? accountHandle : ""}
+                  onChange={(event) => {
+                    if (event.target.value) {
+                      setAccountHandle(cleanHandle(event.target.value))
+                    }
+                  }}
+                  className="h-10 w-full border border-white/15 bg-[#151515] px-3 text-sm text-white outline-none transition-colors focus:border-[#8a2ae3] focus-visible:ring-2 focus-visible:ring-[#8a2ae3]"
+                >
+                  <option value="">-- Or choose from reserved handles --</option>
+                  {registry.reservations.map((res) => (
+                    <option key={res.key} value={res.label}>
+                      @{res.label} ({res.claimedHandles.length ? "Claimed" : res.ownerUid ? `Assigned to ${res.ownerName}` : "Unassigned"})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-xs text-white/50">3. Handle to apply:</label>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40">@</span>
+                  <Input
+                    value={accountHandle}
+                    onChange={(event) => setAccountHandle(cleanHandle(event.target.value))}
+                    placeholder="new_handle"
+                    className="border-white/15 bg-white/[0.025] pl-8 focus-visible:ring-[#8a2ae3]"
+                  />
+                </div>
+              </div>
+
               <Button
                 onClick={changeHandle}
                 disabled={busyAction === "handle" || accountHandle.length < 3 || !accountUid}
@@ -446,20 +532,72 @@ export default function HandlesPage() {
             </div>
           </div>
           <div className="overflow-x-auto border border-white/10 bg-white/[0.01]">
-            <table className="min-w-[44rem] divide-y divide-white/10 text-sm">
+            <table className="w-full min-w-[44rem] divide-y divide-white/10 text-sm">
               <thead className="bg-white/[0.025] text-left text-xs font-medium text-white/40">
-                <tr><th className="px-4 py-3">Reservation</th><th className="px-4 py-3">Assigned to</th><th className="px-4 py-3">Status</th><th className="px-4 py-3 text-right">Actions</th></tr>
+                <tr>
+                  <th className="w-1/4 px-4 py-3">Reservation</th>
+                  <th className="w-1/4 px-4 py-3">Assigned to</th>
+                  <th className="px-4 py-3">Status</th>
+                  <th className="w-28 px-4 py-3 text-right">Actions</th>
+                </tr>
               </thead>
               <tbody className="divide-y divide-white/10">
                 {filteredReservations.map((reservation) => (
                   <tr key={reservation.key} className="transition-colors duration-200 hover:bg-white/[0.025]">
                     <td className="px-4 py-3.5 font-semibold">@{reservation.label}</td>
                     <td className="px-4 py-3.5 text-white/75">{reservation.ownerName}</td>
-                    <td className="px-4 py-3.5">{reservation.claimedHandles.length ? <span className="inline-flex items-center gap-1.5 text-emerald-300"><Check className="h-3.5 w-3.5" /> Claimed as @{reservation.claimedHandles.join(", @")}</span> : <span className="text-white/40">Protected</span>}</td>
-                    <td className="px-4 py-3.5"><div className="flex justify-end gap-1"><Button variant="ghost" size="icon" title="Edit reservation" aria-label={`Edit @${reservation.label}`} onClick={() => editReservation(reservation)} className="h-8 w-8 text-white/40 hover:bg-white/[0.07] hover:text-white focus-visible:ring-[#8a2ae3]"><Pencil className="h-4 w-4" /></Button><Button variant="ghost" size="icon" title="Remove reservation" aria-label={`Remove @${reservation.label}`} disabled={busyAction === `remove:${reservation.key}`} onClick={() => void removeReservation(reservation)} className="h-8 w-8 text-white/30 hover:bg-red-400/10 hover:text-red-300 focus-visible:ring-red-300">{busyAction === `remove:${reservation.key}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}</Button></div></td>
+                    <td className="px-4 py-3.5">
+                      {reservation.claimedHandles.length ? (
+                        <span className="inline-flex items-center gap-1.5 text-emerald-300">
+                          <Check className="h-3.5 w-3.5" /> Claimed as @{reservation.claimedHandles.join(", @")}
+                        </span>
+                      ) : reservation.ownerUid ? (
+                        <span className="inline-flex items-center gap-1.5 text-[#8a2ae3]">
+                          <ShieldCheck className="h-3.5 w-3.5" /> Assigned to {reservation.ownerName}
+                        </span>
+                      ) : (
+                        <span className="text-white/40">Protected (Unassigned)</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3.5">
+                      <div className="flex justify-end gap-1">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          title="Edit reservation"
+                          aria-label={`Edit @${reservation.label}`}
+                          onClick={() => editReservation(reservation)}
+                          className="h-8 w-8 text-white/40 hover:bg-white/[0.07] hover:text-white focus-visible:ring-[#8a2ae3]"
+                        >
+                          <Pencil className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          title="Remove reservation"
+                          aria-label={`Remove @${reservation.label}`}
+                          disabled={busyAction === `remove:${reservation.key}`}
+                          onClick={() => void removeReservation(reservation)}
+                          className="h-8 w-8 text-white/30 hover:bg-red-400/10 hover:text-red-300 focus-visible:ring-red-300"
+                        >
+                          {busyAction === `remove:${reservation.key}` ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <Trash2 className="h-4 w-4" />
+                          )}
+                        </Button>
+                      </div>
+                    </td>
                   </tr>
                 ))}
-                {!loading && filteredReservations.length === 0 && <tr><td colSpan={4} className="p-10 text-center text-white/45"><Search className="mx-auto mb-3 h-5 w-5 text-white/20" />No reserved handles match this view.</td></tr>}
+                {!loading && filteredReservations.length === 0 && (
+                  <tr>
+                    <td colSpan={4} className="p-10 text-center text-white/45">
+                      <Search className="mx-auto mb-3 h-5 w-5 text-white/20" />
+                      No reserved handles match this view.
+                    </td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>
@@ -474,9 +612,15 @@ export default function HandlesPage() {
             </div>
           </div>
           <div className="overflow-x-auto border border-white/10 bg-white/[0.01]">
-            <table className="min-w-[52rem] divide-y divide-white/10 text-sm">
+            <table className="w-full min-w-[52rem] divide-y divide-white/10 text-sm">
               <thead className="bg-white/[0.025] text-left text-xs font-medium text-white/40">
-                <tr><th className="px-4 py-3">Handle</th><th className="px-4 py-3">Account</th><th className="px-4 py-3">Type</th><th className="px-4 py-3">Protection</th><th className="px-4 py-3 text-right">Actions</th></tr>
+                <tr>
+                  <th className="w-1/4 px-4 py-3">Handle</th>
+                  <th className="w-1/4 px-4 py-3">Account</th>
+                  <th className="w-1/6 px-4 py-3">Type</th>
+                  <th className="px-4 py-3">Protection</th>
+                  <th className="w-24 px-4 py-3 text-right">Actions</th>
+                </tr>
               </thead>
               <tbody className="divide-y divide-white/10">
                 {filteredClaims.map((claim) => (

@@ -1,6 +1,7 @@
 import { onSchedule } from "firebase-functions/v2/scheduler";
 import { onCall, HttpsError } from "firebase-functions/v2/https";
 import {
+  onDocumentCreated,
   onDocumentDeleted,
   onDocumentWritten,
 } from "firebase-functions/v2/firestore";
@@ -78,6 +79,9 @@ function normalizeTeamHandle(value: unknown) {
     ? value.trim().toLowerCase().replace(/^@+/, "").replace(/\s+/g, "_")
     : "";
 }
+
+
+
 
 function getHandleReservationKey(value: unknown) {
   return typeof value === "string"
@@ -169,12 +173,12 @@ async function claimHandleForUser(
     }
 
     const reservationOwnerUid = reservationSnapshot.data()?.ownerUid;
-    const canAssignUnassignedReservation =
-      options.allowUnassignedReservation && !reservationOwnerUid;
+    const canAssignReservation =
+      options.allowUnassignedReservation || reservationOwnerUid === uid;
     if (
       reservationSnapshot.exists &&
       reservationOwnerUid !== uid &&
-      !canAssignUnassignedReservation
+      !canAssignReservation
     ) {
       throw new HttpsError(
         "already-exists",
@@ -194,7 +198,7 @@ async function claimHandleForUser(
     }
 
     const timestamp = admin.firestore.FieldValue.serverTimestamp();
-    if (reservationSnapshot.exists && canAssignUnassignedReservation) {
+    if (reservationSnapshot.exists && options.allowUnassignedReservation) {
       transaction.set(
         reservationRef,
         { ownerUid: uid, updatedAt: timestamp },
@@ -494,9 +498,24 @@ export const upsertHandleReservation = onCall(
       throw new HttpsError("invalid-argument", "That reservation is not valid.");
     }
 
+    const requestedOwnerUid =
+      typeof request.data?.ownerUid === "string"
+        ? request.data.ownerUid.trim()
+        : "";
+
+    if (requestedOwnerUid) {
+      const [userDoc, authorDoc] = await Promise.all([
+        firestore.collection("users").doc(requestedOwnerUid).get(),
+        firestore.collection("authors").doc(requestedOwnerUid).get(),
+      ]);
+      if (!userDoc.exists && !authorDoc.exists) {
+        throw new HttpsError("not-found", "The selected user account does not exist.");
+      }
+    }
+
     await firestore.collection("handleReservations").doc(key).set(
       {
-        ownerUid: admin.firestore.FieldValue.delete(),
+        ownerUid: requestedOwnerUid ? requestedOwnerUid : admin.firestore.FieldValue.delete(),
         label: handle,
         reason: "manual",
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -504,7 +523,7 @@ export const upsertHandleReservation = onCall(
       },
       { merge: true }
     );
-    return { key, handle };
+    return { key, handle, ownerUid: requestedOwnerUid };
   }
 );
 
@@ -2431,5 +2450,391 @@ export const checkScheduledPosts = onSchedule(
     } catch (error) {
       logger.error("Error in checkScheduledPosts", error);
     }
+  }
+);
+
+// ---------------------------------------------------------------------------
+// NOTIFICATION SYSTEM TRIGGERS & HELPERS
+// ---------------------------------------------------------------------------
+
+function extractMentionHandles(text: string): string[] {
+  if (typeof text !== "string") return [];
+  const mentionPattern = /(?:^|[^a-z0-9_.-])@([a-z0-9_-]{3,20})/gi;
+  const handles = new Set<string>();
+  for (const match of text.matchAll(mentionPattern)) {
+    if (match[1]) {
+      handles.add(match[1].toLowerCase());
+    }
+  }
+  return [...handles];
+}
+
+async function resolveHandlesToUids(
+  handles: string[]
+): Promise<Map<string, string>> {
+  const result = new Map<string, string>();
+  if (handles.length === 0) return result;
+  const firestore = getDb();
+  await Promise.all(
+    handles.map(async (handle) => {
+      try {
+        const snap = await firestore.collection("handles").doc(handle).get();
+        if (snap.exists && typeof snap.data()?.uid === "string") {
+          result.set(handle, snap.data()!.uid);
+        }
+      } catch (e) {
+        logger.error(`Error resolving handle ${handle}:`, e);
+      }
+    })
+  );
+  return result;
+}
+
+interface NotificationPayload {
+  userId: string;
+  type: "mention" | "new_comment" | "new_post";
+  title: string;
+  message: string;
+  link: string;
+  metadata?: Record<string, any>;
+}
+
+async function sendNotification(payload: NotificationPayload) {
+  try {
+    const firestore = getDb();
+    await firestore
+      .collection("users")
+      .doc(payload.userId)
+      .collection("notifications")
+      .add({
+        userId: payload.userId,
+        type: payload.type,
+        title: payload.title,
+        message: payload.message,
+        link: payload.link,
+        read: false,
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        metadata: payload.metadata || {},
+      });
+  } catch (error) {
+    logger.error(`Error sending notification to user ${payload.userId}:`, error);
+  }
+}
+
+export const onCommentCreated = onDocumentCreated(
+  {
+    document: "comments/{commentId}",
+    region: "europe-west1",
+  },
+  async (event) => {
+    const snapshot = event.data;
+    if (!snapshot) return;
+    const comment = snapshot.data();
+    if (!comment || comment.status !== "visible") return;
+
+    const commentId = event.params.commentId;
+    const authorId = comment.authorId || "";
+    const authorName = comment.authorName || "Someone";
+    const articleTitle = comment.articleTitle || "an article";
+    const articleSlug = comment.articleSlug || "";
+    const content = typeof comment.content === "string" ? comment.content : "";
+    const snippet = content.length > 100 ? `${content.slice(0, 97)}...` : content;
+    const link = `/posts/${articleSlug}#comments`;
+
+    const notifiedUids = new Set<string>();
+    if (authorId) notifiedUids.add(authorId);
+
+    // 1. Mentions
+    const mentionedHandles = extractMentionHandles(content);
+    if (mentionedHandles.length > 0) {
+      const handleToUid = await resolveHandlesToUids(mentionedHandles);
+      for (const [handle, targetUid] of handleToUid.entries()) {
+        if (!notifiedUids.has(targetUid)) {
+          notifiedUids.add(targetUid);
+          await sendNotification({
+            userId: targetUid,
+            type: "mention",
+            title: `${authorName} mentioned you`,
+            message: `In a comment on "${articleTitle}": "${snippet}"`,
+            link,
+            metadata: {
+              articleId: comment.articleId,
+              articleSlug,
+              commentId,
+              authorId,
+              authorName,
+              authorHandle: comment.authorHandle || handle,
+            },
+          });
+        }
+      }
+    }
+
+    // 2. Moderators and Staff
+    try {
+      const firestore = getDb();
+      const staffSnapshot = await firestore
+        .collection("authors")
+        .where("role", "in", ["super", "admin", "manager", "moderator"])
+        .get();
+
+      for (const staffDoc of staffSnapshot.docs) {
+        const staffUid = staffDoc.id;
+        if (!notifiedUids.has(staffUid)) {
+          notifiedUids.add(staffUid);
+          await sendNotification({
+            userId: staffUid,
+            type: "new_comment",
+            title: `New comment from ${authorName}`,
+            message: `On "${articleTitle}": "${snippet}"`,
+            link,
+            metadata: {
+              articleId: comment.articleId,
+              articleSlug,
+              commentId,
+              authorId,
+              authorName,
+              authorHandle: comment.authorHandle,
+              isStaffAlert: true,
+            },
+          });
+        }
+      }
+    } catch (staffError) {
+      logger.error("Error notifying staff of new comment:", staffError);
+    }
+  }
+);
+
+export const onCommentReplyCreated = onDocumentCreated(
+  {
+    document: "commentReplies/{replyId}",
+    region: "europe-west1",
+  },
+  async (event) => {
+    const snapshot = event.data;
+    if (!snapshot) return;
+    const reply = snapshot.data();
+    if (!reply || reply.status !== "visible") return;
+
+    const replyId = event.params.replyId;
+    const parentCommentId = reply.parentCommentId || "";
+    const authorId = reply.authorId || "";
+    const authorName = reply.authorName || "Someone";
+    const articleTitle = reply.articleTitle || "an article";
+    const articleSlug = reply.articleSlug || "";
+    const content = typeof reply.content === "string" ? reply.content : "";
+    const snippet = content.length > 100 ? `${content.slice(0, 97)}...` : content;
+    const link = `/posts/${articleSlug}#comments`;
+
+    const notifiedUids = new Set<string>();
+    if (authorId) notifiedUids.add(authorId);
+
+    // 1. Mentions
+    const mentionedHandles = extractMentionHandles(content);
+    if (mentionedHandles.length > 0) {
+      const handleToUid = await resolveHandlesToUids(mentionedHandles);
+      for (const [handle, targetUid] of handleToUid.entries()) {
+        if (!notifiedUids.has(targetUid)) {
+          notifiedUids.add(targetUid);
+          await sendNotification({
+            userId: targetUid,
+            type: "mention",
+            title: `${authorName} mentioned you`,
+            message: `In a reply on "${articleTitle}": "${snippet}"`,
+            link,
+            metadata: {
+              articleId: reply.articleId,
+              articleSlug,
+              commentId: replyId,
+              parentCommentId,
+              authorId,
+              authorName,
+              authorHandle: reply.authorHandle || handle,
+            },
+          });
+        }
+      }
+    }
+
+    // 2. Parent comment author notification
+    if (parentCommentId) {
+      try {
+        const firestore = getDb();
+        const parentDoc = await firestore
+          .collection("comments")
+          .doc(parentCommentId)
+          .get();
+        if (parentDoc.exists) {
+          const parentAuthorId = parentDoc.data()?.authorId;
+          if (parentAuthorId && !notifiedUids.has(parentAuthorId)) {
+            notifiedUids.add(parentAuthorId);
+            await sendNotification({
+              userId: parentAuthorId,
+              type: "mention",
+              title: `${authorName} replied to your comment`,
+              message: `On "${articleTitle}": "${snippet}"`,
+              link,
+              metadata: {
+                articleId: reply.articleId,
+                articleSlug,
+                commentId: replyId,
+                parentCommentId,
+                authorId,
+                authorName,
+                authorHandle: reply.authorHandle,
+              },
+            });
+          }
+        }
+      } catch (parentError) {
+        logger.error("Error notifying parent comment author:", parentError);
+      }
+    }
+
+    // 3. Moderators and Staff
+    try {
+      const firestore = getDb();
+      const staffSnapshot = await firestore
+        .collection("authors")
+        .where("role", "in", ["super", "admin", "manager", "moderator"])
+        .get();
+
+      for (const staffDoc of staffSnapshot.docs) {
+        const staffUid = staffDoc.id;
+        if (!notifiedUids.has(staffUid)) {
+          notifiedUids.add(staffUid);
+          await sendNotification({
+            userId: staffUid,
+            type: "new_comment",
+            title: `New reply from ${authorName}`,
+            message: `On "${articleTitle}": "${snippet}"`,
+            link,
+            metadata: {
+              articleId: reply.articleId,
+              articleSlug,
+              commentId: replyId,
+              parentCommentId,
+              authorId,
+              authorName,
+              authorHandle: reply.authorHandle,
+              isStaffAlert: true,
+            },
+          });
+        }
+      }
+    } catch (staffError) {
+      logger.error("Error notifying staff of new reply:", staffError);
+    }
+  }
+);
+
+export const onArticlePublished = onDocumentWritten(
+  {
+    document: "articles/{articleId}",
+    region: "europe-west1",
+  },
+  async (event) => {
+    const before = event.data?.before?.data();
+    const after = event.data?.after?.data();
+    if (!after) return; // Deleted article
+
+    const wasPublished = before?.publish === true;
+    const isPublished = after.publish === true;
+
+    // Trigger only when transitioning from not published to published
+    if (!wasPublished && isPublished) {
+      const articleId = event.params.articleId;
+      const title = after.title || "New Article";
+      const slug = after.slug || articleId;
+      const img = after.img || "";
+      const link = `/posts/${slug}`;
+
+      logger.info(`Article "${title}" published! Notifying readers...`);
+
+      try {
+        const firestore = getDb();
+        const usersSnapshot = await firestore.collection("users").get();
+        if (usersSnapshot.empty) {
+          logger.info("No registered users found to notify for new post.");
+          return;
+        }
+
+        const BATCH_SIZE = 400;
+        let batch = firestore.batch();
+        let count = 0;
+
+        for (const userDoc of usersSnapshot.docs) {
+          const notificationRef = firestore
+            .collection("users")
+            .doc(userDoc.id)
+            .collection("notifications")
+            .doc();
+
+          batch.set(notificationRef, {
+            userId: userDoc.id,
+            type: "new_post",
+            title: "New Post Published",
+            message: `"${title}" is now live!`,
+            link,
+            read: false,
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+            metadata: {
+              articleId,
+              articleSlug: slug,
+              title,
+              img,
+            },
+          });
+
+          count++;
+          if (count % BATCH_SIZE === 0) {
+            await batch.commit();
+            batch = firestore.batch();
+          }
+        }
+
+        if (count % BATCH_SIZE !== 0) {
+          await batch.commit();
+        }
+
+        logger.info(`Successfully sent new post notification to ${count} users.`);
+      } catch (publishError) {
+        logger.error("Error notifying readers of published article:", publishError);
+      }
+    }
+  }
+);
+
+export const checkPasswordResetEligibility = onCall(
+  { region: "europe-west1", minInstances: 0 },
+  async (request) => {
+    const rawEmail = request.data?.email;
+    if (typeof rawEmail !== "string" || !rawEmail.trim()) {
+      throw new HttpsError("invalid-argument", "An email address is required.");
+    }
+    const email = rawEmail.trim().toLowerCase();
+
+    try {
+      const authUser = await admin.auth().getUserByEmail(email);
+      const authorDoc = await getDb().collection("authors").doc(authUser.uid).get();
+      if (authorDoc.exists) {
+        const role = authorDoc.data()?.role;
+        if (["super", "admin", "manager", "moderator"].includes(role)) {
+          return {
+            allowed: false,
+            isStaff: true,
+            message: "Contact admin or super admin to reset your password.",
+          };
+        }
+      }
+    } catch (err: any) {
+      if (err?.code === "auth/user-not-found") {
+        return { allowed: true, isStaff: false };
+      }
+      logger.error("Error checking password reset eligibility:", err);
+    }
+
+    return { allowed: true, isStaff: false };
   }
 );
