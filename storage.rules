@@ -34,6 +34,16 @@ service firebase.storage {
       ) || isCmsUser();
     }
 
+    // Comment and reply attachments: clean sanitized images uploaded by the authenticated author.
+    match /comments/{userId}/{fileName} {
+      allow read: if true;
+      allow create, update: if request.auth != null &&
+        request.auth.uid == userId &&
+        request.resource.size <= 2 * 1024 * 1024 &&
+        request.resource.contentType.matches('image/(webp|jpeg|png)');
+      allow delete: if (request.auth != null && request.auth.uid == userId) || isCmsUser();
+    }
+
     match /{allPaths=**} {
       allow read: if true;
       allow write: if isCmsUser();

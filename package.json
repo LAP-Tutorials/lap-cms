@@ -49,6 +49,7 @@
     "firebase": "^11.4.0",
     "framer-motion": "^12.4.10",
     "get-orientation": "^1.1.2",
+    "heic2any": "^0.0.4",
     "input-otp": "^1.4.2",
     "jszip": "^3.10.1",
     "lucide-react": "^0.477.0",
