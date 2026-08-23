@@ -1077,62 +1077,141 @@ export const createTeamMember = onCall(
       );
     }
 
+    const cleanEmail = email.trim().toLowerCase();
+    const cleanName = name.trim();
     const optionalString = (value: unknown) =>
       typeof value === "string" ? value : "";
 
-    const newUser = await admin
-      .auth()
-      .createUser({
-        email: email.trim(),
-        password,
-        displayName: name.trim(),
-      })
-      .catch((error) => {
-        logger.error("Failed to create Auth user", error);
-        if (error?.code === "auth/email-already-exists") {
-          throw new HttpsError(
-            "already-exists",
-            "A user with this email already exists."
-          );
-        }
-        throw new HttpsError("internal", "Failed to create the user account.");
-      });
+    let targetUid = "";
+    let isNewAuthUser = false;
+    let existingAuthUser: admin.auth.UserRecord | null = null;
 
     try {
-      const authorData = {
-        uid: newUser.uid,
-        name: name.trim(),
-        city: optionalString(city),
-        job: optionalString(job),
-        role,
-        showOnTeam: role !== "moderator",
-        avatar: optionalString(avatar),
-        imgAlt: optionalString(imgAlt),
-        biography: { body: "", summary: "" },
-        slug: optionalString(slug),
-        socials:
-          typeof socials === "object" && socials !== null ? socials : {},
-        createdAt: new Date().toISOString(),
-        dateJoined: admin.firestore.FieldValue.serverTimestamp(),
-      };
-      await getDb().collection("authors").doc(newUser.uid).set(authorData);
-    } catch (error) {
-      await getDb()
-        .collection("authors")
-        .doc(newUser.uid)
-        .delete()
-        .catch((cleanupError) => {
-          logger.error("Failed to roll back author profile", cleanupError);
-        });
-      await admin.auth().deleteUser(newUser.uid).catch((cleanupError) => {
-        logger.error("Failed to roll back Auth user", cleanupError);
-      });
-      logger.error("Failed to create author profile", error);
-      if (error instanceof HttpsError) throw error;
-      throw new HttpsError("internal", "Failed to create the author profile.");
+      existingAuthUser = await admin.auth().getUserByEmail(cleanEmail);
+      targetUid = existingAuthUser.uid;
+    } catch (err: any) {
+      if (err?.code !== "auth/user-not-found") {
+        logger.error("Error looking up existing user by email", err);
+      }
     }
 
-    return { uid: newUser.uid };
+    if (existingAuthUser) {
+      targetUid = existingAuthUser.uid;
+      const existingAuthorDoc = await getDb().collection("authors").doc(targetUid).get();
+      if (existingAuthorDoc.exists) {
+        const existingRole = existingAuthorDoc.data()?.role;
+        if (callerRole === "admin" && (existingRole === "super" || existingRole === "admin")) {
+          throw new HttpsError(
+            "permission-denied",
+            "Admins cannot modify existing admin or super admin team members."
+          );
+        }
+      }
+
+      const authUpdates: { displayName?: string; password?: string } = {
+        displayName: cleanName,
+      };
+      if (typeof password === "string" && password.trim().length >= 6) {
+        authUpdates.password = password.trim();
+      }
+      await admin.auth().updateUser(targetUid, authUpdates).catch((updateErr) => {
+        logger.warn("Could not update auth user details", updateErr);
+      });
+    } else {
+      const newUser = await admin
+        .auth()
+        .createUser({
+          email: cleanEmail,
+          password,
+          displayName: cleanName,
+        })
+        .catch((error) => {
+          logger.error("Failed to create Auth user", error);
+          if (error?.code === "auth/email-already-exists") {
+            throw new HttpsError(
+              "already-exists",
+              "A user with this email already exists."
+            );
+          }
+          throw new HttpsError("internal", "Failed to create the user account.");
+        });
+
+      targetUid = newUser.uid;
+      isNewAuthUser = true;
+    }
+
+    try {
+      const [existingUserDoc, existingAuthorDoc] = await Promise.all([
+        getDb().collection("users").doc(targetUid).get(),
+        getDb().collection("authors").doc(targetUid).get(),
+      ]);
+
+      const existingUserData = existingUserDoc.data() || {};
+      const existingAuthorData = existingAuthorDoc.data() || {};
+
+      const finalAvatar =
+        optionalString(avatar) ||
+        existingAuthorData.avatar ||
+        existingUserData.photoURL ||
+        existingAuthUser?.photoURL ||
+        "";
+
+      const finalSlug =
+        optionalString(slug) ||
+        existingAuthorData.slug ||
+        normalizeTeamHandle(existingUserData.handle) ||
+        cleanName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)+/g, "");
+
+      const authorData = {
+        uid: targetUid,
+        name: cleanName,
+        city: optionalString(city) || existingAuthorData.city || existingUserData.city || "",
+        job: optionalString(job) || existingAuthorData.job || "",
+        role,
+        showOnTeam: role !== "moderator",
+        avatar: finalAvatar,
+        imgAlt: optionalString(imgAlt) || existingAuthorData.imgAlt || `Profile picture of ${cleanName}`,
+        biography: existingAuthorData.biography || { body: "", summary: "" },
+        slug: finalSlug,
+        socials:
+          typeof socials === "object" && socials !== null
+            ? socials
+            : (existingAuthorData.socials || {}),
+        createdAt: existingAuthorData.createdAt || existingUserData.createdAt || new Date().toISOString(),
+        dateJoined: existingAuthorData.dateJoined || admin.firestore.FieldValue.serverTimestamp(),
+      };
+
+      await getDb().collection("authors").doc(targetUid).set(authorData, { merge: true });
+
+      if (existingUserDoc.exists) {
+        await getDb().collection("users").doc(targetUid).set(
+          {
+            staffName: cleanName,
+            staffRole: role,
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          },
+          { merge: true }
+        );
+      }
+    } catch (error) {
+      if (isNewAuthUser) {
+        await getDb()
+          .collection("authors")
+          .doc(targetUid)
+          .delete()
+          .catch((cleanupError) => {
+            logger.error("Failed to roll back author profile", cleanupError);
+          });
+        await admin.auth().deleteUser(targetUid).catch((cleanupError) => {
+          logger.error("Failed to roll back Auth user", cleanupError);
+        });
+      }
+      logger.error("Failed to create or update author profile", error);
+      if (error instanceof HttpsError) throw error;
+      throw new HttpsError("internal", "Failed to configure the team member profile.");
+    }
+
+    return { uid: targetUid };
   }
 );
 
@@ -1475,17 +1554,26 @@ export const deleteTeamMember = onCall(
       .collection("authors")
       .doc(request.auth.uid)
       .get();
+    const callerRole = caller.data()?.role;
 
-    if (!caller.exists || caller.data()?.role !== "super") {
+    if (!caller.exists || !["super", "admin"].includes(callerRole)) {
       throw new HttpsError(
         "permission-denied",
-        "Only a super admin can delete team members."
+        "You do not have permission to delete team members."
       );
     }
 
     const member = await getDb().collection("authors").doc(uid).get();
     if (!member.exists) {
       throw new HttpsError("not-found", "That team member no longer exists.");
+    }
+
+    const targetRole = member.data()?.role;
+    if (callerRole === "admin" && (targetRole === "super" || targetRole === "admin")) {
+      throw new HttpsError(
+        "permission-denied",
+        "Admins cannot delete other admins or super admins."
+      );
     }
 
     await deleteAccountData(uid);

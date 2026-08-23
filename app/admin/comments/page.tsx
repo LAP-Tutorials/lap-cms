@@ -462,6 +462,8 @@ function ModerationRow({
                 <span className="inline-flex items-center gap-1 text-white/40">
                   <Loader2 className="h-2.5 w-2.5 animate-spin text-[#8a2ae3]" /> Translating…
                 </span>
+              ) : translation?.isSameLanguage ? (
+                null
               ) : translation?.isUnrecognizedLanguage ? (
                 <div className="inline-flex flex-wrap items-center gap-1.5 text-amber-300/85">
                   <span>⚠️ Could not identify language · Needs review</span>
@@ -474,7 +476,7 @@ function ModerationRow({
                     Retry
                   </button>
                 </div>
-              ) : translation && !translation.isSameLanguage ? (
+              ) : translation ? (
                 <div className="inline-flex flex-wrap items-center gap-1.5 text-white/50">
                   <span>
                     Translated from <strong className="text-[#8a2ae3]">{translation.sourceLangName}</strong>
@@ -722,17 +724,16 @@ export default function CommentsModerationPage() {
     }
   }
 
-  // Auto-translate effect in CMS
+  // Language detection & translation pipeline in CMS
   useEffect(() => {
-    if (!autoTranslate) return
     const all = [...comments, ...replies]
-    const toTranslate = all.filter(
+    const toCheck = all.filter(
       (entry) => entry.content?.trim() && !translations[entry.id] && !translatingIds.has(entry.id)
     )
-    if (toTranslate.length === 0) return
+    if (toCheck.length === 0) return
 
     void Promise.all(
-      toTranslate.slice(0, 10).map(async (entry) => {
+      toCheck.slice(0, 15).map(async (entry) => {
         try {
           const res = await translateCommentText(entry.content, targetLang)
           setTranslations((prev) => ({
@@ -743,7 +744,7 @@ export default function CommentsModerationPage() {
               sourceLangName: res.sourceLangName,
               isSameLanguage: res.isSameLanguage,
               isUnrecognizedLanguage: res.isUnrecognizedLanguage,
-              showingOriginal: false,
+              showingOriginal: !autoTranslate,
             },
           }))
         } catch {}

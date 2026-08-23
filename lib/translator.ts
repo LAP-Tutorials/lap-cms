@@ -795,6 +795,35 @@ const TRANSLITERATION_PIPELINE: TransliterationHandler[] = [
   },
 ];
 
+const COMMON_ENGLISH_WORDS = new Set([
+  "the", "be", "to", "of", "and", "a", "in", "that", "have", "i", "it", "for", "not", "on", "with", "he",
+  "as", "you", "do", "at", "this", "but", "his", "by", "from", "they", "we", "say", "her", "she", "or",
+  "an", "will", "my", "one", "all", "would", "there", "their", "what", "so", "up", "out", "if", "about",
+  "who", "get", "which", "go", "me", "when", "make", "can", "like", "time", "no", "just", "him", "know",
+  "take", "people", "into", "year", "your", "good", "some", "could", "them", "see", "other", "than", "then",
+  "now", "look", "only", "come", "its", "over", "think", "also", "back", "after", "use", "two", "how", "our",
+  "work", "first", "well", "way", "even", "new", "want", "because", "any", "these", "give", "day", "most", "us",
+  "is", "am", "are", "was", "were", "been", "has", "had", "did", "does", "done", "very", "much", "post", "cool",
+  "nice", "awesome", "great", "thank", "thanks", "wow", "ok", "okay", "yes", "yeah", "nope", "please", "help",
+  "article", "tutorial", "guide", "love", "really", "video", "works", "working", "problem", "issue", "fixed",
+  "why", "where", "when", "who", "which", "whom", "whose", "why", "where"
+]);
+
+export function isFastEnglishText(text: string): boolean {
+  const trimmed = text.trim();
+  if (!trimmed) return false;
+  if (!/^[a-zA-Z0-9\s,.'!?"“”‘’\-–—:;()\[\]{}…/]+$/.test(trimmed)) {
+    return false;
+  }
+  const words = trimmed.toLowerCase().match(/[a-z]+/g) || [];
+  if (words.length === 0) return false;
+  if (words.length <= 3) {
+    return words.every((w) => COMMON_ENGLISH_WORDS.has(w));
+  }
+  const matchCount = words.filter((w) => COMMON_ENGLISH_WORDS.has(w)).length;
+  return matchCount / words.length >= 0.35;
+}
+
 /**
  * Translates any comment from any source language (including Romanized writing systems)
  * to the target language.
@@ -816,6 +845,19 @@ export async function translateCommentText(
   const cacheKey = `${targetLang}:${trimmed}`;
   if (translationCache.has(cacheKey)) {
     return translationCache.get(cacheKey)!;
+  }
+
+  // Fast-path: If target language is English and text is clearly English, return immediately
+  if (targetLang.toLowerCase().startsWith("en") && isFastEnglishText(trimmed)) {
+    const result: TranslationResult = {
+      translatedText: trimmed,
+      detectedSourceLang: "en",
+      sourceLangName: "English",
+      isSameLanguage: true,
+      isUnrecognizedLanguage: false,
+    };
+    translationCache.set(cacheKey, result);
+    return result;
   }
 
   let translated = "";

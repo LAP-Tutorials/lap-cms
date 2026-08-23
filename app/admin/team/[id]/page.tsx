@@ -190,11 +190,17 @@ export default function EditTeamMemberPage() {
     }
   };
 
+  const canDelete =
+    currentUserRole === "super" ||
+    (currentUserRole === "admin" &&
+      member?.role !== "super" &&
+      member?.role !== "admin");
+
   const handleDelete = async () => {
-    if (currentUserRole !== "super") {
+    if (!canDelete) {
       toast({
         title: "Permission denied",
-        description: "Only super admin can delete team members",
+        description: "You do not have permission to delete this team member",
         variant: "destructive",
       });
       return;
@@ -627,7 +633,7 @@ export default function EditTeamMemberPage() {
             {saving ? "Updating..." : "Update Member"}
           </Button>
 
-          {currentUserRole === "super" && (
+          {canDelete && (
             <Button
               variant="outline"
               className="border-red-500 text-red-500"
