@@ -24,6 +24,7 @@ import {
 } from "@/hooks/use-firestore-query";
 import { moveArticleToTrash } from "@/lib/article-trash";
 import { useAuth } from "@/lib/auth-context";
+import { logAuditActivity } from "@/lib/audit-logger";
 
 interface Article {
   id: string;
@@ -135,6 +136,15 @@ export default function ArticlesPage() {
         data: updateData,
       });
 
+      logAuditActivity({
+        action: !currentStatus ? "article.publish" : "article.unpublish",
+        category: "articles",
+        details: `${!currentStatus ? "Published" : "Unpublished"} article "${article.title}"`,
+        targetId: article.id,
+        targetTitle: article.title,
+        metadata: { slug: article.slug, publish: !currentStatus },
+      });
+
       // Force refresh the articles list after toggling publish status
       refresh();
 
@@ -170,14 +180,23 @@ export default function ArticlesPage() {
         "Move this article to the recycle bin? You can restore it later."
       )
     ) {
-      deleteArticle(article.id);
+      deleteArticle(article);
     }
   };
 
-  const deleteArticle = async (articleId: string) => {
-    setDeletingArticleId(articleId);
+  const deleteArticle = async (article: Article) => {
+    setDeletingArticleId(article.id);
     try {
-      await moveArticleToTrash(articleId);
+      await moveArticleToTrash(article.id);
+
+      logAuditActivity({
+        action: "article.trash",
+        category: "articles",
+        details: `Moved article "${article.title}" to recycle bin`,
+        targetId: article.id,
+        targetTitle: article.title,
+        metadata: { slug: article.slug, publish: article.publish },
+      });
 
       toast({
         title: "Article moved",

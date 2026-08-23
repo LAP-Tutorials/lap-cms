@@ -20,6 +20,7 @@ import {
   AtSign,
   Bell,
   Shield,
+  History,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/button";
@@ -169,6 +170,12 @@ export default function AdminSidebar() {
       href: "/admin/handles",
       label: "Handles",
       icon: <AtSign className="h-5 w-5" />,
+      superOnly: true,
+    },
+    {
+      href: "/admin/activity",
+      label: "Activity Log",
+      icon: <History className="h-5 w-5" />,
       superOnly: true,
     },
     {

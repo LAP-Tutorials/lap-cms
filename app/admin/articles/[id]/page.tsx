@@ -17,6 +17,7 @@ import {
 import { marked } from "marked";
 import DOMPurify from "dompurify";
 import { sanitizeUrl as sanitizePreviewUrl } from "@braintree/sanitize-url";
+import { logAuditActivity } from "@/lib/audit-logger";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -357,6 +358,17 @@ export default function EditArticlePage() {
         await updateDoc(ref, updateData);
 
         if (isManual) {
+          const action = isPublished !== initialPublishStatus
+            ? (isPublished ? "article.publish" : "article.unpublish")
+            : "article.update";
+          logAuditActivity({
+            action,
+            category: "articles",
+            details: `${isPublished !== initialPublishStatus ? (isPublished ? "Published" : "Unpublished") : "Updated"} article "${title.trim()}"`,
+            targetId: id as string,
+            targetTitle: title.trim(),
+            metadata: { slug: normalizedSlug, publish: isPublished, label },
+          });
           toast({
             title: "Article updated",
             description: "Your article has been successfully updated",
@@ -442,6 +454,15 @@ export default function EditArticlePage() {
     try {
       if (!id) return;
       await moveArticleToTrash(id);
+
+      logAuditActivity({
+        action: "article.trash",
+        category: "articles",
+        details: `Moved article "${title}" to recycle bin`,
+        targetId: id as string,
+        targetTitle: title,
+        metadata: { slug, publish: isPublished },
+      });
 
       toast({
         title: "Article moved",

@@ -15,6 +15,7 @@ import {
 } from "@/lib/article-trash";
 import { formatDate } from "@/lib/utils";
 import { useAuth } from "@/lib/auth-context";
+import { logAuditActivity } from "@/lib/audit-logger";
 
 interface DeletedArticle {
   id: string;
@@ -65,6 +66,14 @@ export default function ArticleRecycleBinPage() {
     setBusyArticleId(article.id);
     try {
       await restoreArticleFromTrash(article.id);
+      logAuditActivity({
+        action: "article.restore",
+        category: "articles",
+        details: `Restored article "${article.article?.title || article.id}" from recycle bin`,
+        targetId: article.id,
+        targetTitle: article.article?.title || article.id,
+        metadata: { slug: article.article?.slug },
+      });
       toast({
         title: "Article restored",
         description: "The article is back in the posts list",
@@ -103,6 +112,14 @@ export default function ArticleRecycleBinPage() {
     setBusyArticleId(article.id);
     try {
       await permanentlyDeleteArticle(article.id);
+      logAuditActivity({
+        action: "article.delete_permanent",
+        category: "articles",
+        details: `Permanently deleted article "${article.article?.title || article.id}"`,
+        targetId: article.id,
+        targetTitle: article.article?.title || article.id,
+        metadata: { slug: article.article?.slug },
+      });
       toast({
         title: "Article permanently deleted",
         description: "This article can no longer be recovered",

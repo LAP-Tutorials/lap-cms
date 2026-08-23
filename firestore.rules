@@ -419,5 +419,16 @@ service cloud.firestore {
     match /assets_index/{docId} {
       allow read: if isCmsUser();
     }
+
+    // Activity Audit Logs: Super Admins can read all logs. Staff can append logs for their own actions.
+    // Logs are immutable (updates and deletes are forbidden).
+    match /auditLogs/{logId} {
+      allow read: if isSuperAdmin();
+      allow create: if isStaff() &&
+        request.resource.data.actorUid == request.auth.uid &&
+        request.resource.data.keys().hasAll(['actorUid', 'action', 'category', 'details', 'timestamp']) &&
+        request.resource.data.timestamp == request.time;
+      allow update, delete: if false;
+    }
   }
 }

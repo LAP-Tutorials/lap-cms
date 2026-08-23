@@ -28,6 +28,7 @@ import { Loader2, ImageIcon, Save } from "lucide-react";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
 import { sanitizeUrl as sanitizePreviewUrl } from "@braintree/sanitize-url";
+import { logAuditActivity } from "@/lib/audit-logger";
 import { generateSlugFromTitle, sanitizeUrl } from "@/lib/utils";
 import { MarkdownToolbar } from "@/components/markdown-toolbar";
 import { AssetManager } from "@/components/admin/assets/asset-manager";
@@ -396,6 +397,14 @@ export default function NewArticlePage() {
         });
 
         if (isManual) {
+          logAuditActivity({
+            action: isPublished ? "article.publish" : "article.create",
+            category: "articles",
+            details: `${isPublished ? "Created and published" : "Created draft"} article "${title.trim()}"`,
+            targetId: articleId,
+            targetTitle: title.trim(),
+            metadata: { slug: normalizedSlug, publish: isPublished, label },
+          });
           toast({
             title: "Article created",
             description: "Your article has been successfully created",

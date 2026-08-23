@@ -38,6 +38,7 @@ import { useAuth } from "@/lib/auth-context"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Checkbox } from "@/components/ui/checkbox"
+import { logAuditActivity } from "@/lib/audit-logger"
 import {
   Select,
   SelectContent,
@@ -1062,6 +1063,21 @@ export default function CommentsModerationPage() {
         moderatedAt: serverTimestamp(),
         moderatedBy: user.uid,
       })
+
+      logAuditActivity({
+        action: status === "hidden" ? "comment.hide" : "comment.restore",
+        category: "comments",
+        details: `${status === "hidden" ? "Hidden" : "Restored"} ${entry.kind} by @${entry.authorHandle || entry.authorName} on "${entry.articleTitle || "article"}"`,
+        targetId: entry.id,
+        targetTitle: entry.articleTitle || "Comment",
+        metadata: {
+          kind: entry.kind,
+          commentAuthorId: entry.authorId,
+          commentAuthorHandle: entry.authorHandle,
+          articleId: entry.articleId,
+          status,
+        },
+      })
     } catch (updateError) {
       console.error("Unable to moderate entry:", updateError)
       setError("The moderation change could not be saved.")
@@ -1105,6 +1121,21 @@ export default function CommentsModerationPage() {
       } else {
         await deleteDoc(doc(db, "commentReplies", entry.id))
       }
+
+      logAuditActivity({
+        action: "comment.delete",
+        category: "comments",
+        details: `Deleted ${entry.kind} by @${entry.authorHandle || entry.authorName} on "${entry.articleTitle || "article"}"`,
+        targetId: entry.id,
+        targetTitle: entry.articleTitle || "Comment",
+        metadata: {
+          kind: entry.kind,
+          commentAuthorId: entry.authorId,
+          commentAuthorHandle: entry.authorHandle,
+          articleId: entry.articleId,
+          contentSnippet: typeof entry.content === "string" ? entry.content.slice(0, 120) : "",
+        },
+      })
     } catch (deleteError) {
       console.error("Unable to delete entry:", deleteError)
       setError(`The ${entry.kind} could not be deleted.`)

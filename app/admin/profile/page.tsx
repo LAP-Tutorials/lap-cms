@@ -22,6 +22,7 @@ import { Eye, EyeOff, Loader2, AlertTriangle, Plus, X, Camera, Trash2 } from "lu
 import { FcGoogle } from "react-icons/fc"
 import { AvatarCropper } from "@/components/profile/avatar-cropper"
 import { useAuth } from "@/lib/auth-context"
+import { logAuditActivity } from "@/lib/audit-logger"
 
 interface ProfileData {
   avatar: string
@@ -155,6 +156,11 @@ export default function ProfilePage() {
     try {
       await linkWithPopup(auth.currentUser, provider)
       setIsGoogleLinked(true)
+      logAuditActivity({
+        action: "auth.link_google",
+        category: "auth",
+        details: "Linked Google account for single sign-on",
+      })
       toast({
         title: "Account Linked",
         description: "Your Google account has been successfully linked.",
@@ -199,6 +205,13 @@ export default function ProfilePage() {
         socials: profile.socials,
       })
 
+      logAuditActivity({
+        action: "profile.update",
+        category: "profile",
+        details: `Updated personal profile info (${profile.name})`,
+        metadata: { name: profile.name, city: profile.city, job: profile.job },
+      })
+
       toast({
         title: "Profile updated",
         description: "Your profile has been successfully updated",
@@ -241,6 +254,15 @@ export default function ProfilePage() {
       const result = await claim({ handle })
       setProfile((current) => ({ ...current, handle: result.data.handle }))
       setHandleInput(result.data.handle)
+
+      logAuditActivity({
+        action: "handle.claim",
+        category: "handles",
+        details: `Claimed team comment handle @${result.data.handle}`,
+        targetTitle: `@${result.data.handle}`,
+        metadata: { handle: result.data.handle },
+      })
+
       toast({
         title: "Handle saved",
         description: `Your comment handle is @${result.data.handle}.`,
@@ -280,6 +302,11 @@ export default function ProfilePage() {
 
     try {
       await updatePassword(auth.currentUser, password)
+      logAuditActivity({
+        action: "auth.password_change",
+        category: "auth",
+        details: "Changed account password",
+      })
       toast({
         title: "Password updated",
         description: "Your password has been successfully changed",

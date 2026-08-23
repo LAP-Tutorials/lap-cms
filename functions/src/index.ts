@@ -80,6 +80,67 @@ function normalizeTeamHandle(value: unknown) {
     : "";
 }
 
+async function writeServerAuditLog(params: {
+  actorUid: string;
+  action: string;
+  category: "articles" | "comments" | "team" | "handles" | "assets" | "auth" | "profile";
+  details: string;
+  targetId?: string;
+  targetTitle?: string;
+  metadata?: Record<string, any>;
+}) {
+  try {
+    const firestore = getDb();
+    let actorName = "Staff";
+    let actorHandle = "";
+    let actorRole = "staff";
+    let actorEmail = "";
+    let actorPhotoURL = "";
+
+    try {
+      const [authorDoc, authUser] = await Promise.all([
+        firestore.collection("authors").doc(params.actorUid).get(),
+        admin.auth().getUser(params.actorUid).catch(() => null),
+      ]);
+      if (authorDoc.exists) {
+        const authorData = authorDoc.data();
+        actorName = authorData?.name || authUser?.displayName || actorName;
+        actorHandle = authorData?.handle || "";
+        actorRole = authorData?.role || "staff";
+        actorPhotoURL = authorData?.avatar || authUser?.photoURL || "";
+      }
+      actorEmail = authUser?.email || "";
+      if (!actorHandle) {
+        const userDoc = await firestore.collection("users").doc(params.actorUid).get();
+        if (userDoc.exists) {
+          actorHandle = userDoc.data()?.handle || "";
+          if (!actorPhotoURL) actorPhotoURL = userDoc.data()?.photoURL || "";
+        }
+      }
+    } catch (e) {
+      logger.warn("Could not enrich server audit log actor details:", e);
+    }
+
+    await firestore.collection("auditLogs").add({
+      actorUid: params.actorUid,
+      actorName,
+      actorHandle: actorHandle || actorEmail.split("@")[0] || "staff",
+      actorEmail,
+      actorRole,
+      actorPhotoURL,
+      action: params.action,
+      category: params.category,
+      details: params.details,
+      targetId: params.targetId || "",
+      targetTitle: params.targetTitle || "",
+      metadata: params.metadata || {},
+      timestamp: admin.firestore.FieldValue.serverTimestamp(),
+    });
+  } catch (logError) {
+    logger.error("Failed to write server audit log:", logError);
+  }
+}
+
 
 
 
@@ -529,6 +590,17 @@ export const upsertHandleReservation = onCall(
       },
       { merge: true }
     );
+
+    writeServerAuditLog({
+      actorUid: request.auth.uid,
+      action: "handle.reserve",
+      category: "handles",
+      details: `Updated reservation for handle @${handle}${requestedOwnerUid ? ` assigned to UID ${requestedOwnerUid}` : ""}`,
+      targetId: key,
+      targetTitle: `@${handle}`,
+      metadata: { handle, key, ownerUid: requestedOwnerUid },
+    });
+
     return { key, handle, ownerUid: requestedOwnerUid };
   }
 );
@@ -546,6 +618,16 @@ export const deleteHandleReservation = onCall(
       throw new HttpsError("invalid-argument", "Choose a reservation.");
     }
     await getDb().collection("handleReservations").doc(key).delete();
+
+    writeServerAuditLog({
+      actorUid: request.auth.uid,
+      action: "handle.unreserve",
+      category: "handles",
+      details: `Deleted handle reservation key ${key}`,
+      targetId: key,
+      targetTitle: key,
+    });
+
     return { key };
   }
 );
@@ -1604,6 +1686,16 @@ export const addExistingUserToTeam = onCall(
       );
     }
 
+    writeServerAuditLog({
+      actorUid: request.auth.uid,
+      action: "team.add_existing",
+      category: "team",
+      details: `Added user ${cleanName} to team as ${role}`,
+      targetId: uid,
+      targetTitle: cleanName,
+      metadata: { role, slug: finalSlug, handle: userHandle },
+    });
+
     return { uid, success: true };
   }
 );
@@ -1639,6 +1731,9 @@ export const promoteReaderToModerator = onCall(
 
     const userRef = firestore.collection("users").doc(uid);
     const authorRef = firestore.collection("authors").doc(uid);
+    let promotedHandle = "";
+    let promotedName = "";
+
     await firestore.runTransaction(async (transaction) => {
       const [user, author] = await Promise.all([
         transaction.get(userRef),
@@ -1658,6 +1753,8 @@ export const promoteReaderToModerator = onCall(
         handle ||
         userRecord.email?.split("@")[0] ||
         "Moderator";
+      promotedHandle = handle;
+      promotedName = name;
       const timestamp = admin.firestore.FieldValue.serverTimestamp();
 
       transaction.set(authorRef, {
@@ -1691,6 +1788,16 @@ export const promoteReaderToModerator = onCall(
         },
         { merge: true }
       );
+    });
+
+    writeServerAuditLog({
+      actorUid: request.auth.uid,
+      action: "team.promote_moderator",
+      category: "team",
+      details: `Promoted reader @${promotedHandle || promotedName} to moderator`,
+      targetId: uid,
+      targetTitle: promotedName,
+      metadata: { role: "moderator", handle: promotedHandle },
     });
 
     return { uid, role: "moderator" };
@@ -1748,6 +1855,17 @@ export const deleteTeamMember = onCall(
     }
 
     await deleteAccountData(uid);
+
+    writeServerAuditLog({
+      actorUid: request.auth.uid,
+      action: "team.delete_member",
+      category: "team",
+      details: `Deleted team member ${member.data()?.name || uid} (${targetRole})`,
+      targetId: uid,
+      targetTitle: member.data()?.name || uid,
+      metadata: { role: targetRole },
+    });
+
     return { uid, deleted: true };
   }
 );
@@ -3216,6 +3334,17 @@ export const togglePinComment = onCall(
     }
 
     await batch.commit();
+
+    writeServerAuditLog({
+      actorUid: request.auth.uid,
+      action: pinned ? "comment.pin" : "comment.unpin",
+      category: "comments",
+      details: `${pinned ? "Pinned" : "Unpinned"} comment on article "${commentDoc.data()?.articleTitle || articleId}"`,
+      targetId: commentId,
+      targetTitle: commentDoc.data()?.articleTitle || articleId,
+      metadata: { articleId, pinned },
+    });
+
     return { success: true, pinned };
   }
 );

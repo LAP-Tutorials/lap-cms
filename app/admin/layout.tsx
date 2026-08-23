@@ -53,6 +53,15 @@ export default function AdminLayout({
       router.replace("/admin")
     } else if (!isLoading && userRole === "moderator" && !isModeratorRoute(pathname)) {
       router.replace("/admin")
+    } else if (
+      !isLoading &&
+      (pathname === "/admin/handles" ||
+        pathname.startsWith("/admin/handles/") ||
+        pathname === "/admin/activity" ||
+        pathname.startsWith("/admin/activity/")) &&
+      userRole !== "super"
+    ) {
+      router.replace("/admin")
     }
   }, [user, userRole, isLoading, pathname, router])
 
