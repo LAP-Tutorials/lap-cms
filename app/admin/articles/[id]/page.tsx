@@ -45,8 +45,11 @@ import {
   ARTICLE_TRASH_COLLECTION,
   moveArticleToTrash,
 } from "@/lib/article-trash";
+import { useAuth } from "@/lib/auth-context";
 
 export default function EditArticlePage() {
+  const { user, userRole } = useAuth();
+  const [authorUID, setAuthorUID] = useState<string>("");
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
   const [description, setDescription] = useState("");
@@ -145,6 +148,20 @@ export default function EditArticlePage() {
 
         if (snap.exists()) {
           const data = snap.data();
+          const itemAuthorUID = data.authorUID || data.authorId || "";
+          setAuthorUID(itemAuthorUID);
+
+          if (
+            userRole === "author" &&
+            itemAuthorUID &&
+            user &&
+            itemAuthorUID !== user.uid
+          ) {
+            setError("Access Denied: You can only edit your own articles.");
+            setLoading(false);
+            return;
+          }
+
           setTitle(data.title || "");
           setContent(
             typeof data.content === "string"
@@ -185,7 +202,7 @@ export default function EditArticlePage() {
     };
 
     fetchArticle();
-  }, [id]);
+  }, [id, user, userRole]);
 
   // Fetch existing labels from articles
   useEffect(() => {
@@ -288,6 +305,20 @@ export default function EditArticlePage() {
         throw new Error("Duplicate slug");
       }
 
+      if (
+        userRole === "author" &&
+        authorUID &&
+        user &&
+        authorUID !== user.uid
+      ) {
+        toast({
+          title: "Permission denied",
+          description: "You can only modify your own articles.",
+          variant: "destructive",
+        });
+        throw new Error("Permission denied");
+      }
+
       if (isManual) setSaving(true);
 
       try {
@@ -362,6 +393,9 @@ export default function EditArticlePage() {
       id,
       router,
       toast,
+      user,
+      userRole,
+      authorUID,
     ],
   );
 
@@ -391,6 +425,19 @@ export default function EditArticlePage() {
   const handleManualSave = () => saveToFirestore(true);
 
   const handleDelete = async () => {
+    if (
+      userRole === "author" &&
+      authorUID &&
+      user &&
+      authorUID !== user.uid
+    ) {
+      toast({
+        title: "Permission denied",
+        description: "You can only delete your own articles.",
+        variant: "destructive",
+      });
+      return;
+    }
     setDeleting(true);
     try {
       if (!id) return;

@@ -5,7 +5,7 @@ import PageTitle from "@/components/PageTitle";
 import { Button } from "@/components/ui/button";
 
 import { Breadcrumb } from "@/components/breadcrumb";
-import { Plus, Eye, Pencil, ShieldPlus, UserCircle } from "lucide-react";
+import { Plus, Eye, Pencil, ShieldPlus, UserCircle, UserPlus } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
 import { usePaginatedCollection } from "@/hooks/use-firestore-query";
 
@@ -55,6 +55,11 @@ export default function TeamPage() {
           <Button asChild variant="outline">
             <Link href="/admin/team/new">
               <Plus className="mr-2 h-4 w-4" /> New Member
+            </Link>
+          </Button>
+          <Button asChild variant="outline">
+            <Link href="/admin/team/add-existing">
+              <UserPlus className="mr-2 h-4 w-4" /> Add Existing User
             </Link>
           </Button>
           <Button asChild>
@@ -129,7 +134,7 @@ export default function TeamPage() {
                           </Button>
                         ) : null}
 
-                        {userRole !== "manager" && (
+                        {(userRole === "super" || userRole === "admin") && (
                           <Button asChild size="sm" variant="ghost">
                             <Link
                               href={`/admin/team/${teamMember.id}`}

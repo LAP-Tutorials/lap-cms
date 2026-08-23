@@ -1,6 +1,6 @@
 import "server-only";
 
-const CONTENT_STAFF_ROLES = new Set(["manager", "admin", "super"]);
+const CONTENT_STAFF_ROLES = new Set(["author", "admin", "super"]);
 
 type ContentStaffAuthResult =
   | { ok: true; uid: string }

@@ -176,12 +176,27 @@ export default function AdminSidebar() {
       label: "Profile",
       icon: <User className="h-5 w-5" />,
     },
-  ].filter(
-    (item) =>
-      (!item.superOnly || userRole === "super") &&
-      (userRole !== "moderator" ||
-        ["/admin", "/admin/notifications", "/admin/comments", "/admin/users", "/admin/profile"].includes(item.href)),
-  );
+  ].filter((item) => {
+    if (item.superOnly && userRole !== "super") return false;
+    if (userRole === "author") {
+      return [
+        "/admin",
+        "/admin/notifications",
+        "/admin/articles",
+        "/admin/comments",
+        "/admin/profile",
+      ].includes(item.href);
+    }
+    if (userRole === "moderator") {
+      return [
+        "/admin",
+        "/admin/notifications",
+        "/admin/comments",
+        "/admin/profile",
+      ].includes(item.href);
+    }
+    return true;
+  });
 
   return (
     <>

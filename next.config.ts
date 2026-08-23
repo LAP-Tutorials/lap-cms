@@ -8,6 +8,30 @@ const nextConfig: NextConfig = {
         protocol: "https",
         hostname: "firebasestorage.googleapis.com",
       },
+      {
+        protocol: "https",
+        hostname: "*.googleusercontent.com",
+      },
+      {
+        protocol: "https",
+        hostname: "googleusercontent.com",
+      },
+      {
+        protocol: "https",
+        hostname: "*.google.com",
+      },
+      {
+        protocol: "https",
+        hostname: "*.githubusercontent.com",
+      },
+      {
+        protocol: "https",
+        hostname: "*.gravatar.com",
+      },
+      {
+        protocol: "https",
+        hostname: "lap.onl",
+      },
     ],
   },
   async headers() {

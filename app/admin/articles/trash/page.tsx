@@ -14,19 +14,24 @@ import {
   restoreArticleFromTrash,
 } from "@/lib/article-trash";
 import { formatDate } from "@/lib/utils";
+import { useAuth } from "@/lib/auth-context";
 
 interface DeletedArticle {
   id: string;
   article: {
     title?: string;
     authorName?: string;
+    authorUID?: string;
+    authorId?: string;
     img?: string;
     slug?: string;
   };
+  deletedBy?: string;
   deletedAt?: { toDate?: () => Date };
 }
 
 export default function ArticleRecycleBinPage() {
+  const { user, userRole } = useAuth();
   const [busyArticleId, setBusyArticleId] = useState<string | null>(null);
   const { toast } = useToast();
   const { items, loading, hasMore, loadMore, refresh } =
@@ -34,9 +39,29 @@ export default function ArticleRecycleBinPage() {
       orderBy("deletedAt", "desc"),
     ]);
 
-  const deletedArticles = items as DeletedArticle[];
+  const canManageTrash = (item: DeletedArticle) => {
+    if (userRole === "super" || userRole === "admin") return true;
+    if (userRole === "author") {
+      return (
+        item.article?.authorUID === user?.uid ||
+        item.article?.authorId === user?.uid ||
+        item.deletedBy === user?.uid
+      );
+    }
+    return false;
+  };
+
+  const deletedArticles = (items as DeletedArticle[]).filter(canManageTrash);
 
   const restoreArticle = async (article: DeletedArticle) => {
+    if (!canManageTrash(article)) {
+      toast({
+        title: "Permission denied",
+        description: "You can only restore your own articles.",
+        variant: "destructive",
+      });
+      return;
+    }
     setBusyArticleId(article.id);
     try {
       await restoreArticleFromTrash(article.id);
@@ -59,9 +84,17 @@ export default function ArticleRecycleBinPage() {
   };
 
   const permanentlyDelete = async (article: DeletedArticle) => {
+    if (!canManageTrash(article)) {
+      toast({
+        title: "Permission denied",
+        description: "You can only delete your own articles.",
+        variant: "destructive",
+      });
+      return;
+    }
     if (
       !window.confirm(
-        `Permanently delete "${article.article.title || "this article"}"? This cannot be undone.`,
+        `Permanently delete "${article.article?.title || "this article"}"? This cannot be undone.`,
       )
     ) {
       return;

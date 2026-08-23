@@ -201,10 +201,11 @@ interface RecentUser {
   photoURL?: string;
   provider?: string;
   createdAt?: Timestamp;
+  articleTitle?: string;
 }
 
 function ContentDashboard() {
-  const { userRole } = useAuth();
+  const { user, userRole } = useAuth();
 
   // Content Counts
   const [articlesCount, setArticlesCount] = useState(0);
@@ -233,73 +234,163 @@ function ContentDashboard() {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        // 1. Articles Counts (Total, Published, Drafts)
         const articlesRef = collection(db, "articles");
-        const [
-          articlesSnap,
-          publishedSnap,
-          draftSnap,
-          teamSnap,
-        ] = await Promise.all([
-          getCountFromServer(articlesRef).catch(() => ({ data: () => ({ count: 0 }) })),
-          getCountFromServer(query(articlesRef, where("publish", "==", true))).catch(() => ({ data: () => ({ count: 0 }) })),
-          getCountFromServer(query(articlesRef, where("publish", "==", false))).catch(() => ({ data: () => ({ count: 0 }) })),
-          getCountFromServer(collection(db, "authors")).catch(() => ({ data: () => ({ count: 0 }) })),
-        ]);
-
-        setArticlesCount(articlesSnap.data().count);
-        setPublishedCount(publishedSnap.data().count);
-        setDraftCount(draftSnap.data().count);
-        setTeamCount(teamSnap.data().count);
-
-        // 2. Trash Count (Admins/Superadmins only)
-        if (userRole === "admin" || userRole === "super") {
-          try {
-            const trashSnap = await getCountFromServer(collection(db, "articleTrash"));
-            setTrashCount(trashSnap.data().count);
-          } catch {
-            setTrashCount(0);
-          }
-        }
-
-        // 3. Readers & Community Counts
+        const authorsRef = collection(db, "authors");
         const usersRef = collection(db, "users");
         const commentsRef = collection(db, "comments");
         const repliesRef = collection(db, "commentReplies");
 
+        // 1. Team Count & Community Counts (Global for all staff)
         const [
+          teamSnap,
           usersCountSnap,
           claimedCountSnap,
           commentsCountSnap,
           repliesCountSnap,
         ] = await Promise.all([
+          getCountFromServer(authorsRef).catch(() => ({ data: () => ({ count: 0 }) })),
           getCountFromServer(usersRef).catch(() => ({ data: () => ({ count: 0 }) })),
           getCountFromServer(query(usersRef, where("handle", "!=", ""))).catch(() => ({ data: () => ({ count: 0 }) })),
           getCountFromServer(commentsRef).catch(() => ({ data: () => ({ count: 0 }) })),
           getCountFromServer(repliesRef).catch(() => ({ data: () => ({ count: 0 }) })),
         ]);
 
+        setTeamCount(teamSnap.data().count);
         setReadersCount(usersCountSnap.data().count);
         setClaimedHandlesCount(claimedCountSnap.data().count);
         setCommentsCount(commentsCountSnap.data().count);
         setRepliesCount(repliesCountSnap.data().count);
 
-        // 4. Fetch YouTube Stats from meta/stats
-        try {
-          const statsDoc = await getDoc(doc(db, "meta", "stats"));
-          if (statsDoc.exists()) {
-            const data = statsDoc.data();
-            if (data.youtube) {
-              setSubscriberCount(data.youtube.subscriberCount || 0);
-              setVideoCount(data.youtube.videoCount || 0);
-              setViewCount(data.youtube.viewCount || 0);
-            }
+        // 2. Editorial & Articles Counts
+        if (userRole === "author" && user?.uid) {
+          // Author-specific post counts
+          const myArticlesSnap = await getDocs(
+            query(articlesRef, where("authorUID", "==", user.uid))
+          );
+          const myArticlesList = myArticlesSnap.docs.map((docSnap) => ({
+            id: docSnap.id,
+            ...docSnap.data(),
+          }));
+
+          const publishedList = myArticlesList.filter((a: any) => a.publish);
+          const draftList = myArticlesList.filter((a: any) => !a.publish);
+
+          setArticlesCount(myArticlesList.length);
+          setPublishedCount(publishedList.length);
+          setDraftCount(draftList.length);
+
+          // Author's trash count
+          try {
+            const trashSnap = await getDocs(
+              query(collection(db, "articleTrash"), where("article.authorUID", "==", user.uid))
+            );
+            setTrashCount(trashSnap.docs.length);
+          } catch {
+            setTrashCount(0);
           }
-        } catch (err) {
-          console.error("Error fetching YouTube stats:", err);
+
+          // Author's Recent Readers (Only from reader comments on this author's articles)
+          const myArticleIds = new Set(myArticlesList.map((a: any) => a.id));
+          const articleTitleMap = new Map<string, string>();
+          myArticlesList.forEach((a: any) => {
+            articleTitleMap.set(a.id, a.title || "Article");
+          });
+
+          if (myArticleIds.size > 0) {
+            const [commentsSnap, repliesSnap] = await Promise.all([
+              getDocs(query(commentsRef, orderBy("createdAt", "desc"), limit(200))).catch(() => null),
+              getDocs(query(repliesRef, orderBy("createdAt", "desc"), limit(200))).catch(() => null),
+            ]);
+
+            const allCommentsOnMyArticles: any[] = [];
+            if (commentsSnap) {
+              commentsSnap.docs.forEach((docSnap) => {
+                const data = docSnap.data();
+                if (myArticleIds.has(data.articleId)) {
+                  allCommentsOnMyArticles.push({ id: docSnap.id, ...data });
+                }
+              });
+            }
+            if (repliesSnap) {
+              repliesSnap.docs.forEach((docSnap) => {
+                const data = docSnap.data();
+                if (myArticleIds.has(data.articleId)) {
+                  allCommentsOnMyArticles.push({ id: docSnap.id, ...data });
+                }
+              });
+            }
+
+            allCommentsOnMyArticles.sort((a, b) => {
+              const aTime = a.createdAt?.toMillis?.() || (a.createdAt?.seconds ? a.createdAt.seconds * 1000 : 0);
+              const bTime = b.createdAt?.toMillis?.() || (b.createdAt?.seconds ? b.createdAt.seconds * 1000 : 0);
+              return bTime - aTime;
+            });
+
+            const seenReaderIds = new Set<string>();
+            const authorReaders: RecentUser[] = [];
+
+            for (const item of allCommentsOnMyArticles) {
+              const readerUid = item.authorId;
+              if (readerUid && readerUid !== user.uid && !seenReaderIds.has(readerUid)) {
+                seenReaderIds.add(readerUid);
+                authorReaders.push({
+                  uid: readerUid,
+                  displayName: item.authorName || "Reader",
+                  handle: item.authorHandle || "",
+                  photoURL: item.authorPhotoURL || "",
+                  createdAt: item.createdAt,
+                  articleTitle: articleTitleMap.get(item.articleId) || item.articleTitle || "Your article",
+                });
+                if (authorReaders.length >= 4) break;
+              }
+            }
+
+            setRecentUsers(authorReaders);
+          } else {
+            setRecentUsers([]);
+          }
+        } else {
+          // Admin / Super Admin (Platform-wide editorial counts)
+          const [
+            articlesSnap,
+            publishedSnap,
+            draftSnap,
+          ] = await Promise.all([
+            getCountFromServer(articlesRef).catch(() => ({ data: () => ({ count: 0 }) })),
+            getCountFromServer(query(articlesRef, where("publish", "==", true))).catch(() => ({ data: () => ({ count: 0 }) })),
+            getCountFromServer(query(articlesRef, where("publish", "==", false))).catch(() => ({ data: () => ({ count: 0 }) })),
+          ]);
+
+          setArticlesCount(articlesSnap.data().count);
+          setPublishedCount(publishedSnap.data().count);
+          setDraftCount(draftSnap.data().count);
+
+          try {
+            const trashSnap = await getCountFromServer(collection(db, "articleTrash"));
+            setTrashCount(trashSnap.data().count);
+          } catch {
+            setTrashCount(0);
+          }
+
+          // Recent Registered Readers (limit 4)
+          try {
+            const recentUsersQuery = query(
+              usersRef,
+              orderBy("createdAt", "desc"),
+              limit(4),
+            );
+            const recentUsersSnap = await getDocs(recentUsersQuery);
+            const usersList = recentUsersSnap.docs.map((docSnap) => ({
+              uid: docSnap.id,
+              ...docSnap.data(),
+            })) as RecentUser[];
+            setRecentUsers(usersList);
+          } catch (err) {
+            console.warn("Unable to load recent readers list:", err);
+          }
         }
 
-        // 5. Fetch Latest Articles (limit 4)
+        // 3. Global Latest Posts (all latest posts across the site for all roles)
         const latestArticlesQuery = query(
           articlesRef,
           orderBy("createdAt", "desc"),
@@ -314,27 +405,9 @@ function ContentDashboard() {
           setLatestArticles(articlesList);
         }
 
-        // 6. Fetch Recent Registered Readers (limit 4)
-        try {
-          const recentUsersQuery = query(
-            usersRef,
-            orderBy("createdAt", "desc"),
-            limit(4),
-          );
-          const recentUsersSnap = await getDocs(recentUsersQuery);
-          const usersList = recentUsersSnap.docs.map((docSnap) => ({
-            uid: docSnap.id,
-            ...docSnap.data(),
-          })) as RecentUser[];
-          setRecentUsers(usersList);
-        } catch (err) {
-          console.warn("Unable to load recent readers list:", err);
-        }
-
-        // 7. Fetch Articles for the last 6 months for Chart
+        // 4. Global Publishing Velocity (last 6 months across all posts)
         const now = new Date();
         const startDate = new Date(now.getFullYear(), now.getMonth() - 5, 1);
-
         const articlesForChartQuery = query(
           articlesRef,
           where("date", ">=", Timestamp.fromDate(startDate)),
@@ -347,12 +420,14 @@ function ContentDashboard() {
           chartSnap.docs.forEach((docSnap) => {
             const data = docSnap.data();
             if (data.date && data.publish) {
-              const date = data.date.toDate();
-              const month = date.toLocaleString("en-US", {
-                month: "short",
-                year: "numeric",
-              });
-              monthlyCounts[month] = (monthlyCounts[month] || 0) + 1;
+              const date = typeof data.date?.toDate === "function" ? data.date.toDate() : new Date(data.date);
+              if (!isNaN(date.getTime())) {
+                const month = date.toLocaleString("en-US", {
+                  month: "short",
+                  year: "numeric",
+                });
+                monthlyCounts[month] = (monthlyCounts[month] || 0) + 1;
+              }
             }
           });
         }
@@ -371,6 +446,21 @@ function ContentDashboard() {
           });
         }
         setMonthlyArticlesData(chartData);
+
+        // Fetch YouTube Stats from meta/stats
+        try {
+          const statsDoc = await getDoc(doc(db, "meta", "stats"));
+          if (statsDoc.exists()) {
+            const data = statsDoc.data();
+            if (data.youtube) {
+              setSubscriberCount(data.youtube.subscriberCount || 0);
+              setVideoCount(data.youtube.videoCount || 0);
+              setViewCount(data.youtube.viewCount || 0);
+            }
+          }
+        } catch (err) {
+          console.error("Error fetching YouTube stats:", err);
+        }
       } catch (error) {
         console.error("Error fetching dashboard data:", error);
       } finally {
@@ -379,7 +469,7 @@ function ContentDashboard() {
     };
 
     fetchData();
-  }, [userRole]);
+  }, [user, userRole]);
 
   const StatCardSkeleton = () => (
     <div className="border border-white/10 bg-[#141414] p-5 animate-pulse">
@@ -409,11 +499,19 @@ function ContentDashboard() {
               <Plus className="mr-1.5 h-4 w-4" /> New Post
             </Link>
           </Button>
-          <Button asChild variant="outline" size="sm" className="border-white/20 bg-white/5 hover:bg-white/10 text-white">
-            <Link href="/admin/handles">
-              <AtSign className="mr-1.5 h-4 w-4 text-[#8a2ae3]" /> Handles
-            </Link>
-          </Button>
+          {userRole === "author" ? (
+            <Button asChild variant="outline" size="sm" className="border-white/20 bg-white/5 hover:bg-white/10 text-white">
+              <Link href="/admin/comments">
+                <MessageSquare className="mr-1.5 h-4 w-4 text-[#8a2ae3]" /> Comments
+              </Link>
+            </Button>
+          ) : (
+            <Button asChild variant="outline" size="sm" className="border-white/20 bg-white/5 hover:bg-white/10 text-white">
+              <Link href="/admin/handles">
+                <AtSign className="mr-1.5 h-4 w-4 text-[#8a2ae3]" /> Handles
+              </Link>
+            </Button>
+          )}
         </div>
       </div>
 
@@ -693,18 +791,23 @@ function ContentDashboard() {
                   key={article.id}
                   className="flex items-center gap-4 py-3.5 group"
                 >
-                  <img
-                    src={
-                      article.img ||
-                      "/images/articles/preview/an-indestructible-hope.jpg"
-                    }
-                    alt={article.imgAlt || "Thumbnail"}
-                    className="h-14 w-14 object-cover border border-white/10 shrink-0"
-                  />
+                  <Link
+                    href={`/admin/articles/${article.id}/preview`}
+                    className="shrink-0"
+                  >
+                    <img
+                      src={
+                        article.img ||
+                        "/images/articles/preview/an-indestructible-hope.jpg"
+                      }
+                      alt={article.imgAlt || "Thumbnail"}
+                      className="h-14 w-14 object-cover border border-white/10 shrink-0 hover:opacity-80 transition-opacity"
+                    />
+                  </Link>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
                       <Link
-                        href={`/admin/articles/${article.id}`}
+                        href={`/admin/articles/${article.id}/preview`}
                         className="font-medium text-white truncate hover:text-[#8a2ae3] transition-colors"
                       >
                         {article.title}
@@ -738,19 +841,31 @@ function ContentDashboard() {
           </div>
         </div>
 
-        {/* Recent Registered Readers Feed */}
+        {/* Recent Readers Feed */}
         <div className="border border-white/10 bg-[#141414] p-6">
           <div className="flex items-center justify-between border-b border-white/10 pb-4 mb-4">
             <div>
-              <h2 className="text-lg font-bold text-white">Recent Readers</h2>
+              <h2 className="text-lg font-bold text-white">
+                {userRole === "author" ? "Recent Readers" : "Recent Readers"}
+              </h2>
             </div>
-            <Link
-              href="/admin/handles"
-              className="inline-flex items-center gap-1 text-xs font-semibold uppercase tracking-wider text-white/60 transition-colors hover:text-[#8a2ae3]"
-            >
-              <span>Manage handles</span>
-              <ArrowRight className="h-3 w-3" />
-            </Link>
+            {userRole === "author" ? (
+              <Link
+                href="/admin/comments"
+                className="inline-flex items-center gap-1 text-xs font-semibold uppercase tracking-wider text-white/60 transition-colors hover:text-[#8a2ae3]"
+              >
+                <span>View comments</span>
+                <ArrowRight className="h-3 w-3" />
+              </Link>
+            ) : (
+              <Link
+                href="/admin/handles"
+                className="inline-flex items-center gap-1 text-xs font-semibold uppercase tracking-wider text-white/60 transition-colors hover:text-[#8a2ae3]"
+              >
+                <span>Manage handles</span>
+                <ArrowRight className="h-3 w-3" />
+              </Link>
+            )}
           </div>
 
           <div className="divide-y divide-white/10">
@@ -818,9 +933,15 @@ function ContentDashboard() {
                             </span>
                           )}
                         </div>
-                        <p className="text-xs text-white/45 truncate mt-0.5">
-                          {reader.email || "No email provided"}
-                        </p>
+                        {reader.articleTitle ? (
+                          <p className="text-xs text-white/45 truncate mt-0.5">
+                            <span className="text-[#8a2ae3] font-medium">On:</span> {reader.articleTitle}
+                          </p>
+                        ) : (
+                          <p className="text-xs text-white/45 truncate mt-0.5">
+                            {reader.email || "No email provided"}
+                          </p>
+                        )}
                       </div>
                     </div>
 
@@ -836,7 +957,11 @@ function ContentDashboard() {
                 );
               })
             ) : (
-              <p className="py-6 text-sm text-white/50 text-center">No readers registered yet.</p>
+              <p className="py-6 text-sm text-white/50 text-center">
+                {userRole === "author"
+                  ? "No readers have commented on your articles yet."
+                  : "No readers registered yet."}
+              </p>
             )}
           </div>
         </div>

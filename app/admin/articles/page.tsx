@@ -23,11 +23,14 @@ import {
   useUpdateDocument,
 } from "@/hooks/use-firestore-query";
 import { moveArticleToTrash } from "@/lib/article-trash";
+import { useAuth } from "@/lib/auth-context";
 
 interface Article {
   id: string;
   title: string;
   authorName: string;
+  authorUID?: string;
+  authorId?: string;
   createdAt?: any;
   date?: any; // Published date
   scheduledPublishDate?: any; // Scheduled published date
@@ -64,6 +67,7 @@ type SortField =
   | "date";
 
 export default function ArticlesPage() {
+  const { user, userRole } = useAuth();
   const [searchTerm, setSearchTerm] = useState("");
   const [sortField, setSortField] = useState<SortField | null>(null);
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
@@ -73,6 +77,17 @@ export default function ArticlesPage() {
 
   const { toast } = useToast();
   const updateArticle = useUpdateDocument("articles");
+
+  const canEditArticle = (article: Article) => {
+    if (userRole === "super" || userRole === "admin") return true;
+    if (userRole === "author") {
+      return (
+        article.authorUID === user?.uid ||
+        article.authorId === user?.uid
+      );
+    }
+    return false;
+  };
 
   // Set up query constraints based on sort field and order
   const getConstraints = () => {
@@ -97,8 +112,17 @@ export default function ArticlesPage() {
   } = usePaginatedCollection("articles", 20, getConstraints());
 
   // Toggle the publish status
-  const togglePublish = async (articleId: string, currentStatus: boolean) => {
+  const togglePublish = async (article: Article) => {
+    if (!canEditArticle(article)) {
+      toast({
+        title: "Permission denied",
+        description: "You can only publish or unpublish your own articles.",
+        variant: "destructive",
+      });
+      return;
+    }
     try {
+      const currentStatus = article.publish;
       const updateData: any = { publish: !currentStatus };
 
       // If publishing (currentStatus is false -> true), update the date
@@ -107,7 +131,7 @@ export default function ArticlesPage() {
       }
 
       await updateArticle.mutateAsync({
-        id: articleId,
+        id: article.id,
         data: updateData,
       });
 
@@ -132,13 +156,21 @@ export default function ArticlesPage() {
   };
 
   // Delete article
-  const confirmDelete = (articleId: string) => {
+  const confirmDelete = (article: Article) => {
+    if (!canEditArticle(article)) {
+      toast({
+        title: "Permission denied",
+        description: "You can only delete your own articles.",
+        variant: "destructive",
+      });
+      return;
+    }
     if (
       window.confirm(
         "Move this article to the recycle bin? You can restore it later."
       )
     ) {
-      deleteArticle(articleId);
+      deleteArticle(article.id);
     }
   };
 
@@ -376,28 +408,38 @@ export default function ArticlesPage() {
                       </td>
                       {/* Publish Toggle */}
                       <td className="p-4 whitespace-nowrap">
-                        <Button
-                          onClick={() =>
-                            togglePublish(articleData.id, articleData.publish)
-                          }
-                          variant={
-                            articleData.publish ? "default" : "secondary"
-                          }
-                          size="sm"
-                          disabled={updateArticle.isPending}
-                          className={
-                            !articleData.publish &&
-                            articleData.scheduledPublishDate
-                              ? "bg-orange-500/20 text-orange-400 hover:bg-orange-500/30"
-                              : ""
-                          }
-                        >
-                          {articleData.publish
-                            ? "Published"
-                            : articleData.scheduledPublishDate
-                            ? "Scheduled"
-                            : "Draft"}
-                        </Button>
+                        {canEditArticle(articleData) ? (
+                          <Button
+                            onClick={() => togglePublish(articleData)}
+                            variant={
+                              articleData.publish ? "default" : "secondary"
+                            }
+                            size="sm"
+                            disabled={updateArticle.isPending}
+                            className={
+                              !articleData.publish &&
+                              articleData.scheduledPublishDate
+                                ? "bg-orange-500/20 text-orange-400 hover:bg-orange-500/30"
+                                : ""
+                            }
+                          >
+                            {articleData.publish
+                              ? "Published"
+                              : articleData.scheduledPublishDate
+                              ? "Scheduled"
+                              : "Draft"}
+                          </Button>
+                        ) : (
+                          <span
+                            className={`inline-flex items-center px-2.5 py-1 text-xs font-medium rounded ${
+                              articleData.publish
+                                ? "bg-[#8a2ae3]/10 text-[#8a2ae3] border border-[#8a2ae3]/20"
+                                : "bg-white/5 text-white/50 border border-white/10"
+                            }`}
+                          >
+                            {articleData.publish ? "Published" : "Draft"}
+                          </span>
+                        )}
                       </td>
                       {/* Actions */}
                       <td className="p-4 whitespace-nowrap">
@@ -412,24 +454,28 @@ export default function ArticlesPage() {
                               <Eye className="h-4 w-4" />
                             </Link>
                           </Button>
-                          <Button asChild size="icon" variant="ghost">
-                            <Link
-                              href={`/admin/articles/${articleData.id}`}
-                              title="Edit article"
-                            >
-                              <Pencil className="h-4 w-4" />
-                            </Link>
-                          </Button>
-                          <Button
-                            size="icon"
-                            variant="ghost"
-                            className="text-red-500"
-                            onClick={() => confirmDelete(articleData.id)}
-                            title="Move article to recycle bin"
-                            disabled={deletingArticleId !== null}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
+                          {canEditArticle(articleData) ? (
+                            <>
+                              <Button asChild size="icon" variant="ghost">
+                                <Link
+                                  href={`/admin/articles/${articleData.id}`}
+                                  title="Edit article"
+                                >
+                                  <Pencil className="h-4 w-4" />
+                                </Link>
+                              </Button>
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                className="text-red-500"
+                                onClick={() => confirmDelete(articleData)}
+                                title="Move article to recycle bin"
+                                disabled={deletingArticleId !== null}
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </>
+                          ) : null}
                         </div>
                       </td>
                     </tr>

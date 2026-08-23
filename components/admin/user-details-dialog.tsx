@@ -32,7 +32,7 @@ import { db } from "@/lib/firebase"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 
-export type StaffRole = "super" | "admin" | "manager" | "moderator"
+export type StaffRole = "super" | "admin" | "author" | "moderator"
 
 interface UserDetailsDialogProps {
   userId: string | null
@@ -83,7 +83,7 @@ interface UserProfileDetails {
 const ROLE_BADGES: Record<StaffRole, { label: string; className: string }> = {
   super: { label: "Super Admin", className: "bg-[#8a2ae3]/15 text-[#8a2ae3] border-[#8a2ae3]/30" },
   admin: { label: "Admin", className: "bg-[#8a2ae3]/15 text-[#8a2ae3] border-[#8a2ae3]/30" },
-  manager: { label: "Author", className: "bg-[#f3c969]/15 text-[#f3c969] border-[#f3c969]/30" },
+  author: { label: "Author", className: "bg-[#f3c969]/15 text-[#f3c969] border-[#f3c969]/30" },
   moderator: { label: "Moderator", className: "bg-[#5eead4]/15 text-[#5eead4] border-[#5eead4]/30" },
 }
 

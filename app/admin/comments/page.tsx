@@ -341,6 +341,7 @@ function ModerationRow({
   busyId,
   compact = false,
   contextOnly = false,
+  canHide = true,
   canDelete = true,
   canPin = false,
   reaction,
@@ -360,6 +361,7 @@ function ModerationRow({
   busyId: string | null
   compact?: boolean
   contextOnly?: boolean
+  canHide?: boolean
   canDelete?: boolean
   canPin?: boolean
   reaction?: CommentReaction
@@ -568,9 +570,11 @@ function ModerationRow({
             <Pin className={`h-4 w-4 ${entry.pinned ? "fill-current" : ""}`} />
           </Button>
         )}
-        <Button variant="ghost" size="icon" disabled={isBusy} title={entry.status === "visible" ? "Hide" : "Restore"} aria-label={entry.status === "visible" ? `Hide ${entry.kind}` : `Restore ${entry.kind}`} onClick={() => onStatusChange(entry, entry.status === "visible" ? "hidden" : "visible")} className="h-8 w-8 text-white/40 transition-colors duration-200 hover:bg-white/[0.07] hover:text-white focus-visible:ring-[#8a2ae3]">
-          {entry.status === "visible" ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-        </Button>
+        {canHide && (
+          <Button variant="ghost" size="icon" disabled={isBusy} title={entry.status === "visible" ? "Hide" : "Restore"} aria-label={entry.status === "visible" ? `Hide ${entry.kind}` : `Restore ${entry.kind}`} onClick={() => onStatusChange(entry, entry.status === "visible" ? "hidden" : "visible")} className="h-8 w-8 text-white/40 transition-colors duration-200 hover:bg-white/[0.07] hover:text-white focus-visible:ring-[#8a2ae3]">
+            {entry.status === "visible" ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+          </Button>
+        )}
         {canDelete && (
           <Button variant="ghost" size="icon" disabled={isBusy} title="Delete permanently" aria-label={`Delete ${entry.kind}`} onClick={() => onDelete(entry)} className="h-8 w-8 text-white/30 transition-colors duration-200 hover:bg-red-400/10 hover:text-red-300 focus-visible:ring-red-300"><Trash2 className="h-4 w-4" /></Button>
         )}
@@ -857,12 +861,64 @@ export default function CommentsModerationPage() {
   const allEntries = useMemo(() => [...comments, ...replies], [comments, replies])
 
   const [staffUids, setStaffUids] = useState<Set<string>>(new Set())
+  const [staffRoles, setStaffRoles] = useState<Map<string, string>>(new Map())
 
   useEffect(() => {
     return onSnapshot(collection(db, "authors"), (snapshot) => {
-      setStaffUids(new Set(snapshot.docs.map((doc) => doc.id)))
+      const uids = new Set<string>()
+      const roles = new Map<string, string>()
+      snapshot.docs.forEach((d) => {
+        uids.add(d.id)
+        roles.set(d.id, d.data()?.role || "author")
+      })
+      setStaffUids(uids)
+      setStaffRoles(roles)
     })
   }, [])
+
+  const getTargetRole = (entry: ModeratedEntry): string => {
+    return staffRoles.get(entry.authorId) || "reader"
+  }
+
+  const canHideEntry = (entry: ModeratedEntry): boolean => {
+    if (!user) return false
+    // Super, Admin, Moderator can hide/restore any comment
+    if (
+      userRole === "super" ||
+      userRole === "admin" ||
+      userRole === "moderator"
+    ) {
+      return true
+    }
+    // Author can only hide/restore their OWN comment
+    if (userRole === "author") {
+      return entry.authorId === user.uid
+    }
+    return false
+  }
+
+  const canDeleteEntry = (entry: ModeratedEntry): boolean => {
+    if (!user) return false
+    // Everyone can delete their own comments
+    if (entry.authorId === user.uid) {
+      return true
+    }
+    const targetRole = getTargetRole(entry)
+    // Super admin can delete everything
+    if (userRole === "super") {
+      return true
+    }
+    // Admin can delete readers, authors, and moderators, but CANNOT delete super admin comments
+    if (userRole === "admin") {
+      return targetRole !== "super"
+    }
+    // Moderator can delete readers and authors, but CANNOT delete admin or super comments
+    if (userRole === "moderator") {
+      return targetRole === "reader" || targetRole === "author"
+    }
+    // Author cannot delete anyone else's comments
+    return false
+  }
 
   const filteredThreads = useMemo(() => {
     const needle = searchTerm.trim().toLowerCase()
@@ -994,6 +1050,10 @@ export default function CommentsModerationPage() {
 
   const setEntryStatus = async (entry: ModeratedEntry, status: ModerationStatus) => {
     if (!user) return
+    if (!canHideEntry(entry)) {
+      setError("You do not have permission to hide or restore this comment.")
+      return
+    }
     setBusyId(`${entry.kind}:${entry.id}`)
     setError("")
     try {
@@ -1009,8 +1069,9 @@ export default function CommentsModerationPage() {
   }
 
   const removeEntry = async (entry: ModeratedEntry) => {
-    if (userRole === "moderator" && entry.authorId !== user?.uid) {
-      setError("Moderators can only hide or restore comments, not delete them.")
+    if (!user) return
+    if (!canDeleteEntry(entry)) {
+      setError("You do not have permission to delete this comment.")
       return
     }
     const noun = entry.kind === "comment" ? "comment and its replies" : "reply"
@@ -1405,7 +1466,8 @@ export default function CommentsModerationPage() {
               entry={thread.parent}
               busyId={busyId}
               contextOnly={thread.parentIsContext}
-              canDelete={userRole !== "moderator" || (Boolean(user?.uid) && thread.parent.authorId === user?.uid)}
+              canHide={canHideEntry(thread.parent)}
+              canDelete={canDeleteEntry(thread.parent)}
               canPin={userRole === "admin" || userRole === "super"}
               reaction={reactions[thread.parent.id]}
               reactionBusyId={reactionBusyId}
@@ -1561,7 +1623,8 @@ export default function CommentsModerationPage() {
                       entry={reply}
                       busyId={busyId}
                       compact
-                      canDelete={userRole !== "moderator" || (Boolean(user?.uid) && reply.authorId === user?.uid)}
+                      canHide={canHideEntry(reply)}
+                      canDelete={canDeleteEntry(reply)}
                       reactionBusyId={reactionBusyId}
                       translation={translations[reply.id]}
                       isTranslating={translatingIds.has(reply.id)}

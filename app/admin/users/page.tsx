@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
-import { useSearchParams } from "next/navigation"
+import { useRouter, useSearchParams } from "next/navigation"
 import {
   collection,
   onSnapshot,
@@ -50,7 +50,7 @@ interface AuthorRecord {
   name?: string
   handle?: string
   email?: string
-  role?: "super" | "admin" | "manager" | "moderator"
+  role?: "super" | "admin" | "author" | "moderator"
   avatar?: string
   createdAt?: Timestamp
   created_at?: Timestamp
@@ -116,7 +116,15 @@ export default function AdminUsersPage() {
   const initialUserId = searchParams.get("id")
   const initialQuery = searchParams.get("q") || ""
 
-  const { user, userRole } = useAuth()
+  const { user, userRole, isLoading } = useAuth()
+  const router = useRouter()
+
+  useEffect(() => {
+    if (!isLoading && (userRole === "author" || userRole === "moderator")) {
+      router.replace("/admin")
+    }
+  }, [userRole, isLoading, router])
+
   const [users, setUsers] = useState<UserRecord[]>([])
   const [authors, setAuthors] = useState<Record<string, AuthorRecord>>({})
   const [loadingUsers, setLoadingUsers] = useState(true)
@@ -128,6 +136,10 @@ export default function AdminUsersPage() {
 
   const [selectedUserId, setSelectedUserId] = useState<string | null>(initialUserId)
   const [isDetailsOpen, setIsDetailsOpen] = useState<boolean>(Boolean(initialUserId))
+
+  if (isLoading || userRole === "author" || userRole === "moderator") {
+    return null
+  }
 
   // Load authors to identify staff accounts
   useEffect(() => {
@@ -512,7 +524,7 @@ export default function AdminUsersPage() {
                         >
                           Admin
                         </Badge>
-                      ) : author?.role === "manager" ? (
+                      ) : author?.role === "author" ? (
                         <Badge
                           variant="outline"
                           className="bg-[#f3c969]/10 border-[#f3c969] text-[#f3c969] text-xs uppercase font-mono"

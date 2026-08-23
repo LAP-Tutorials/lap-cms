@@ -11,10 +11,22 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Lock } from "lucide-react"
 
-const CMS_ROLES = ["super", "admin", "manager", "moderator"]
+const CMS_ROLES = ["super", "admin", "author", "moderator"]
 
 function isModeratorRoute(pathname: string) {
   return pathname === "/admin" ||
+    pathname === "/admin/comments" ||
+    pathname.startsWith("/admin/comments/") ||
+    pathname === "/admin/notifications" ||
+    pathname.startsWith("/admin/notifications/") ||
+    pathname === "/admin/profile" ||
+    pathname.startsWith("/admin/profile/")
+}
+
+function isAuthorRoute(pathname: string) {
+  return pathname === "/admin" ||
+    pathname === "/admin/articles" ||
+    pathname.startsWith("/admin/articles/") ||
     pathname === "/admin/comments" ||
     pathname.startsWith("/admin/comments/") ||
     pathname === "/admin/notifications" ||
@@ -37,6 +49,8 @@ export default function AdminLayout({
       router.replace("/auth/login")
     } else if (!isLoading && user && !CMS_ROLES.includes(userRole || "")) {
       router.replace("/auth/login")
+    } else if (!isLoading && userRole === "author" && !isAuthorRoute(pathname)) {
+      router.replace("/admin")
     } else if (!isLoading && userRole === "moderator" && !isModeratorRoute(pathname)) {
       router.replace("/admin")
     }
@@ -93,6 +107,10 @@ export default function AdminLayout({
         </div>
       </div>
     )
+  }
+
+  if (userRole === "author" && !isAuthorRoute(pathname)) {
+    return null
   }
 
   if (userRole === "moderator" && !isModeratorRoute(pathname)) {

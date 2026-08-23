@@ -535,7 +535,7 @@ export default function EditTeamMemberPage() {
                     <option value="">Select role</option>
                     <option value="super">Super Admin</option>
                     <option value="admin">Admin</option>
-                    <option value="manager">Manager</option>
+                    <option value="author">Author</option>
                     <option value="moderator">Moderator</option>
                   </select>
                 </div>

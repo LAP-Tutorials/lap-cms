@@ -10,7 +10,7 @@ service cloud.firestore {
     function isCmsUser() {
       return isAuthenticated() &&
         exists(/databases/$(database)/documents/authors/$(request.auth.uid)) &&
-        get(/databases/$(database)/documents/authors/$(request.auth.uid)).data.role in ['manager', 'admin', 'super'];
+        get(/databases/$(database)/documents/authors/$(request.auth.uid)).data.role in ['author', 'admin', 'super'];
     }
 
     function isModerator() {
@@ -19,8 +19,14 @@ service cloud.firestore {
         get(/databases/$(database)/documents/authors/$(request.auth.uid)).data.role == 'moderator';
     }
 
+    function isStaff() {
+      return isAuthenticated() &&
+        exists(/databases/$(database)/documents/authors/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/authors/$(request.auth.uid)).data.role in ['super', 'admin', 'author', 'moderator'];
+    }
+
     function canModerate() {
-      return isCmsUser() || isModerator();
+      return isSuperAdmin() || isAdmin() || isModerator();
     }
 
     function handleReservationKey(handle) {
@@ -83,7 +89,7 @@ service cloud.firestore {
     // Published articles are public. Drafts stay inside the CMS.
     match /articles/{articleId} {
       allow read: if resource.data.publish == true || isCmsUser();
-      allow create: if isAdmin() && (
+      allow create: if isCmsUser() && (
         (request.resource.data.authorUID == request.auth.uid &&
           request.resource.data.authorRef == /databases/$(database)/documents/authors/$(request.auth.uid) &&
           request.resource.data.authorName == get(/databases/$(database)/documents/authors/$(request.auth.uid)).data.name) ||
@@ -91,18 +97,18 @@ service cloud.firestore {
           request.resource.data == get(/databases/$(database)/documents/articleTrash/$(articleId)).data.article &&
           !existsAfter(/databases/$(database)/documents/articleTrash/$(articleId)))
       );
-      allow update: if isAdmin() &&
+      allow update: if (isAdmin() || (isCmsUser() && resource.data.authorUID == request.auth.uid)) &&
         !request.resource.data.diff(resource.data).affectedKeys()
           .hasAny(['authorUID', 'authorRef', 'authorName']);
-      allow delete: if isAdmin() &&
+      allow delete: if (isAdmin() || (isCmsUser() && resource.data.authorUID == request.auth.uid)) &&
         existsAfter(/databases/$(database)/documents/articleTrash/$(articleId)) &&
         getAfter(/databases/$(database)/documents/articleTrash/$(articleId)).data.article == resource.data;
     }
 
-    // Deleted articles: admins can restore them or explicitly remove them forever.
+    // Deleted articles: admins and authors (for their own articles) can restore or delete forever.
     match /articleTrash/{articleId} {
-      allow read: if isAdmin();
-      allow create: if isAdmin() &&
+      allow read: if isCmsUser();
+      allow create: if (isAdmin() || (isCmsUser() && request.resource.data.article.authorUID == request.auth.uid)) &&
         request.resource.data.keys().hasOnly(['article', 'deletedAt', 'deletedBy']) &&
         request.resource.data.deletedBy == request.auth.uid &&
         request.resource.data.deletedAt == request.time &&
@@ -110,7 +116,7 @@ service cloud.firestore {
         request.resource.data.article == get(/databases/$(database)/documents/articles/$(articleId)).data &&
         !existsAfter(/databases/$(database)/documents/articles/$(articleId));
       allow update: if false;
-      allow delete: if isAdmin();
+      allow delete: if isAdmin() || (isCmsUser() && resource.data.article.authorUID == request.auth.uid);
     }
     
     // News: Public read, Admin write
@@ -135,10 +141,10 @@ service cloud.firestore {
       allow delete: if false;
     }
 
-    // Public reader accounts. Anyone can view individual user profiles; listing is CMS staff only.
+    // Public reader accounts. Anyone can view individual user profiles; listing is staff only.
     match /users/{userId} {
       allow get: if true;
-      allow list: if isCmsUser();
+      allow list: if isStaff();
       allow create: if isAuthenticated() &&
         isHandleSystemReady() &&
         request.auth.uid == userId &&
@@ -175,6 +181,7 @@ service cloud.firestore {
         request.resource.data.displayName.size() >= 2 &&
         request.resource.data.displayName.size() <= 80 &&
         request.resource.data.photoURL is string &&
+        request.resource.data.photoURL.size() >= 1 &&
         request.resource.data.photoURL.size() <= 1000 &&
         request.resource.data.provider in ['password', 'google.com'] &&
         request.resource.data.handle is string &&
@@ -235,10 +242,10 @@ service cloud.firestore {
     }
 
     // Comments are publicly readable when visible. Owners can edit their own
-    // text, while CMS staff can hide, restore, or delete any comment.
+    // text, while CMS staff can hide, restore, or delete according to role hierarchy.
     match /comments/{commentId} {
       allow read: if resource.data.status == 'visible' ||
-        canModerate() ||
+        isStaff() ||
         (isAuthenticated() && resource.data.authorId == request.auth.uid);
       allow create: if isAuthenticated() &&
         exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
@@ -293,7 +300,7 @@ service cloud.firestore {
         request.resource.data.updatedAt == request.time &&
         request.resource.data.edited == true
       ) || (
-        canModerate() &&
+        (canModerate() || (isAuthenticated() && resource.data.authorId == request.auth.uid)) &&
         request.resource.data.diff(resource.data).affectedKeys().hasOnly([
           'status', 'moderatedAt', 'moderatedBy'
         ]) &&
@@ -306,15 +313,19 @@ service cloud.firestore {
           'pinned', 'pinnedAt', 'pinnedBy'
         ])
       );
-      allow delete: if isCmsUser() ||
-        (isAuthenticated() && resource.data.authorId == request.auth.uid);
+      allow delete: if (isAuthenticated() && resource.data.authorId == request.auth.uid) ||
+        isSuperAdmin() ||
+        (isAdmin() && (!exists(/databases/$(database)/documents/authors/$(resource.data.authorId)) ||
+          get(/databases/$(database)/documents/authors/$(resource.data.authorId)).data.role != 'super')) ||
+        (isModerator() && (!exists(/databases/$(database)/documents/authors/$(resource.data.authorId)) ||
+          get(/databases/$(database)/documents/authors/$(resource.data.authorId)).data.role in ['author']));
     }
 
     // One-level public replies. Owners control their own text; CMS staff
-    // control visibility and deletion. Reply totals are maintained server-side.
+    // control visibility and deletion according to role hierarchy.
     match /commentReplies/{replyId} {
       allow read: if resource.data.status == 'visible' ||
-        canModerate() ||
+        isStaff() ||
         (isAuthenticated() && resource.data.authorId == request.auth.uid);
       allow create: if isAuthenticated() &&
         exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
@@ -364,7 +375,7 @@ service cloud.firestore {
         request.resource.data.updatedAt == request.time &&
         request.resource.data.edited == true
       ) || (
-        canModerate() &&
+        (canModerate() || (isAuthenticated() && resource.data.authorId == request.auth.uid)) &&
         request.resource.data.diff(resource.data).affectedKeys().hasOnly([
           'status', 'moderatedAt', 'moderatedBy'
         ]) &&
@@ -372,12 +383,16 @@ service cloud.firestore {
         request.resource.data.moderatedAt == request.time &&
         request.resource.data.moderatedBy == request.auth.uid
       );
-      allow delete: if isCmsUser() ||
-        (isAuthenticated() && (
+      allow delete: if (isAuthenticated() && (
           resource.data.authorId == request.auth.uid ||
           (exists(/databases/$(database)/documents/comments/$(resource.data.parentCommentId)) &&
             get(/databases/$(database)/documents/comments/$(resource.data.parentCommentId)).data.authorId == request.auth.uid)
-        ));
+        )) ||
+        isSuperAdmin() ||
+        (isAdmin() && (!exists(/databases/$(database)/documents/authors/$(resource.data.authorId)) ||
+          get(/databases/$(database)/documents/authors/$(resource.data.authorId)).data.role != 'super')) ||
+        (isModerator() && (!exists(/databases/$(database)/documents/authors/$(resource.data.authorId)) ||
+          get(/databases/$(database)/documents/authors/$(resource.data.authorId)).data.role in ['author']));
     }
 
     // Reactions are written by a trusted callable function so counts cannot be

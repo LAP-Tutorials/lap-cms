@@ -63,7 +63,7 @@ function getAnalyticsClient() {
   return analyticsDataClient;
 }
 
-const CONTENT_STAFF_ROLES = ["manager", "admin", "super"];
+const CONTENT_STAFF_ROLES = ["author", "admin", "super"];
 const RESERVABLE_TEAM_ROLES = ["moderator", ...CONTENT_STAFF_ROLES];
 const OFFICIAL_HANDLE_KEYS = [
   "lap",
@@ -1437,6 +1437,177 @@ export const listModeratorCandidates = onCall(
   }
 );
 
+export const listExistingUserCandidates = onCall(
+  { region: "europe-west1", minInstances: 0 },
+  async (request) => {
+    if (!request.auth) {
+      throw new HttpsError("unauthenticated", "You must be signed in.");
+    }
+
+    const firestore = getDb();
+    const caller = await firestore
+      .collection("authors")
+      .doc(request.auth.uid)
+      .get();
+    if (!caller.exists || !["admin", "super"].includes(caller.data()?.role)) {
+      throw new HttpsError(
+        "permission-denied",
+        "You do not have permission to view user candidates."
+      );
+    }
+
+    const [users, authors] = await Promise.all([
+      firestore.collection("users").get(),
+      firestore.collection("authors").get(),
+    ]);
+    const teamUids = new Set(authors.docs.map((snapshot) => snapshot.id));
+
+    return {
+      candidates: users.docs
+        .filter((snapshot) => !teamUids.has(snapshot.id))
+        .map((snapshot) => {
+          const data = snapshot.data();
+          return {
+            uid: snapshot.id,
+            handle: normalizeTeamHandle(data.handle),
+            name: data.displayName || data.handle || data.email || "User",
+            email: data.email || "",
+            photoURL: data.photoURL || "",
+            city: data.city || "",
+            bio: data.bio || "",
+          };
+        })
+        .sort((a, b) => a.name.localeCompare(b.name)),
+    };
+  }
+);
+
+export const addExistingUserToTeam = onCall(
+  { region: "europe-west1", minInstances: 0 },
+  async (request) => {
+    if (!request.auth) {
+      throw new HttpsError("unauthenticated", "You must be signed in.");
+    }
+
+    const firestore = getDb();
+    const caller = await firestore
+      .collection("authors")
+      .doc(request.auth.uid)
+      .get();
+    const callerRole = caller.data()?.role;
+
+    if (!caller.exists || !["admin", "super"].includes(callerRole)) {
+      throw new HttpsError(
+        "permission-denied",
+        "You do not have permission to add team members."
+      );
+    }
+
+    const {
+      uid,
+      role,
+      name,
+      city,
+      job,
+      avatar,
+      imgAlt,
+      slug,
+      socials,
+      biography,
+      showOnTeam,
+    } = request.data ?? {};
+
+    if (typeof uid !== "string" || !uid.trim()) {
+      throw new HttpsError("invalid-argument", "Choose an account.");
+    }
+
+    if (
+      typeof role !== "string" ||
+      !RESERVABLE_TEAM_ROLES.includes(role)
+    ) {
+      throw new HttpsError("invalid-argument", "Choose a valid team role.");
+    }
+
+    if (role === "super" && callerRole !== "super") {
+      throw new HttpsError(
+        "permission-denied",
+        "Only a super admin can assign the super admin role."
+      );
+    }
+
+    const userRecord = await admin.auth().getUser(uid).catch(() => null);
+    const userDoc = await firestore.collection("users").doc(uid).get();
+
+    if (!userRecord && !userDoc.exists) {
+      throw new HttpsError("not-found", "User account not found.");
+    }
+
+    const userData = userDoc.data() || {};
+    const cleanName =
+      (typeof name === "string" && name.trim()) ||
+      (typeof userData.displayName === "string" && userData.displayName.trim()) ||
+      userRecord?.displayName ||
+      userData.handle ||
+      userRecord?.email?.split("@")[0] ||
+      "Team Member";
+
+    const optionalString = (val: unknown) => (typeof val === "string" ? val : "");
+
+    const finalAvatar =
+      optionalString(avatar) ||
+      userData.photoURL ||
+      userRecord?.photoURL ||
+      "";
+
+    const finalSlug =
+      optionalString(slug) ||
+      normalizeTeamHandle(userData.handle) ||
+      cleanName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)+/g, "");
+
+    const finalShowOnTeam =
+      typeof showOnTeam === "boolean"
+        ? showOnTeam
+        : role !== "moderator";
+
+    const userHandle = normalizeTeamHandle(userData.handle);
+
+    const authorData: Record<string, any> = {
+      uid,
+      name: cleanName,
+      ...(userHandle ? { handle: userHandle } : {}),
+      city: optionalString(city) || userData.city || "",
+      job: optionalString(job) || "",
+      role,
+      showOnTeam: finalShowOnTeam,
+      avatar: finalAvatar,
+      imgAlt: optionalString(imgAlt) || `Profile picture of ${cleanName}`,
+      biography:
+        typeof biography === "object" && biography !== null
+          ? biography
+          : { body: userData.bio || "", summary: "" },
+      slug: finalSlug,
+      socials: typeof socials === "object" && socials !== null ? socials : {},
+      createdAt: userData.createdAt || new Date().toISOString(),
+      dateJoined: admin.firestore.FieldValue.serverTimestamp(),
+    };
+
+    await firestore.collection("authors").doc(uid).set(authorData, { merge: true });
+
+    if (userDoc.exists) {
+      await firestore.collection("users").doc(uid).set(
+        {
+          staffName: cleanName,
+          staffRole: role,
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        },
+        { merge: true }
+      );
+    }
+
+    return { uid, success: true };
+  }
+);
+
 export const promoteReaderToModerator = onCall(
   { region: "europe-west1", minInstances: 0 },
   async (request) => {
@@ -2669,7 +2840,7 @@ export const onCommentCreated = onDocumentCreated(
       const firestore = getDb();
       const staffSnapshot = await firestore
         .collection("authors")
-        .where("role", "in", ["super", "admin", "manager", "moderator"])
+        .where("role", "in", ["super", "admin", "author", "moderator"])
         .get();
 
       for (const staffDoc of staffSnapshot.docs) {
@@ -2791,7 +2962,7 @@ export const onCommentReplyCreated = onDocumentCreated(
       const firestore = getDb();
       const staffSnapshot = await firestore
         .collection("authors")
-        .where("role", "in", ["super", "admin", "manager", "moderator"])
+        .where("role", "in", ["super", "admin", "author", "moderator"])
         .get();
 
       for (const staffDoc of staffSnapshot.docs) {

@@ -21,6 +21,7 @@ import { Breadcrumb } from "@/components/breadcrumb"
 import { Eye, EyeOff, Loader2, AlertTriangle, Plus, X, Camera, Trash2 } from "lucide-react"
 import { FcGoogle } from "react-icons/fc"
 import { AvatarCropper } from "@/components/profile/avatar-cropper"
+import { useAuth } from "@/lib/auth-context"
 
 interface ProfileData {
   avatar: string
@@ -36,6 +37,7 @@ interface ProfileData {
 }
 
 export default function ProfilePage() {
+  const { userRole } = useAuth()
   const [profile, setProfile] = useState<ProfileData>({
     avatar: "",
     name: "",
@@ -96,16 +98,29 @@ export default function ProfilePage() {
 
           if (snap.exists()) {
             const data = snap.data()
+            let handle = data.handle || ""
+
+            if (!handle) {
+              try {
+                const userSnap = await getDoc(doc(db, "users", user.uid))
+                if (userSnap.exists()) {
+                  handle = userSnap.data()?.handle || ""
+                }
+              } catch (e) {
+                console.error("Error loading user handle fallback:", e)
+              }
+            }
+
             setProfile({
               avatar: data.avatar || "",
               name: data.name || "",
-              handle: data.handle || "",
+              handle: handle,
               city: data.city || "",
               job: data.job || "",
               biography: data.biography || { body: "", summary: "" },
               socials: data.socials || {},
             })
-            setHandleInput(data.handle || "")
+            setHandleInput(handle)
           } else {
             setError("Profile not found")
           }
@@ -511,54 +526,72 @@ export default function ProfilePage() {
 
               <div>
                 <label className="block mb-2 font-medium">Comment handle:</label>
-                {profile.handle ? (
-                  <Input
-                    value={`@${profile.handle}`}
-                    readOnly
-                    aria-describedby="comment-handle-help"
-                    className="text-white/65"
-                  />
+                {userRole !== "super" ? (
+                  <>
+                    <Input
+                      value={profile.handle ? `@${profile.handle}` : "@—"}
+                      readOnly
+                      disabled
+                      aria-describedby="comment-handle-help"
+                      className="bg-white/5 text-white/60 cursor-not-allowed border-white/15"
+                    />
+                    <p id="comment-handle-help" className="mt-1 text-sm text-white/50">
+                      Your handle is locked. Only a Super Admin can update team handles.
+                    </p>
+                  </>
+                ) : profile.handle ? (
+                  <>
+                    <Input
+                      value={`@${profile.handle}`}
+                      readOnly
+                      aria-describedby="comment-handle-help"
+                      className="text-white/65"
+                    />
+                    <p id="comment-handle-help" className="mt-1 text-sm text-white/50">
+                      This is permanent. Super Admins can correct it from the Handles registry.
+                    </p>
+                  </>
                 ) : (
-                  <div className="flex flex-col gap-3 sm:flex-row">
-                    <div className="relative flex-1">
-                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-white/45">
-                        @
-                      </span>
-                      <Input
-                        value={handleInput}
-                        onChange={(event) =>
-                          setHandleInput(
-                            event.target.value
-                              .toLowerCase()
-                              .replace(/^@+/, "")
-                              .replace(/\s+/g, "_")
-                              .replace(/[^a-z0-9_-]/g, "")
-                              .slice(0, 20),
-                          )
-                        }
-                        className="pl-8"
-                        placeholder="your_handle"
-                        aria-describedby="comment-handle-help"
-                      />
+                  <>
+                    <div className="flex flex-col gap-3 sm:flex-row">
+                      <div className="relative flex-1">
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-white/45">
+                          @
+                        </span>
+                        <Input
+                          value={handleInput}
+                          onChange={(event) =>
+                            setHandleInput(
+                              event.target.value
+                                .toLowerCase()
+                                .replace(/^@+/, "")
+                                .replace(/\s+/g, "_")
+                                .replace(/[^a-z0-9_-]/g, "")
+                                .slice(0, 20),
+                            )
+                          }
+                          className="pl-8"
+                          placeholder="your_handle"
+                          aria-describedby="comment-handle-help"
+                        />
+                      </div>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={handleClaim}
+                        disabled={claimingHandle || handleInput.length < 3}
+                      >
+                        {claimingHandle && (
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        )}
+                        Choose handle
+                      </Button>
                     </div>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={handleClaim}
-                      disabled={claimingHandle || handleInput.length < 3}
-                    >
-                      {claimingHandle && (
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      )}
-                      Choose handle
-                    </Button>
-                  </div>
+                    <p id="comment-handle-help" className="mt-1 text-sm text-white/50">
+                      Choose the handle shown beside your comments. You can only choose once.
+                    </p>
+                  </>
                 )}
-                <p id="comment-handle-help" className="mt-1 text-sm text-white/50">
-                  {profile.handle
-                    ? "This is permanent. A superadmin can correct it from the handle registry."
-                    : "Choose the handle shown beside your comments. You can only choose once."}
-                </p>
               </div>
 
               <div>
