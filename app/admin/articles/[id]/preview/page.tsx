@@ -13,6 +13,7 @@ import PostNavigation from "@/components/PostNavigation";
 import { useDocument } from "@/hooks/use-firestore-query";
 import { formatDate, sanitizeUrl } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import ScrollToTop from "@/components/ScrollToTop";
 
 interface ArticlePreview {
   id: string;
@@ -256,6 +257,8 @@ export default function AdminArticlePreviewPage() {
       <div className="w-full">
         <ArticleContent htmlContent={previewHtml} />
       </div>
+
+      <ScrollToTop />
     </main>
   );
 }

@@ -135,9 +135,10 @@ service cloud.firestore {
       allow delete: if false;
     }
 
-    // Public reader accounts. Profiles are private to their owner and CMS staff.
+    // Public reader accounts. Anyone can view individual user profiles; listing is CMS staff only.
     match /users/{userId} {
-      allow read: if isCmsUser() || (isAuthenticated() && request.auth.uid == userId);
+      allow get: if true;
+      allow list: if isCmsUser();
       allow create: if isAuthenticated() &&
         isHandleSystemReady() &&
         request.auth.uid == userId &&
@@ -294,6 +295,11 @@ service cloud.firestore {
         request.resource.data.status in ['visible', 'hidden'] &&
         request.resource.data.moderatedAt == request.time &&
         request.resource.data.moderatedBy == request.auth.uid
+      ) || (
+        isAdmin() &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'pinned', 'pinnedAt', 'pinnedBy'
+        ])
       );
       allow delete: if isCmsUser() ||
         (isAuthenticated() && resource.data.authorId == request.auth.uid);

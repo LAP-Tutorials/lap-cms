@@ -19,6 +19,7 @@ import {
   MessageSquare,
   AtSign,
   Bell,
+  Shield,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/button";
@@ -158,7 +159,12 @@ export default function AdminSidebar() {
       label: "Comments",
       icon: <MessageSquare className="h-5 w-5" />,
     },
-    { href: "/admin/team", label: "Team", icon: <Users className="h-5 w-5" /> },
+    {
+      href: "/admin/users",
+      label: "Users",
+      icon: <Users className="h-5 w-5" />,
+    },
+    { href: "/admin/team", label: "Team", icon: <Shield className="h-5 w-5" /> },
     {
       href: "/admin/handles",
       label: "Handles",
@@ -174,7 +180,7 @@ export default function AdminSidebar() {
     (item) =>
       (!item.superOnly || userRole === "super") &&
       (userRole !== "moderator" ||
-        ["/admin", "/admin/notifications", "/admin/comments", "/admin/profile"].includes(item.href)),
+        ["/admin", "/admin/notifications", "/admin/comments", "/admin/users", "/admin/profile"].includes(item.href)),
   );
 
   return (

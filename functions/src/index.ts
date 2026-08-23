@@ -2889,3 +2889,74 @@ export const onCommentDeleted = onDocumentDeleted(
     }
   }
 );
+
+export const togglePinComment = onCall(
+  { region: "europe-west1", minInstances: 0 },
+  async (request) => {
+    if (!request.auth) {
+      throw new HttpsError("unauthenticated", "Authentication is required.");
+    }
+
+    const { commentId, pinned } = request.data as {
+      commentId: string;
+      pinned: boolean;
+    };
+
+    if (!commentId || typeof pinned !== "boolean") {
+      throw new HttpsError("invalid-argument", "Invalid comment ID or pin state.");
+    }
+
+    const authorDoc = await getDb().collection("authors").doc(request.auth.uid).get();
+    const role = authorDoc.data()?.role;
+    if (!authorDoc.exists || (role !== "admin" && role !== "super")) {
+      throw new HttpsError(
+        "permission-denied",
+        "Only admins and super admins can pin comments."
+      );
+    }
+
+    const commentRef = getDb().collection("comments").doc(commentId);
+    const commentDoc = await commentRef.get();
+    if (!commentDoc.exists) {
+      throw new HttpsError("not-found", "Comment not found.");
+    }
+
+    const articleId = commentDoc.data()?.articleId;
+    const batch = getDb().batch();
+
+    if (pinned) {
+      if (articleId) {
+        const currentPinned = await getDb()
+          .collection("comments")
+          .where("articleId", "==", articleId)
+          .where("pinned", "==", true)
+          .get();
+
+        currentPinned.forEach((docSnap) => {
+          if (docSnap.id !== commentId) {
+            batch.update(docSnap.ref, {
+              pinned: false,
+              pinnedAt: admin.firestore.FieldValue.delete(),
+              pinnedBy: admin.firestore.FieldValue.delete(),
+            });
+          }
+        });
+      }
+
+      batch.update(commentRef, {
+        pinned: true,
+        pinnedAt: admin.firestore.FieldValue.serverTimestamp(),
+        pinnedBy: request.auth.uid,
+      });
+    } else {
+      batch.update(commentRef, {
+        pinned: false,
+        pinnedAt: admin.firestore.FieldValue.delete(),
+        pinnedBy: admin.firestore.FieldValue.delete(),
+      });
+    }
+
+    await batch.commit();
+    return { success: true, pinned };
+  }
+);

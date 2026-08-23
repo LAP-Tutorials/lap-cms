@@ -4,7 +4,26 @@ import { useEffect, useMemo, useState, type ReactNode } from "react"
 import Link from "next/link"
 import { addDoc, collection, deleteDoc, doc, getDoc, getDocs, limit, onSnapshot, orderBy, query, serverTimestamp, updateDoc, where, writeBatch, type Timestamp } from "firebase/firestore"
 import { httpsCallable } from "firebase/functions"
-import { AtSign, CornerDownRight, ExternalLink, Eye, EyeOff, MessageSquare, Search, Send, ThumbsDown, ThumbsUp, Trash2 } from "lucide-react"
+import {
+  ArrowUpDown,
+  AtSign,
+  Clock,
+  CornerDownRight,
+  ExternalLink,
+  Eye,
+  EyeOff,
+  HelpCircle,
+  MessageSquare,
+  Pin,
+  Search,
+  Send,
+  Sparkles,
+  ThumbsDown,
+  ThumbsUp,
+  Trash2,
+  UserCheck,
+  Users,
+} from "lucide-react"
 import { db, functions } from "@/lib/firebase"
 import { useAuth } from "@/lib/auth-context"
 import { Button } from "@/components/ui/button"
@@ -12,6 +31,7 @@ import { Input } from "@/components/ui/input"
 import { Breadcrumb } from "@/components/breadcrumb"
 import PageTitle from "@/components/PageTitle"
 import { MentionTextarea } from "@/components/mention-textarea"
+import { UserDetailsDialog } from "@/components/admin/user-details-dialog"
 
 type ModerationStatus = "visible" | "hidden"
 type CommentReaction = "like" | "dislike"
@@ -33,6 +53,9 @@ type ModeratedEntry = {
   likeCount?: number
   dislikeCount?: number
   replyCount?: number
+  pinned?: boolean
+  pinnedAt?: Timestamp
+  pinnedBy?: string
 }
 
 type ModerationThread = {
@@ -41,6 +64,24 @@ type ModerationThread = {
   parentIsContext: boolean
   activityAt: number
 }
+
+type TypeFilter =
+  | "all"
+  | "comment"
+  | "reply"
+  | "mentions"
+  | "unreplied"
+  | "readers"
+  | "staff"
+  | "pinned"
+
+type SortMode =
+  | "activity"
+  | "newest"
+  | "oldest"
+  | "unreplied"
+  | "most_replies"
+  | "pinned"
 
 type StaffReplyProfile = {
   displayName: string
@@ -80,22 +121,28 @@ function ModerationRow({
   compact = false,
   contextOnly = false,
   canDelete = true,
+  canPin = false,
   reaction,
   reactionBusyId,
   onReact,
   onStatusChange,
   onDelete,
+  onTogglePin,
+  onViewUser,
 }: {
   entry: ModeratedEntry
   busyId: string | null
   compact?: boolean
   contextOnly?: boolean
   canDelete?: boolean
+  canPin?: boolean
   reaction?: CommentReaction
   reactionBusyId: string | null
   onReact?: (commentId: string, reaction: CommentReaction) => void
   onStatusChange: (entry: ModeratedEntry, status: ModerationStatus) => void
   onDelete: (entry: ModeratedEntry) => void
+  onTogglePin?: (entry: ModeratedEntry) => void
+  onViewUser?: (userId: string, initialData?: { name?: string; handle?: string; photoURL?: string }) => void
 }) {
   const createdAt = entry.createdAt?.toDate()
   const isBusy = busyId === `${entry.kind}:${entry.id}`
@@ -104,7 +151,15 @@ function ModerationRow({
 
   return (
     <div className={`group grid items-start gap-3 ${compact ? "grid-cols-[2rem_minmax(0,1fr)] py-4 sm:grid-cols-[2rem_minmax(0,1fr)_auto]" : "grid-cols-[2.5rem_minmax(0,1fr)] py-5 sm:grid-cols-[2.5rem_minmax(0,1fr)_auto]"}`}>
-      <div className={`flex items-center justify-center overflow-hidden bg-white/[0.07] font-semibold uppercase text-white/55 ${compact ? "h-8 w-8 text-xs" : "h-10 w-10 text-sm"}`}>
+      <button
+        type="button"
+        onClick={() => onViewUser?.(entry.authorId, { name: entry.authorName, handle: entry.authorHandle, photoURL: entry.authorPhotoURL })}
+        disabled={isDeletedAuthor}
+        className={`flex items-center justify-center overflow-hidden bg-white/[0.07] font-semibold uppercase text-white/55 transition-all ${
+          isDeletedAuthor ? "cursor-default" : "cursor-pointer hover:ring-2 hover:ring-[#8a2ae3] hover:scale-105"
+        } ${compact ? "h-8 w-8 text-xs" : "h-10 w-10 text-sm"}`}
+        title={isDeletedAuthor ? "Deleted user" : `View ${entry.authorName}'s details`}
+      >
         {isDeletedAuthor || entry.authorPhotoURL ? (
           <img
             src={isDeletedAuthor ? "/logos/LAP-Logo-Color.png" : entry.authorPhotoURL}
@@ -113,16 +168,32 @@ function ModerationRow({
             referrerPolicy="no-referrer"
           />
         ) : entry.authorName.charAt(0)}
-      </div>
+      </button>
       <div className="min-w-0">
         <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1.5">
-          <span className={`${compact ? "text-sm" : "text-[15px]"} font-semibold ${isDeletedAuthor ? "text-white/55" : "text-white"}`}>
-            {isDeletedAuthor ? "Deleted user" : `@${entry.authorHandle || entry.authorName}`}
-          </span>
+          {isDeletedAuthor ? (
+            <span className={`${compact ? "text-sm" : "text-[15px]"} font-semibold text-white/55`}>
+              Deleted user
+            </span>
+          ) : (
+            <button
+              type="button"
+              onClick={() => onViewUser?.(entry.authorId, { name: entry.authorName, handle: entry.authorHandle, photoURL: entry.authorPhotoURL })}
+              className={`cursor-pointer text-left ${compact ? "text-sm" : "text-[15px]"} font-semibold text-white hover:text-[#8a2ae3] transition-colors focus:outline-none`}
+              title={`View ${entry.authorName}'s details`}
+            >
+              @{entry.authorHandle || entry.authorName}
+            </button>
+          )}
           <span className="inline-flex items-center gap-1 text-[11px] text-white/35">
             {entry.kind === "reply" ? <CornerDownRight className="h-3 w-3" /> : <MessageSquare className="h-3 w-3" />}
             {contextOnly ? "Parent comment" : entry.kind === "reply" ? "Reply" : "Comment"}
           </span>
+          {entry.pinned && (
+            <span className="inline-flex items-center gap-1 bg-[#8a2ae3]/20 text-[#c084fc] border border-[#8a2ae3]/40 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider rounded-sm">
+              <Pin className="h-3 w-3 fill-current" /> Pinned
+            </span>
+          )}
           <span className={`inline-flex items-center gap-1.5 text-[11px] font-medium ${entry.status === "visible" ? "text-emerald-300" : "text-amber-300"}`}>
             <span className={`h-1.5 w-1.5 ${entry.status === "visible" ? "bg-emerald-300" : "bg-amber-300"}`} aria-hidden="true" />
             {statusLabel}
@@ -172,6 +243,23 @@ function ModerationRow({
         ) : null}
       </div>
       <div className="col-start-2 row-start-2 flex items-start justify-end gap-1 sm:col-start-3 sm:row-start-1">
+        {canPin && entry.kind === "comment" && onTogglePin && (
+          <Button
+            variant="ghost"
+            size="icon"
+            disabled={isBusy}
+            title={entry.pinned ? "Unpin comment" : "Pin comment to top of article"}
+            aria-label={entry.pinned ? "Unpin comment" : "Pin comment"}
+            onClick={() => onTogglePin(entry)}
+            className={`h-8 w-8 transition-colors duration-200 ${
+              entry.pinned
+                ? "text-[#8a2ae3] bg-[#8a2ae3]/10 hover:bg-[#8a2ae3]/20"
+                : "text-white/40 hover:bg-white/[0.07] hover:text-white"
+            } focus-visible:ring-[#8a2ae3]`}
+          >
+            <Pin className={`h-4 w-4 ${entry.pinned ? "fill-current" : ""}`} />
+          </Button>
+        )}
         <Button variant="ghost" size="icon" disabled={isBusy} title={entry.status === "visible" ? "Hide" : "Restore"} aria-label={entry.status === "visible" ? `Hide ${entry.kind}` : `Restore ${entry.kind}`} onClick={() => onStatusChange(entry, entry.status === "visible" ? "hidden" : "visible")} className="h-8 w-8 text-white/40 transition-colors duration-200 hover:bg-white/[0.07] hover:text-white focus-visible:ring-[#8a2ae3]">
           {entry.status === "visible" ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
         </Button>
@@ -183,8 +271,6 @@ function ModerationRow({
   )
 }
 
-type TypeFilter = "all" | "comment" | "reply" | "mentions"
-
 export default function CommentsModerationPage() {
   const { user, userRole } = useAuth()
   const [comments, setComments] = useState<ModeratedEntry[]>([])
@@ -195,6 +281,7 @@ export default function CommentsModerationPage() {
   const [searchTerm, setSearchTerm] = useState("")
   const [statusFilter, setStatusFilter] = useState<"all" | ModerationStatus>("all")
   const [typeFilter, setTypeFilter] = useState<TypeFilter>("all")
+  const [sortMode, setSortMode] = useState<SortMode>("activity")
   const [busyId, setBusyId] = useState<string | null>(null)
   const [reactionBusyId, setReactionBusyId] = useState<string | null>(null)
   const [reactions, setReactions] = useState<Record<string, CommentReaction>>({})
@@ -203,6 +290,21 @@ export default function CommentsModerationPage() {
   const [replyBusy, setReplyBusy] = useState(false)
   const [replyProfile, setReplyProfile] = useState<StaffReplyProfile | null>(null)
   const [replyProfileLoaded, setReplyProfileLoaded] = useState(false)
+  const [selectedUserDetailsId, setSelectedUserDetailsId] = useState<string | null>(null)
+  const [isUserDetailsOpen, setIsUserDetailsOpen] = useState(false)
+  const [userDetailsInitial, setUserDetailsInitial] = useState<
+    { name?: string; handle?: string; photoURL?: string } | undefined
+  >()
+
+  const openUserDetails = (
+    userId: string,
+    initial?: { name?: string; handle?: string; photoURL?: string },
+  ) => {
+    if (!userId || userId === "deleted-user") return
+    setSelectedUserDetailsId(userId)
+    setUserDetailsInitial(initial)
+    setIsUserDetailsOpen(true)
+  }
 
   useEffect(() => {
     if (!user) {
@@ -308,6 +410,14 @@ export default function CommentsModerationPage() {
 
   const allEntries = useMemo(() => [...comments, ...replies], [comments, replies])
 
+  const [staffUids, setStaffUids] = useState<Set<string>>(new Set())
+
+  useEffect(() => {
+    return onSnapshot(collection(db, "authors"), (snapshot) => {
+      setStaffUids(new Set(snapshot.docs.map((doc) => doc.id)))
+    })
+  }, [])
+
   const filteredThreads = useMemo(() => {
     const needle = searchTerm.trim().toLowerCase()
     const userHandle = replyProfile?.handle?.toLowerCase()
@@ -329,7 +439,13 @@ export default function CommentsModerationPage() {
 
     return comments.flatMap<ModerationThread>((parent) => {
       const allReplies = (repliesByParent.get(parent.id) || []).sort(
-        (left, right) => (left.createdAt?.toMillis() || 0) - (right.createdAt?.toMillis() || 0),
+        (left, right) => {
+          const leftIsStaff = staffUids.has(left.authorId)
+          const rightIsStaff = staffUids.has(right.authorId)
+          if (leftIsStaff && !rightIsStaff) return -1
+          if (!leftIsStaff && rightIsStaff) return 1
+          return (left.createdAt?.toMillis() || 0) - (right.createdAt?.toMillis() || 0)
+        },
       )
       const matchingReplies = allReplies.filter(matches)
       const parentMatches = matches(parent)
@@ -340,6 +456,18 @@ export default function CommentsModerationPage() {
         include = parentMatches
       } else if (typeFilter === "reply") {
         include = matchingReplies.length > 0
+        shownReplies = matchingReplies
+      } else if (typeFilter === "unreplied") {
+        include = parentMatches && allReplies.length === 0
+        shownReplies = []
+      } else if (typeFilter === "readers") {
+        include = parentMatches && !staffUids.has(parent.authorId)
+        shownReplies = matchingReplies
+      } else if (typeFilter === "staff") {
+        include = parentMatches && staffUids.has(parent.authorId)
+        shownReplies = matchingReplies
+      } else if (typeFilter === "pinned") {
+        include = Boolean(parent.pinned) && (parentMatches || matchingReplies.length > 0)
         shownReplies = matchingReplies
       } else if (typeFilter === "mentions") {
         const parentMentionsMe = parentMatches && contentMentionsHandle(parent.content, userHandle)
@@ -365,14 +493,52 @@ export default function CommentsModerationPage() {
         : !parentMatches
 
       return [{ parent, replies: shownReplies, parentIsContext, activityAt }]
-    }).sort((left, right) => right.activityAt - left.activityAt)
-  }, [comments, replies, searchTerm, statusFilter, typeFilter, replyProfile?.handle])
+    }).sort((left, right) => {
+      if (sortMode === "newest") {
+        return (right.parent.createdAt?.toMillis() || 0) - (left.parent.createdAt?.toMillis() || 0)
+      }
+      if (sortMode === "oldest") {
+        return (left.parent.createdAt?.toMillis() || 0) - (right.parent.createdAt?.toMillis() || 0)
+      }
+      if (sortMode === "most_replies") {
+        return (right.replies.length || 0) - (left.replies.length || 0)
+      }
+      if (sortMode === "unreplied") {
+        const leftUnreplied = left.replies.length === 0 ? 1 : 0
+        const rightUnreplied = right.replies.length === 0 ? 1 : 0
+        if (leftUnreplied !== rightUnreplied) return rightUnreplied - leftUnreplied
+        return right.activityAt - left.activityAt
+      }
+      if (sortMode === "pinned") {
+        if (left.parent.pinned && !right.parent.pinned) return -1
+        if (!left.parent.pinned && right.parent.pinned) return 1
+        return right.activityAt - left.activityAt
+      }
+      // Default: "activity" (Recent Activity: any new reply or comment bumps the thread to the top!)
+      return right.activityAt - left.activityAt
+    })
+  }, [comments, replies, searchTerm, statusFilter, typeFilter, sortMode, replyProfile?.handle, staffUids])
 
   const mentionsCount = useMemo(() => {
     const userHandle = replyProfile?.handle?.toLowerCase()
     if (!userHandle) return 0
     return allEntries.filter((entry) => contentMentionsHandle(entry.content, userHandle)).length
   }, [allEntries, replyProfile?.handle])
+
+  const unrepliedCount = useMemo(
+    () => comments.filter((c) => (c.replyCount || 0) === 0).length,
+    [comments],
+  )
+
+  const pinnedCount = useMemo(
+    () => comments.filter((c) => Boolean(c.pinned)).length,
+    [comments],
+  )
+
+  const readerCount = useMemo(
+    () => comments.filter((c) => !staffUids.has(c.authorId)).length,
+    [comments, staffUids],
+  )
 
   const shownEntryCount = filteredThreads.reduce((total, thread) => total + 1 + thread.replies.length, 0)
   const hiddenCount = allEntries.filter((entry) => entry.status === "hidden").length
@@ -453,6 +619,65 @@ export default function CommentsModerationPage() {
     }
   }
 
+  const togglePinEntry = async (entry: ModeratedEntry) => {
+    if (entry.kind !== "comment" || (userRole !== "admin" && userRole !== "super")) return
+    const newPinned = !entry.pinned
+    const actionKey = `${entry.kind}:${entry.id}`
+    setBusyId(actionKey)
+    setError("")
+
+    try {
+      try {
+        const togglePin = httpsCallable<{ commentId: string; pinned: boolean }>(
+          functions,
+          "togglePinComment"
+        )
+        await togglePin({ commentId: entry.id, pinned: newPinned })
+      } catch (fnErr) {
+        // Fallback to direct Firestore update
+        const batch = writeBatch(db)
+        if (newPinned) {
+          comments.forEach((c) => {
+            if (c.articleId === entry.articleId && c.pinned && c.id !== entry.id) {
+              batch.update(doc(db, "comments", c.id), {
+                pinned: false,
+                pinnedAt: null,
+                pinnedBy: null,
+              })
+            }
+          })
+          batch.update(doc(db, "comments", entry.id), {
+            pinned: true,
+            pinnedAt: serverTimestamp(),
+            pinnedBy: user?.uid || "",
+          })
+        } else {
+          batch.update(doc(db, "comments", entry.id), {
+            pinned: false,
+            pinnedAt: null,
+            pinnedBy: null,
+          })
+        }
+        await batch.commit()
+      }
+
+      setComments((current) =>
+        current.map((c) => {
+          if (c.id === entry.id) return { ...c, pinned: newPinned }
+          if (newPinned && c.articleId === entry.articleId && c.pinned) {
+            return { ...c, pinned: false }
+          }
+          return c
+        })
+      )
+    } catch (err: any) {
+      console.error("Error toggling pinned status:", err)
+      setError(err?.message || "Failed to update pinned comment.")
+    } finally {
+      setBusyId(null)
+    }
+  }
+
   const submitStaffReply = async (parent: ModeratedEntry) => {
     const content = replyContent.trim()
     if (!user || !content || replyBusy) return
@@ -483,7 +708,7 @@ export default function CommentsModerationPage() {
         updatedAt: serverTimestamp(),
         edited: false,
       })
-      setReplyContent("")
+setReplyContent("")
       setReplyingToId(null)
     } catch (replyError) {
       console.error("Unable to post staff reply:", replyError)
@@ -513,6 +738,8 @@ export default function CommentsModerationPage() {
         {[
           { label: "Comments", value: comments.length, icon: MessageSquare },
           { label: "Replies", value: replies.length, icon: CornerDownRight },
+          { label: "Unreplied", value: unrepliedCount, icon: HelpCircle },
+          { label: "Pinned", value: pinnedCount, icon: Pin },
           { label: "Mentions", value: mentionsCount, icon: AtSign },
           { label: "Hidden", value: hiddenCount, icon: EyeOff },
           { label: "Likes", value: totalLikes, icon: ThumbsUp },
@@ -524,29 +751,83 @@ export default function CommentsModerationPage() {
             <dt className="text-xs text-white/40">{label}</dt>
           </div>
         ))}
-
       </dl>
 
       <section className="sticky top-0 z-20 border-b border-white/15 bg-[#121212]/95 py-3 backdrop-blur">
         <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-          <div className="relative w-full xl:max-w-lg">
+          <div className="relative w-full xl:max-w-md">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/35" />
-            <Input value={searchTerm} onChange={(event) => setSearchTerm(event.target.value)} placeholder="Search comments" className="h-10 border-white/15 bg-white/[0.025] pl-10 text-sm placeholder:text-white/30 focus-visible:ring-[#8a2ae3]" />
+            <Input
+              value={searchTerm}
+              onChange={(event) => setSearchTerm(event.target.value)}
+              placeholder="Search by text, @handle, author, or article..."
+              className="h-10 border-white/15 bg-white/[0.025] pl-10 text-sm placeholder:text-white/30 focus-visible:ring-[#8a2ae3]"
+            />
           </div>
-          <div className="flex flex-col gap-3 sm:flex-row">
-            <div className="flex w-full overflow-x-auto bg-white/[0.025] p-0.5 sm:w-auto" aria-label="Entry type">
-              {(["all", "comment", "reply", "mentions"] as const).map((type) => (
-                <button key={type} type="button" onClick={() => setTypeFilter(type)} className={`min-w-0 flex-1 shrink-0 px-3 py-2 text-xs font-medium capitalize transition-colors duration-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#8a2ae3] active:translate-y-px sm:flex-none ${typeFilter === type ? "!bg-[#8a2ae3] !text-white" : "text-white/50 hover:bg-white/5 hover:text-white"}`}>
-                  {type === "all" ? "All" : type === "reply" ? "Replies" : type === "mentions" ? "Mentions" : "Comments"}
+
+          <div className="flex flex-wrap items-center gap-3">
+            {/* Type Filters */}
+            <div className="flex flex-wrap gap-1 bg-white/[0.025] p-1 border border-white/10" aria-label="Entry type">
+              {(
+                [
+                  ["all", "All"],
+                  ["comment", "Comments"],
+                  ["reply", "Replies"],
+                  ["unreplied", `Unreplied (${unrepliedCount})`],
+                  ["readers", "Readers"],
+                  ["staff", "Staff"],
+                  ["pinned", `Pinned (${pinnedCount})`],
+                  ["mentions", `Mentions (${mentionsCount})`],
+                ] as const
+              ).map(([type, label]) => (
+                <button
+                  key={type}
+                  type="button"
+                  onClick={() => setTypeFilter(type)}
+                  className={`px-2.5 py-1 text-xs font-mono uppercase tracking-wider transition-colors duration-150 ${
+                    typeFilter === type
+                      ? "!bg-[#8a2ae3] !text-white font-semibold"
+                      : "text-white/50 hover:bg-white/5 hover:text-white"
+                  }`}
+                >
+                  {label}
                 </button>
               ))}
             </div>
-            <div className="flex w-full overflow-x-auto bg-white/[0.025] p-0.5 sm:w-auto" aria-label="Visibility">
+
+            {/* Visibility Filter */}
+            <div className="flex bg-white/[0.025] p-1 border border-white/10" aria-label="Visibility">
               {(["all", "visible", "hidden"] as const).map((status) => (
-                <button key={status} type="button" onClick={() => setStatusFilter(status)} className={`min-w-0 flex-1 shrink-0 px-3 py-2 text-xs font-medium capitalize transition-colors duration-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#8a2ae3] active:translate-y-px sm:flex-none ${statusFilter === status ? "bg-white/10 text-white" : "text-white/50 hover:bg-white/5 hover:text-white"}`}>
+                <button
+                  key={status}
+                  type="button"
+                  onClick={() => setStatusFilter(status)}
+                  className={`px-2.5 py-1 text-xs font-mono uppercase tracking-wider transition-colors duration-150 ${
+                    statusFilter === status
+                      ? "bg-white/15 text-white font-semibold"
+                      : "text-white/50 hover:bg-white/5 hover:text-white"
+                  }`}
+                >
                   {status === "all" ? "Any" : status}
                 </button>
               ))}
+            </div>
+
+            {/* Sort Selector */}
+            <div className="flex items-center gap-1.5 border border-white/15 bg-black px-2.5 py-1.5">
+              <ArrowUpDown className="h-3.5 w-3.5 text-[#8a2ae3]" />
+              <select
+                value={sortMode}
+                onChange={(e) => setSortMode(e.target.value as SortMode)}
+                className="bg-transparent text-xs font-mono uppercase text-white/90 outline-none cursor-pointer"
+              >
+                <option value="activity" className="bg-[#181818] text-white">⚡ Recent Activity</option>
+                <option value="newest" className="bg-[#181818] text-white">🆕 Newest Comments</option>
+                <option value="oldest" className="bg-[#181818] text-white">⏳ Oldest Comments</option>
+                <option value="unreplied" className="bg-[#181818] text-white">❓ Unreplied First</option>
+                <option value="pinned" className="bg-[#181818] text-white">📌 Pinned on Top</option>
+                <option value="most_replies" className="bg-[#181818] text-white">💬 Most Replies</option>
+              </select>
             </div>
           </div>
         </div>
@@ -595,11 +876,14 @@ export default function CommentsModerationPage() {
               busyId={busyId}
               contextOnly={thread.parentIsContext}
               canDelete={userRole !== "moderator" || (Boolean(user?.uid) && thread.parent.authorId === user?.uid)}
+              canPin={userRole === "admin" || userRole === "super"}
               reaction={reactions[thread.parent.id]}
               reactionBusyId={reactionBusyId}
               onReact={reactToComment}
               onStatusChange={setEntryStatus}
               onDelete={removeEntry}
+              onTogglePin={togglePinEntry}
+              onViewUser={openUserDetails}
             />
             {thread.parent.status === "visible" ? (
               <div className="-mt-1 mb-5 sm:ml-14">
@@ -673,6 +957,7 @@ export default function CommentsModerationPage() {
                       reactionBusyId={reactionBusyId}
                       onStatusChange={setEntryStatus}
                       onDelete={removeEntry}
+                      onViewUser={openUserDetails}
                     />
                   ))}
                 </div>
@@ -681,6 +966,13 @@ export default function CommentsModerationPage() {
           </article>
         ))}
       </section>
+
+      <UserDetailsDialog
+        userId={selectedUserDetailsId}
+        isOpen={isUserDetailsOpen}
+        initialData={userDetailsInitial}
+        onClose={() => setIsUserDetailsOpen(false)}
+      />
     </div>
   )
 }
