@@ -306,7 +306,7 @@ export default function NotificationsPage() {
       </div>
 
       {/* Header & Title */}
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between mb-6">
+      <div className="w-full">
         <PageTitle
           className="sr-only"
           imgSrc="/images/titles/notifications.svg"
@@ -314,22 +314,22 @@ export default function NotificationsPage() {
         >
           Notifications
         </PageTitle>
-
-        {/* Global actions */}
-        <div className="flex items-center gap-2">
-          {unreadCount > 0 && (
-            <Button
-              onClick={handleMarkAllRead}
-              variant="outline"
-              size="sm"
-              className="border-white/20 bg-white/[0.03] hover:bg-white/10 text-white"
-            >
-              <CheckCheck className="h-4 w-4 mr-1.5 text-[#8a2be2]" />
-              Mark all as read
-            </Button>
-          )}
-        </div>
       </div>
+
+      {/* Global actions */}
+      {unreadCount > 0 && (
+        <div className="flex justify-end mb-4">
+          <Button
+            onClick={handleMarkAllRead}
+            variant="outline"
+            size="sm"
+            className="border-white/20 bg-white/[0.03] hover:bg-white/10 text-white"
+          >
+            <CheckCheck className="h-4 w-4 mr-1.5 text-[#8a2be2]" />
+            Mark all as read
+          </Button>
+        </div>
+      )}
 
       {/* Stats row */}
       <dl className="grid grid-cols-2 gap-x-4 gap-y-3 border-b border-white/15 py-4 sm:flex sm:flex-wrap sm:items-center sm:gap-x-8">
