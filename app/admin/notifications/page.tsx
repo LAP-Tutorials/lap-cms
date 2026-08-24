@@ -29,6 +29,7 @@ import {
   X,
   Clock,
   Sparkles,
+  AlertTriangle,
 } from "lucide-react";
 import { db } from "@/lib/firebase";
 import { useAuth } from "@/lib/auth-context";
@@ -39,7 +40,7 @@ import { Input } from "@/components/ui/input";
 export type NotificationItem = {
   id: string;
   userId: string;
-  type: "mention" | "new_comment" | "new_post";
+  type: "mention" | "new_comment" | "new_post" | "user_report";
   title: string;
   message: string;
   link: string;
@@ -57,6 +58,12 @@ export type NotificationItem = {
     isStaffAlert?: boolean;
     isReply?: boolean;
     img?: string;
+    reportId?: string;
+    reportedUserId?: string;
+    reportedUserHandle?: string;
+    reporterId?: string;
+    reporterHandle?: string;
+    reason?: string;
   };
 };
 
@@ -93,7 +100,7 @@ export default function NotificationsPage() {
   const [error, setError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
   const [typeFilter, setTypeFilter] = useState<
-    "all" | "unread" | "mention" | "new_comment" | "new_post"
+    "all" | "unread" | "mention" | "new_comment" | "new_post" | "user_report"
   >("all");
   const [busyId, setBusyId] = useState<string | null>(null);
   const [browserPermission, setBrowserPermission] = useState<NotificationPermission>("default");
@@ -152,6 +159,7 @@ export default function NotificationsPage() {
   const mentionsCount = notifications.filter((n) => n.type === "mention").length;
   const commentsCount = notifications.filter((n) => n.type === "new_comment").length;
   const postsCount = notifications.filter((n) => n.type === "new_post").length;
+  const reportsCount = notifications.filter((n) => n.type === "user_report").length;
 
   // Search & Filter
   const filteredNotifications = useMemo(() => {
@@ -163,6 +171,7 @@ export default function NotificationsPage() {
       if (typeFilter === "mention" && item.type !== "mention") return false;
       if (typeFilter === "new_comment" && item.type !== "new_comment") return false;
       if (typeFilter === "new_post" && item.type !== "new_post") return false;
+      if (typeFilter === "user_report" && item.type !== "user_report") return false;
 
       // Search query
       if (!queryStr) return true;
@@ -171,6 +180,7 @@ export default function NotificationsPage() {
         item.message,
         item.metadata?.authorName,
         item.metadata?.authorHandle,
+        item.metadata?.reportedUserHandle,
         item.metadata?.articleSlug,
       ]
         .filter(Boolean)
@@ -209,7 +219,11 @@ export default function NotificationsPage() {
       }
     }
 
-    router.push("/admin/comments");
+    if (item.type === "user_report") {
+      router.push("/admin/reports");
+    } else {
+      router.push("/admin/comments");
+    }
   };
 
   const handleMarkAllRead = async () => {
@@ -266,6 +280,8 @@ export default function NotificationsPage() {
         return <MessageSquare className="h-4 w-4 text-[#5eead4]" />;
       case "new_post":
         return <FileText className="h-4 w-4 text-[#f3c969]" />;
+      case "user_report":
+        return <AlertTriangle className="h-4 w-4 text-red-400" />;
       default:
         return <Bell className="h-4 w-4 text-white/70" />;
     }
@@ -289,6 +305,12 @@ export default function NotificationsPage() {
         return (
           <span className="inline-flex items-center gap-1 bg-[#f3c969]/15 text-[#f3c969] border border-[#f3c969]/30 px-2 py-0.5 text-[11px] font-mono uppercase tracking-wider">
             <FileText className="h-3 w-3" /> Post
+          </span>
+        );
+      case "user_report":
+        return (
+          <span className="inline-flex items-center gap-1 bg-red-500/15 text-red-400 border border-red-500/30 px-2 py-0.5 text-[11px] font-mono uppercase tracking-wider">
+            <AlertTriangle className="h-3 w-3" /> User Report
           </span>
         );
     }
@@ -339,6 +361,7 @@ export default function NotificationsPage() {
           { label: "Mentions", value: mentionsCount, icon: AtSign },
           { label: "Comments", value: commentsCount, icon: MessageSquare },
           { label: "Posts", value: postsCount, icon: FileText },
+          { label: "Reports", value: reportsCount, icon: AlertTriangle },
         ].map(({ label, value, icon: StatIcon }) => (
           <div key={label} className="flex items-center gap-2.5">
             <StatIcon className="h-4 w-4 text-white/30" aria-hidden="true" />
@@ -371,6 +394,7 @@ export default function NotificationsPage() {
                 { id: "mention", label: "Mentions" },
                 { id: "new_comment", label: "Comments" },
                 { id: "new_post", label: "Posts" },
+                { id: "user_report", label: `Reports (${reportsCount})` },
               ] as const
             ).map(({ id, label }) => (
               <button

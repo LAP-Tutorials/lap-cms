@@ -150,7 +150,7 @@ service cloud.firestore {
         request.auth.uid == userId &&
         request.auth.token.email is string &&
         request.resource.data.keys().hasOnly([
-          'uid', 'email', 'displayName', 'photoURL', 'provider', 'handle', 'createdAt', 'updatedAt'
+          'uid', 'email', 'displayName', 'photoURL', 'provider', 'handle', 'createdAt', 'updatedAt', 'lastIp'
         ]) &&
         request.resource.data.uid == userId &&
         request.resource.data.email == request.auth.token.email &&
@@ -173,7 +173,7 @@ service cloud.firestore {
         request.auth.uid == userId &&
         request.auth.token.email is string &&
         request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-          'email', 'displayName', 'photoURL', 'provider', 'handle', 'updatedAt'
+          'email', 'displayName', 'photoURL', 'provider', 'handle', 'updatedAt', 'lastIp'
         ]) &&
         request.resource.data.uid == resource.data.uid &&
         request.resource.data.email == request.auth.token.email &&
@@ -209,6 +209,13 @@ service cloud.firestore {
       match /notifications/{notificationId} {
         allow read, update, delete: if isAuthenticated() && request.auth.uid == userId;
         allow create: if false;
+      }
+
+      // Warnings: user can read their own warnings; staff with canModerate() can review & create warnings.
+      match /warnings/{warningId} {
+        allow read: if (isAuthenticated() && request.auth.uid == userId) || canModerate();
+        allow create: if canModerate();
+        allow update, delete: if isSuperAdmin() || isAdmin();
       }
     }
 
@@ -429,6 +436,27 @@ service cloud.firestore {
         request.resource.data.keys().hasAll(['actorUid', 'action', 'category', 'details', 'timestamp']) &&
         request.resource.data.timestamp == request.time;
       allow update, delete: if false;
+    }
+
+    // User & Comment Reports: Any authenticated reader or staff can submit a report (cannot report self or team members).
+    // Only Super Admins, Admins, and Moderators can read, review, and manage reports.
+    match /reports/{reportId} {
+      allow create: if isAuthenticated() &&
+        request.resource.data.reporterId == request.auth.uid &&
+        request.resource.data.keys().hasAll(['reporterId', 'reportedUserId', 'reason', 'status', 'createdAt']) &&
+        request.resource.data.status == 'pending' &&
+        request.resource.data.reporterId != request.resource.data.reportedUserId &&
+        !exists(/databases/$(database)/documents/authors/$(request.resource.data.reportedUserId));
+      allow read, update: if canModerate();
+      allow delete: if isSuperAdmin() || isAdmin();
+    }
+
+    // Banned IP Addresses: Anyone can check their IP ban status.
+    // Only Super Admins and Admins can create, update, or remove banned IPs.
+    // Moderators CANNOT perform IP bans or lift IP bans.
+    match /bannedIps/{ipId} {
+      allow read: if true;
+      allow create, update, delete: if isSuperAdmin() || isAdmin();
     }
   }
 }

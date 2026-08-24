@@ -20,6 +20,7 @@ import {
   AtSign,
   Bell,
   Shield,
+  ShieldAlert,
   History,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
@@ -32,6 +33,7 @@ export default function AdminSidebar() {
   const { user, userRole } = useAuth();
   const [isOpen, setIsOpen] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
+  const [pendingReportsCount, setPendingReportsCount] = useState(0);
   const isInitialSnapshotRef = useRef(true);
 
   // Subscribe to unread notifications count & handle native browser alerts
@@ -74,7 +76,11 @@ export default function AdminSidebar() {
                   );
                   popup.onclick = () => {
                     window.focus();
-                    router.push("/admin/comments");
+                    if (data.type === "user_report") {
+                      router.push("/admin/reports");
+                    } else {
+                      router.push("/admin/comments");
+                    }
                     popup.close();
                   };
                 } catch (popupErr) {
@@ -92,6 +98,31 @@ export default function AdminSidebar() {
 
     return () => unsubscribe();
   }, [user, router]);
+
+  // Subscribe to pending reports count for staff (super, admin, moderator)
+  useEffect(() => {
+    if (!user || !userRole || !["super", "admin", "moderator"].includes(userRole)) {
+      setPendingReportsCount(0);
+      return;
+    }
+
+    const q = query(
+      collection(db, "reports"),
+      where("status", "==", "pending")
+    );
+
+    const unsubscribe = onSnapshot(
+      q,
+      (snapshot) => {
+        setPendingReportsCount(snapshot.size);
+      },
+      (err) => {
+        console.error("Error subscribing to pending reports count:", err);
+      }
+    );
+
+    return () => unsubscribe();
+  }, [user, userRole]);
 
   useEffect(() => {
     const handleResize = () => {
@@ -144,6 +175,7 @@ export default function AdminSidebar() {
       label: "Notifications",
       icon: <Bell className="h-5 w-5" />,
       badge: unreadCount,
+      badgeClass: "bg-[#8a2be2] shadow-[0_0_8px_rgba(138,43,226,0.5)]",
     },
     {
       href: "/admin/articles",
@@ -159,6 +191,13 @@ export default function AdminSidebar() {
       href: "/admin/comments",
       label: "Comments",
       icon: <MessageSquare className="h-5 w-5" />,
+    },
+    {
+      href: "/admin/reports",
+      label: "Reports",
+      icon: <ShieldAlert className="h-5 w-5" />,
+      badge: pendingReportsCount,
+      badgeClass: "bg-red-600 shadow-[0_0_8px_rgba(220,38,38,0.6)]",
     },
     {
       href: "/admin/users",
@@ -199,6 +238,7 @@ export default function AdminSidebar() {
         "/admin",
         "/admin/notifications",
         "/admin/comments",
+        "/admin/reports",
         "/admin/profile",
       ].includes(item.href);
     }
@@ -294,7 +334,7 @@ export default function AdminSidebar() {
                       </span>
                       <span className="flex-1 truncate">{item.label}</span>
                       {item.badge !== undefined && item.badge > 0 && (
-                        <span className="ml-auto bg-[#8a2be2] text-white text-[10px] font-mono font-bold px-1.5 py-0.5 rounded-full min-w-[1.25rem] text-center shadow-[0_0_8px_rgba(138,43,226,0.5)]">
+                        <span className={`ml-auto text-white text-[10px] font-mono font-bold px-1.5 py-0.5 rounded-full min-w-[1.25rem] text-center ${item.badgeClass || "bg-[#8a2be2] shadow-[0_0_8px_rgba(138,43,226,0.5)]"}`}>
                           {item.badge > 99 ? "99+" : item.badge}
                         </span>
                       )}

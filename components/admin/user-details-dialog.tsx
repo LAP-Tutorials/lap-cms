@@ -60,6 +60,16 @@ interface UserProfileDetails {
   job?: string
   city?: string
   socials?: Record<string, string>
+  status?: string
+  warningCount?: number
+  lastWarnedAt?: Timestamp
+  lastWarningReason?: string
+  suspendedUntil?: Timestamp
+  suspensionReason?: string
+  bannedAt?: Timestamp
+  banReason?: string
+  lastIp?: string
+  bannedIps?: string[]
   commentsCount: number
   repliesCount: number
   recentComments: Array<{
@@ -279,6 +289,16 @@ export function UserDetailsDialog({
           job: authorData?.job,
           city: authorData?.city,
           socials: authorData?.socials,
+          status: userData?.status,
+          warningCount: userData?.warningCount || 0,
+          lastWarnedAt: userData?.lastWarnedAt,
+          lastWarningReason: userData?.lastWarningReason,
+          suspendedUntil: userData?.suspendedUntil,
+          suspensionReason: userData?.suspensionReason,
+          bannedAt: userData?.bannedAt,
+          banReason: userData?.banReason,
+          lastIp: userData?.lastIp,
+          bannedIps: userData?.bannedIps,
           commentsCount: commentsCountSnap.data().count,
           repliesCount: repliesCountSnap.data().count,
           recentComments,
@@ -478,6 +498,65 @@ export function UserDetailsDialog({
               <span className="font-mono text-2xl sm:text-3xl font-bold tabular-nums text-white">
                 {loading ? "..." : profile?.repliesCount ?? 0}
               </span>
+            </div>
+          </div>
+
+          {/* Moderation & Trust Card */}
+          <div className="border border-white/10 bg-white/[0.02] p-4 text-xs space-y-3">
+            <div className="flex items-center justify-between border-b border-white/10 pb-2">
+              <span className="font-mono uppercase tracking-wider text-white/50 font-semibold flex items-center gap-1.5">
+                <Shield className="h-3.5 w-3.5 text-[#8a2ae3]" />
+                Moderation & Account Standing
+              </span>
+              {profile?.handle && (
+                <Link
+                  href={`/admin/reports?q=${encodeURIComponent(profile.handle)}`}
+                  className="text-[#8a2ae3] hover:underline flex items-center gap-1 font-mono text-[11px]"
+                >
+                  View Reports
+                  <ExternalLink className="h-3 w-3" />
+                </Link>
+              )}
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <span className="text-white/40 block mb-0.5">Account Status</span>
+                <span className="font-mono font-semibold uppercase">
+                  {profile?.status === "banned" ? (
+                    <span className="text-red-400">⛔ Permanently Banned</span>
+                  ) : profile?.status === "suspended" ? (
+                    <span className="text-orange-400">🚫 Suspended</span>
+                  ) : profile?.status === "warning" || (profile?.warningCount ?? 0) > 0 ? (
+                    <span className="text-amber-300">⚠️ Warned ({profile?.warningCount} warnings)</span>
+                  ) : (
+                    <span className="text-emerald-400">✅ Good Standing</span>
+                  )}
+                </span>
+              </div>
+
+              <div>
+                <span className="text-white/40 block mb-0.5">Recorded IP Address</span>
+                <span className="font-mono text-white/80">
+                  {profile?.lastIp || "None recorded"}
+                </span>
+              </div>
+
+              {profile?.suspendedUntil && (
+                <div className="sm:col-span-2 bg-orange-500/10 border border-orange-500/30 p-2 text-orange-200">
+                  <span className="font-semibold block">Suspended Privileges:</span>
+                  <span>Until {profile.suspendedUntil.toDate?.()?.toLocaleString() || "Active suspension"}</span>
+                  {profile.suspensionReason && <span className="block italic mt-0.5">&ldquo;{profile.suspensionReason}&rdquo;</span>}
+                </div>
+              )}
+
+              {profile?.bannedAt && (
+                <div className="sm:col-span-2 bg-red-600/10 border border-red-600/30 p-2 text-red-200">
+                  <span className="font-semibold block">Permanent Ban Active:</span>
+                  <span>Banned on {profile.bannedAt.toDate?.()?.toLocaleString()}</span>
+                  {profile.banReason && <span className="block italic mt-0.5">&ldquo;{profile.banReason}&rdquo;</span>}
+                </div>
+              )}
             </div>
           </div>
 

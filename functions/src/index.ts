@@ -2875,7 +2875,7 @@ async function resolveHandlesToUids(
 
 interface NotificationPayload {
   userId: string;
-  type: "mention" | "new_comment" | "new_post";
+  type: "mention" | "new_comment" | "new_post" | "user_report" | "warning" | "suspension";
   title: string;
   message: string;
   link: string;
@@ -3346,5 +3346,664 @@ export const togglePinComment = onCall(
     });
 
     return { success: true, pinned };
+  }
+);
+
+export const onReportCreated = onDocumentCreated(
+  {
+    document: "reports/{reportId}",
+    region: "europe-west1",
+  },
+  async (event) => {
+    const snapshot = event.data;
+    if (!snapshot) return;
+    const report = snapshot.data();
+    if (!report) return;
+
+    const reportId = event.params.reportId;
+    const reportedUserHandle = report.reportedUserHandle || "a user";
+    const reporterHandle = report.reporterHandle || "a reader";
+    const reasonLabel = report.reasonLabel || report.reason || "Policy Violation";
+    const details = report.details || report.commentContent || "";
+    const snippet = details.length > 80 ? `${details.slice(0, 77)}...` : details;
+
+    const db = getDb();
+
+    // Reject any reports targeting team members / authors
+    if (report.reportedUserId) {
+      const targetAuthorSnap = await db.collection("authors").doc(report.reportedUserId).get();
+      if (targetAuthorSnap.exists) {
+        logger.warn(`Rejected invalid report ${reportId} against team member ${report.reportedUserId}`);
+        await db.collection("reports").doc(reportId).delete();
+        return;
+      }
+    }
+
+    // Query staff with roles: super, admin, moderator (NOT authors)
+    const staffSnapshot = await db
+      .collection("authors")
+      .where("role", "in", ["super", "admin", "moderator"])
+      .get();
+
+    if (staffSnapshot.empty) {
+      logger.warn("No super, admin, or moderator staff found to notify for report:", reportId);
+      return;
+    }
+
+    const notificationPromises = staffSnapshot.docs.map(async (docSnap) => {
+      const staffUid = docSnap.id;
+      if (staffUid === report.reporterId) return;
+
+      await sendNotification({
+        userId: staffUid,
+        type: "user_report",
+        title: `🚨 User Report: @${reportedUserHandle}`,
+        message: `Reported by @${reporterHandle} for ${reasonLabel}${snippet ? `: "${snippet}"` : ""}`,
+        link: "/admin/comments",
+        metadata: {
+          reportId,
+          type: report.type || "user",
+          reportedUserId: report.reportedUserId,
+          reportedUserHandle: report.reportedUserHandle,
+          reporterId: report.reporterId,
+          reporterHandle: report.reporterHandle,
+          reason: report.reason,
+          commentId: report.commentId,
+          articleId: report.articleId,
+        },
+      });
+    });
+
+    await Promise.all(notificationPromises);
+
+    writeServerAuditLog({
+      actorUid: report.reporterId || "system",
+      action: "report.created",
+      category: "comments",
+      details: `User @${reportedUserHandle} was reported by @${reporterHandle} (${reasonLabel})`,
+      targetId: reportId,
+      targetTitle: `@${reportedUserHandle}`,
+      metadata: {
+        reportedUserId: report.reportedUserId,
+        reportedUserHandle: report.reportedUserHandle,
+        reporterHandle: report.reporterHandle,
+        reason: report.reason,
+      },
+    });
+
+    logger.info(`Notified ${staffSnapshot.size} moderators/admins for report ${reportId}`);
+  }
+);
+
+// ---------------------------------------------------------------------------
+// MODERATION & ENFORCEMENT CALLABLE FUNCTIONS
+// ---------------------------------------------------------------------------
+
+function sanitizeIpKey(ip: string): string {
+  return ip.trim().replace(/[:.]/g, "_").toLowerCase();
+}
+
+/**
+ * Tier 1: Warning & Content Hide
+ * Accessible by: Super Admins, Admins, Moderators
+ */
+export const warnUser = onCall(
+  { region: "europe-west1" },
+  async (request) => {
+    if (!request.auth) {
+      throw new HttpsError("unauthenticated", "You must be signed in.");
+    }
+    const db = getDb();
+    const callerUid = request.auth.uid;
+    const callerSnap = await db.collection("authors").doc(callerUid).get();
+    const callerRole = callerSnap.data()?.role;
+
+    if (!callerSnap.exists || !["super", "admin", "moderator"].includes(callerRole)) {
+      throw new HttpsError("permission-denied", "You do not have permission to issue warnings.");
+    }
+
+    const { targetUid, reason, customMessage, reportId, commentId, commentType } = request.data || {};
+    if (!targetUid || !reason) {
+      throw new HttpsError("invalid-argument", "Missing required fields: targetUid and reason.");
+    }
+
+    const targetAuthorSnap = await db.collection("authors").doc(targetUid).get();
+    if (targetAuthorSnap.exists) {
+      throw new HttpsError("failed-precondition", "Team members and official authors cannot be warned.");
+    }
+
+    const userRef = db.collection("users").doc(targetUid);
+    const userSnap = await userRef.get();
+    if (!userSnap.exists) {
+      throw new HttpsError("not-found", "Target user profile does not exist.");
+    }
+    const userData = userSnap.data() || {};
+    const targetHandle = userData.handle || userData.displayName || "reader";
+
+    // 1. Append warning document
+    const warnRef = await userRef.collection("warnings").add({
+      reason,
+      customMessage: customMessage || "",
+      issuedBy: callerUid,
+      issuedByRole: callerRole,
+      reportId: reportId || null,
+      commentId: commentId || null,
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
+    // 2. Update user profile status & warning count
+    await userRef.update({
+      status: "warning",
+      warningCount: admin.firestore.FieldValue.increment(1),
+      lastWarnedAt: admin.firestore.FieldValue.serverTimestamp(),
+      lastWarningReason: reason,
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
+    // 3. Hide infringing comment/reply if provided
+    if (commentId) {
+      const coll = commentType === "reply" ? "commentReplies" : "comments";
+      await db.collection(coll).doc(commentId).update({
+        status: "hidden",
+        moderatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        moderatedBy: callerUid,
+      });
+    }
+
+    // 4. Update report if provided
+    if (reportId) {
+      await db.collection("reports").doc(reportId).update({
+        status: "action_taken",
+        actionTaken: "warning",
+        resolvedBy: callerUid,
+        resolvedAt: admin.firestore.FieldValue.serverTimestamp(),
+        resolutionNotes: customMessage || `Issued warning for ${reason}`,
+      });
+    }
+
+    // 5. Send notification to reader
+    await sendNotification({
+      userId: targetUid,
+      type: "warning",
+      title: "⚠️ Community Guidelines Warning",
+      message: customMessage || `You have received a formal warning for violating our Community Guidelines (${reason}). Please review the guidelines to keep your account in good standing.`,
+      link: "/community-guidelines",
+      metadata: {
+        warningId: warnRef.id,
+        reason,
+      },
+    });
+
+    // 6. Record server audit log
+    await writeServerAuditLog({
+      actorUid: callerUid,
+      action: "moderation.warn_user",
+      category: "comments",
+      details: `Issued warning to @${targetHandle} (${reason})`,
+      targetId: targetUid,
+      targetTitle: `@${targetHandle}`,
+      metadata: {
+        targetUid,
+        targetHandle,
+        reason,
+        customMessage,
+        warningId: warnRef.id,
+        reportId,
+        commentId,
+      },
+    });
+
+    return { success: true, warningId: warnRef.id };
+  }
+);
+
+/**
+ * Tier 2: Content Removal & Temporary Suspension
+ * Accessible by: Super Admins, Admins, Moderators
+ */
+export const suspendUser = onCall(
+  { region: "europe-west1" },
+  async (request) => {
+    if (!request.auth) {
+      throw new HttpsError("unauthenticated", "You must be signed in.");
+    }
+    const db = getDb();
+    const callerUid = request.auth.uid;
+    const callerSnap = await db.collection("authors").doc(callerUid).get();
+    const callerRole = callerSnap.data()?.role;
+
+    if (!callerSnap.exists || !["super", "admin", "moderator"].includes(callerRole)) {
+      throw new HttpsError("permission-denied", "You do not have permission to suspend users.");
+    }
+
+    const { targetUid, durationDays = 3, reason, customMessage, reportId, commentId, commentType } = request.data || {};
+    if (!targetUid || !reason) {
+      throw new HttpsError("invalid-argument", "Missing required fields: targetUid and reason.");
+    }
+
+    const targetAuthorSnap = await db.collection("authors").doc(targetUid).get();
+    if (targetAuthorSnap.exists) {
+      throw new HttpsError("failed-precondition", "Team members and official authors cannot be suspended.");
+    }
+
+    const userRef = db.collection("users").doc(targetUid);
+    const userSnap = await userRef.get();
+    if (!userSnap.exists) {
+      throw new HttpsError("not-found", "Target user profile does not exist.");
+    }
+    const userData = userSnap.data() || {};
+    const targetHandle = userData.handle || userData.displayName || "reader";
+
+    const suspensionMs = Math.max(1, Number(durationDays)) * 24 * 60 * 60 * 1000;
+    const suspendedUntilDate = new Date(Date.now() + suspensionMs);
+    const suspendedUntilTimestamp = admin.firestore.Timestamp.fromDate(suspendedUntilDate);
+
+    // 1. Update user profile
+    await userRef.update({
+      status: "suspended",
+      suspendedUntil: suspendedUntilTimestamp,
+      suspensionReason: reason,
+      suspendedAt: admin.firestore.FieldValue.serverTimestamp(),
+      suspendedBy: callerUid,
+      suspensionCount: admin.firestore.FieldValue.increment(1),
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
+    // 2. Hide or delete infringing comment if provided
+    if (commentId) {
+      const coll = commentType === "reply" ? "commentReplies" : "comments";
+      await db.collection(coll).doc(commentId).update({
+        status: "hidden",
+        moderatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        moderatedBy: callerUid,
+      });
+    }
+
+    // 3. Update report if provided
+    if (reportId) {
+      await db.collection("reports").doc(reportId).update({
+        status: "action_taken",
+        actionTaken: "suspension",
+        resolvedBy: callerUid,
+        resolvedAt: admin.firestore.FieldValue.serverTimestamp(),
+        resolutionNotes: customMessage || `Suspended for ${durationDays} days (${reason})`,
+      });
+    }
+
+    // 4. Send notification to reader
+    await sendNotification({
+      userId: targetUid,
+      type: "suspension",
+      title: "🚫 Account Commenting Suspended",
+      message: customMessage || `Your commenting privileges have been suspended for ${durationDays} days due to Community Guidelines violations (${reason}). Privileges will be restored after ${suspendedUntilDate.toLocaleDateString()}.`,
+      link: "/community-guidelines",
+      metadata: {
+        suspendedUntil: suspendedUntilDate.toISOString(),
+        durationDays,
+        reason,
+      },
+    });
+
+    // 5. Record server audit log
+    await writeServerAuditLog({
+      actorUid: callerUid,
+      action: "moderation.suspend_user",
+      category: "comments",
+      details: `Suspended @${targetHandle} for ${durationDays} days (${reason})`,
+      targetId: targetUid,
+      targetTitle: `@${targetHandle}`,
+      metadata: {
+        targetUid,
+        targetHandle,
+        durationDays,
+        suspendedUntil: suspendedUntilDate.toISOString(),
+        reason,
+        reportId,
+      },
+    });
+
+    return { success: true, suspendedUntil: suspendedUntilDate.toISOString() };
+  }
+);
+
+/**
+ * Tier 3: Permanent Account Ban (Account + Handle + Email + IP Addresses)
+ * Accessible STRICTLY by: Super Admins and Admins ONLY.
+ * Moderators are explicitly forbidden from executing permanent bans.
+ */
+export const banUser = onCall(
+  { region: "europe-west1" },
+  async (request) => {
+    if (!request.auth) {
+      throw new HttpsError("unauthenticated", "You must be signed in.");
+    }
+    const db = getDb();
+    const callerUid = request.auth.uid;
+    const callerSnap = await db.collection("authors").doc(callerUid).get();
+    const callerRole = callerSnap.data()?.role;
+
+    if (!callerSnap.exists || !["super", "admin"].includes(callerRole)) {
+      throw new HttpsError(
+        "permission-denied",
+        "Moderators do not have permission to execute permanent bans. Please escalate to an Admin or Super Admin."
+      );
+    }
+
+    const { targetUid, reason, customMessage, additionalIps = [], reportId, commentId, commentType } = request.data || {};
+    if (!targetUid || !reason) {
+      throw new HttpsError("invalid-argument", "Missing required fields: targetUid and reason.");
+    }
+
+    const targetAuthorSnap = await db.collection("authors").doc(targetUid).get();
+    if (targetAuthorSnap.exists) {
+      throw new HttpsError("failed-precondition", "Team members and official authors cannot be banned through user moderation.");
+    }
+
+    const userRef = db.collection("users").doc(targetUid);
+    const userSnap = await userRef.get();
+    if (!userSnap.exists) {
+      throw new HttpsError("not-found", "Target user profile does not exist.");
+    }
+    const userData = userSnap.data() || {};
+    const targetHandle = userData.handle || userData.displayName || "reader";
+    const targetEmail = userData.email || "";
+
+    // 1. Disable Firebase Auth user account & revoke all session tokens
+    try {
+      await admin.auth().updateUser(targetUid, { disabled: true });
+      await admin.auth().revokeRefreshTokens(targetUid);
+      logger.info(`Disabled Firebase Auth account for UID: ${targetUid}`);
+    } catch (authErr) {
+      logger.warn(`Could not disable Firebase Auth account for ${targetUid}:`, authErr);
+    }
+
+    // 2. Gather all known IP addresses
+    const ipsToBan = new Set<string>();
+    if (userData.lastIp && typeof userData.lastIp === "string") {
+      ipsToBan.add(userData.lastIp.trim());
+    }
+    if (Array.isArray(userData.ipHistory)) {
+      userData.ipHistory.forEach((ip: string) => {
+        if (typeof ip === "string" && ip.trim()) ipsToBan.add(ip.trim());
+      });
+    }
+    if (Array.isArray(additionalIps)) {
+      additionalIps.forEach((ip: string) => {
+        if (typeof ip === "string" && ip.trim()) ipsToBan.add(ip.trim());
+      });
+    }
+
+    // 3. Write banned IPs to /bannedIps collection
+    const bannedIpsList: string[] = [];
+    for (const rawIp of ipsToBan) {
+      const sanitizedKey = sanitizeIpKey(rawIp);
+      if (sanitizedKey) {
+        await db.collection("bannedIps").doc(sanitizedKey).set({
+          ip: rawIp,
+          bannedAt: admin.firestore.FieldValue.serverTimestamp(),
+          bannedBy: callerUid,
+          bannedByRole: callerRole,
+          reason,
+          targetUid,
+          targetHandle,
+          targetEmail,
+        });
+        bannedIpsList.push(rawIp);
+      }
+    }
+
+    // 4. Lock handle permanently so it cannot be reclaimed
+    if (targetHandle) {
+      try {
+        await db.collection("handles").doc(targetHandle.toLowerCase()).set(
+          {
+            uid: targetUid,
+            status: "banned",
+            lockedAt: admin.firestore.FieldValue.serverTimestamp(),
+          },
+          { merge: true }
+        );
+      } catch (handleErr) {
+        logger.warn(`Could not lock handle ${targetHandle}:`, handleErr);
+      }
+    }
+
+    // 5. Update user profile document to banned status
+    await userRef.update({
+      status: "banned",
+      bannedAt: admin.firestore.FieldValue.serverTimestamp(),
+      banReason: reason,
+      bannedBy: callerUid,
+      bannedIps: bannedIpsList,
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
+    // 6. Delete / hide infringing comment
+    if (commentId) {
+      const coll = commentType === "reply" ? "commentReplies" : "comments";
+      await db.collection(coll).doc(commentId).delete();
+    }
+
+    // 7. Update report if provided
+    if (reportId) {
+      await db.collection("reports").doc(reportId).update({
+        status: "action_taken",
+        actionTaken: "permanent_ban",
+        resolvedBy: callerUid,
+        resolvedAt: admin.firestore.FieldValue.serverTimestamp(),
+        resolutionNotes: customMessage || `Permanently banned (${reason}). Banned IPs: ${bannedIpsList.join(", ") || "none"}`,
+      });
+    }
+
+    // 8. Record server audit log
+    await writeServerAuditLog({
+      actorUid: callerUid,
+      action: "moderation.ban_user",
+      category: "team",
+      details: `Permanently banned @${targetHandle} (${targetEmail}) and blacklisted ${bannedIpsList.length} IP(s) for ${reason}`,
+      targetId: targetUid,
+      targetTitle: `@${targetHandle}`,
+      metadata: {
+        targetUid,
+        targetHandle,
+        targetEmail,
+        bannedIps: bannedIpsList,
+        reason,
+        customMessage,
+        reportId,
+      },
+    });
+
+    return { success: true, bannedIpsCount: bannedIpsList.length };
+  }
+);
+
+/**
+ * Lift User Suspension
+ * Accessible by: Super Admins, Admins, Moderators
+ */
+export const unsuspendUser = onCall(
+  { region: "europe-west1" },
+  async (request) => {
+    if (!request.auth) {
+      throw new HttpsError("unauthenticated", "You must be signed in.");
+    }
+    const db = getDb();
+    const callerUid = request.auth.uid;
+    const callerSnap = await db.collection("authors").doc(callerUid).get();
+    const callerRole = callerSnap.data()?.role;
+
+    if (!callerSnap.exists || !["super", "admin", "moderator"].includes(callerRole)) {
+      throw new HttpsError("permission-denied", "You do not have permission to lift suspensions.");
+    }
+
+    const { targetUid } = request.data || {};
+    if (!targetUid) {
+      throw new HttpsError("invalid-argument", "Missing required field: targetUid.");
+    }
+
+    const userRef = db.collection("users").doc(targetUid);
+    const userSnap = await userRef.get();
+    if (!userSnap.exists) {
+      throw new HttpsError("not-found", "Target user profile does not exist.");
+    }
+    const userData = userSnap.data() || {};
+    const targetHandle = userData.handle || userData.displayName || "reader";
+
+    await userRef.update({
+      status: "active",
+      suspendedUntil: admin.firestore.FieldValue.delete(),
+      suspensionReason: admin.firestore.FieldValue.delete(),
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
+    await writeServerAuditLog({
+      actorUid: callerUid,
+      action: "moderation.unsuspend_user",
+      category: "comments",
+      details: `Lifted commenting suspension for @${targetHandle}`,
+      targetId: targetUid,
+      targetTitle: `@${targetHandle}`,
+    });
+
+    return { success: true };
+  }
+);
+
+/**
+ * Lift Permanent Ban
+ * Accessible STRICTLY by: Super Admins and Admins ONLY.
+ */
+export const unbanUser = onCall(
+  { region: "europe-west1" },
+  async (request) => {
+    if (!request.auth) {
+      throw new HttpsError("unauthenticated", "You must be signed in.");
+    }
+    const db = getDb();
+    const callerUid = request.auth.uid;
+    const callerSnap = await db.collection("authors").doc(callerUid).get();
+    const callerRole = callerSnap.data()?.role;
+
+    if (!callerSnap.exists || !["super", "admin"].includes(callerRole)) {
+      throw new HttpsError("permission-denied", "Only Admins and Super Admins can lift permanent bans.");
+    }
+
+    const { targetUid } = request.data || {};
+    if (!targetUid) {
+      throw new HttpsError("invalid-argument", "Missing required field: targetUid.");
+    }
+
+    const userRef = db.collection("users").doc(targetUid);
+    const userSnap = await userRef.get();
+    if (!userSnap.exists) {
+      throw new HttpsError("not-found", "Target user profile does not exist.");
+    }
+    const userData = userSnap.data() || {};
+    const targetHandle = userData.handle || userData.displayName || "reader";
+
+    // 1. Re-enable Auth account
+    try {
+      await admin.auth().updateUser(targetUid, { disabled: false });
+    } catch (authErr) {
+      logger.warn(`Could not re-enable Auth for ${targetUid}:`, authErr);
+    }
+
+    // 2. Remove user's banned IPs from /bannedIps
+    if (Array.isArray(userData.bannedIps)) {
+      for (const ip of userData.bannedIps) {
+        const key = sanitizeIpKey(ip);
+        if (key) {
+          await db.collection("bannedIps").doc(key).delete();
+        }
+      }
+    }
+
+    // 3. Update user doc
+    await userRef.update({
+      status: "active",
+      bannedAt: admin.firestore.FieldValue.delete(),
+      banReason: admin.firestore.FieldValue.delete(),
+      bannedBy: admin.firestore.FieldValue.delete(),
+      bannedIps: admin.firestore.FieldValue.delete(),
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
+    await writeServerAuditLog({
+      actorUid: callerUid,
+      action: "moderation.unban_user",
+      category: "team",
+      details: `Lifted permanent ban for @${targetHandle}`,
+      targetId: targetUid,
+      targetTitle: `@${targetHandle}`,
+    });
+
+    return { success: true };
+  }
+);
+
+/**
+ * Capture & Synchronize Reader IP Address on Sign-In
+ */
+export const syncUserIp = onCall(
+  { region: "europe-west1" },
+  async (request) => {
+    if (!request.auth) {
+      throw new HttpsError("unauthenticated", "You must be signed in.");
+    }
+    const uid = request.auth.uid;
+    const rawReq = request.rawRequest;
+    let clientIp = "";
+    if (rawReq?.headers?.["x-forwarded-for"]) {
+      clientIp = String(rawReq.headers["x-forwarded-for"]).split(",")[0].trim();
+    } else if (rawReq?.headers?.["x-real-ip"]) {
+      clientIp = String(rawReq.headers["x-real-ip"]).trim();
+    } else if (rawReq?.ip) {
+      clientIp = String(rawReq.ip).trim();
+    } else if (request.data?.ip) {
+      clientIp = String(request.data.ip).trim();
+    } else {
+      clientIp = "127.0.0.1";
+    }
+
+    if (!clientIp || clientIp === "::1") {
+      clientIp = "127.0.0.1";
+    }
+
+    const db = getDb();
+    const sanitizedKey = sanitizeIpKey(clientIp);
+
+    // 1. Check IP ban
+    let isBanned = false;
+    let banReason = "";
+    try {
+      const bannedDoc = await db.collection("bannedIps").doc(sanitizedKey).get();
+      if (bannedDoc.exists) {
+        isBanned = true;
+        banReason = bannedDoc.data()?.reason || "Violations of Community Guidelines";
+      }
+    } catch (e) {
+      logger.warn("Could not check banned IP in syncUserIp:", e);
+    }
+
+    // 2. Update user's lastIp in Firestore
+    try {
+      const userRef = db.collection("users").doc(uid);
+      const userSnap = await userRef.get();
+      if (userSnap.exists) {
+        await userRef.update({
+          lastIp: clientIp,
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+      }
+    } catch (e) {
+      logger.warn(`Could not update lastIp for user ${uid}:`, e);
+    }
+
+    return {
+      ip: clientIp,
+      isBanned,
+      reason: banReason,
+    };
   }
 );

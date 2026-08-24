@@ -3,9 +3,11 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import { createPortal } from "react-dom"
 import Link from "next/link"
+import { useSearchParams } from "next/navigation"
 import { addDoc, collection, deleteDoc, doc, getDoc, getDocs, limit, onSnapshot, orderBy, query, serverTimestamp, updateDoc, where, writeBatch, type Timestamp } from "firebase/firestore"
 import { httpsCallable } from "firebase/functions"
 import {
+  AlertTriangle,
   ArrowUpDown,
   AtSign,
   ChevronLeft,
@@ -15,6 +17,7 @@ import {
   ExternalLink,
   Eye,
   EyeOff,
+  Flag,
   Globe,
   HelpCircle,
   ImageIcon,
@@ -24,6 +27,7 @@ import {
   Pin,
   Search,
   Send,
+  ShieldAlert,
   Sparkles,
   ThumbsDown,
   ThumbsUp,
@@ -107,6 +111,28 @@ type ModerationThread = {
   activityAt: number
 }
 
+type ReportItem = {
+  id: string
+  type: "user" | "comment" | "reply"
+  reportedUserId: string
+  reportedUserHandle: string
+  reportedUserName?: string
+  reporterId: string
+  reporterHandle: string
+  reporterName?: string
+  reason: string
+  reasonLabel: string
+  details?: string
+  commentId?: string
+  parentCommentId?: string
+  commentContent?: string
+  articleId?: string
+  articleTitle?: string
+  articleSlug?: string
+  status: "pending" | "reviewed" | "dismissed" | "action_taken"
+  createdAt?: Timestamp
+}
+
 type TypeFilter =
   | "all"
   | "comment"
@@ -116,6 +142,7 @@ type TypeFilter =
   | "readers"
   | "staff"
   | "pinned"
+  | "reported"
 
 type SortMode =
   | "activity"
@@ -357,6 +384,7 @@ function ModerationRow({
   onTogglePin,
   onViewUser,
   onOpenLightbox,
+  reportItem,
 }: {
   entry: ModeratedEntry
   busyId: string | null
@@ -384,6 +412,7 @@ function ModerationRow({
   onTogglePin?: (entry: ModeratedEntry) => void
   onViewUser?: (userId: string, initialData?: { name?: string; handle?: string; photoURL?: string }) => void
   onOpenLightbox?: (images: CommentImageAttachment[], index: number, author: string) => void
+  reportItem?: ReportItem
 }) {
   const createdAt = entry.createdAt?.toDate()
   const isBusy = busyId === `${entry.kind}:${entry.id}`
@@ -435,6 +464,11 @@ function ModerationRow({
           {entry.pinned && (
             <span className="inline-flex items-center gap-1 bg-[#8a2ae3]/20 text-[#c084fc] border border-[#8a2ae3]/40 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider rounded-sm">
               <Pin className="h-3 w-3 fill-current" /> Pinned
+            </span>
+          )}
+          {reportItem && (
+            <span className="inline-flex items-center gap-1 bg-red-500/20 text-red-300 border border-red-500/40 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider rounded-sm">
+              <AlertTriangle className="h-3 w-3 text-red-400" /> Reported: {reportItem.reasonLabel}
             </span>
           )}
           <span className={`inline-flex items-center gap-1.5 text-[11px] font-medium ${entry.status === "visible" ? "text-emerald-300" : "text-amber-300"}`}>
@@ -586,10 +620,13 @@ function ModerationRow({
 
 export default function CommentsModerationPage() {
   const { user, userRole } = useAuth()
+  const searchParams = useSearchParams()
   const [comments, setComments] = useState<ModeratedEntry[]>([])
   const [replies, setReplies] = useState<ModeratedEntry[]>([])
+  const [reports, setReports] = useState<ReportItem[]>([])
   const [commentsLoaded, setCommentsLoaded] = useState(false)
   const [repliesLoaded, setRepliesLoaded] = useState(false)
+  const [reportsLoaded, setReportsLoaded] = useState(false)
   const [error, setError] = useState("")
   const [searchTerm, setSearchTerm] = useState("")
   const [statusFilter, setStatusFilter] = useState<"all" | ModerationStatus>("all")
@@ -603,6 +640,13 @@ export default function CommentsModerationPage() {
   const [replyBusy, setReplyBusy] = useState(false)
   const [replyProfile, setReplyProfile] = useState<StaffReplyProfile | null>(null)
   const [replyProfileLoaded, setReplyProfileLoaded] = useState(false)
+
+  useEffect(() => {
+    const filterParam = searchParams.get("filter")
+    if (filterParam === "reported") {
+      setTypeFilter("reported")
+    }
+  }, [searchParams])
 
   // Multi-image state
   const [replyImages, setReplyImages] = useState<SanitizedImageResult[]>([])
@@ -858,6 +902,108 @@ export default function CommentsModerationPage() {
     )
     return () => { stopComments(); stopReplies() }
   }, [])
+
+  const canModerate = userRole === "super" || userRole === "admin" || userRole === "moderator"
+
+  useEffect(() => {
+    if (!user || !canModerate) {
+      setReports([])
+      setReportsLoaded(true)
+      return
+    }
+
+    const stopReports = onSnapshot(
+      query(collection(db, "reports"), where("status", "==", "pending"), orderBy("createdAt", "desc"), limit(100)),
+      (snapshot) => {
+        setReports(
+          snapshot.docs.map((d) => ({
+            id: d.id,
+            ...d.data(),
+          })) as ReportItem[]
+        )
+        setReportsLoaded(true)
+      },
+      (snapshotError) => {
+        console.warn("Unable to load reports:", snapshotError)
+        setReportsLoaded(true)
+      }
+    )
+
+    return () => stopReports()
+  }, [user, canModerate])
+
+  const reportedCommentIds = useMemo(() => {
+    const map = new Map<string, ReportItem>()
+    reports.forEach((r) => {
+      if (r.commentId) map.set(r.commentId, r)
+    })
+    return map
+  }, [reports])
+
+  const dismissReport = async (report: ReportItem) => {
+    if (!user) return
+    setBusyId(`report:${report.id}`)
+    try {
+      await updateDoc(doc(db, "reports", report.id), {
+        status: "dismissed",
+        resolvedBy: user.uid,
+        resolvedAt: serverTimestamp(),
+      })
+      logAuditActivity({
+        action: "report.dismiss",
+        category: "comments",
+        details: `Dismissed report against @${report.reportedUserHandle} (${report.reasonLabel || report.reason})`,
+        targetId: report.id,
+        targetTitle: `Report on @${report.reportedUserHandle}`,
+        metadata: {
+          reportedUserId: report.reportedUserId,
+          reportedUserHandle: report.reportedUserHandle,
+          reason: report.reason,
+        },
+      })
+    } catch (err: any) {
+      console.error("Failed to dismiss report:", err)
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  const resolveReportWithAction = async (report: ReportItem, action: "hide" | "delete") => {
+    if (!user) return
+    setBusyId(`report:${report.id}`)
+    try {
+      if (report.commentId) {
+        const collectionName = report.type === "reply" ? "commentReplies" : "comments"
+        if (action === "hide") {
+          await updateDoc(doc(db, collectionName, report.commentId), { status: "hidden" })
+        } else {
+          await deleteDoc(doc(db, collectionName, report.commentId))
+        }
+      }
+      await updateDoc(doc(db, "reports", report.id), {
+        status: "action_taken",
+        resolvedBy: user.uid,
+        resolvedAt: serverTimestamp(),
+      })
+      logAuditActivity({
+        action: action === "hide" ? "report.hide_content" : "report.delete_content",
+        category: "comments",
+        details: `${action === "hide" ? "Hidden" : "Deleted"} reported comment from @${report.reportedUserHandle} (${report.reasonLabel || report.reason})`,
+        targetId: report.id,
+        targetTitle: `Report on @${report.reportedUserHandle}`,
+        metadata: {
+          reportedUserId: report.reportedUserId,
+          reportedUserHandle: report.reportedUserHandle,
+          reason: report.reason,
+          action,
+        },
+      })
+    } catch (err: any) {
+      console.error("Failed to resolve report:", err)
+    } finally {
+      setBusyId(null)
+    }
+  }
 
   const allEntries = useMemo(() => [...comments, ...replies], [comments, replies])
 
@@ -1294,7 +1440,7 @@ export default function CommentsModerationPage() {
         <Breadcrumb items={[{ label: "Dashboard", href: "/admin" }, { label: "Comments" }]} />
       </div>
 
-      <div className="flex justify-between items-center mb-6">
+      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 mb-6">
         <PageTitle
           className="sr-only"
           imgSrc="/images/titles/comments.svg"
@@ -1302,6 +1448,23 @@ export default function CommentsModerationPage() {
         >
           Comments
         </PageTitle>
+
+        {canModerate && (
+          <Link href="/admin/reports">
+            <Button
+              variant="outline"
+              size="sm"
+              className={`h-9 border text-xs font-mono uppercase tracking-wider ${
+                reports.length > 0
+                  ? "border-red-500/50 bg-red-500/10 text-red-300 hover:bg-red-500/20 hover:text-white"
+                  : "border-white/20 bg-white/5 text-white hover:bg-white/10"
+              }`}
+            >
+              <ShieldAlert className="h-3.5 w-3.5 mr-2 text-red-400" />
+              Reports Dashboard {reports.length > 0 ? `(${reports.length})` : ""}
+            </Button>
+          </Link>
+        )}
       </div>
 
       <dl className="grid grid-cols-2 gap-x-4 gap-y-3 border-b border-white/15 py-4 sm:flex sm:flex-wrap sm:items-center sm:gap-x-7">
@@ -1387,7 +1550,8 @@ export default function CommentsModerationPage() {
                   ["staff", "Staff"],
                   ["pinned", `Pinned (${pinnedCount})`],
                   ["mentions", `Mentions (${mentionsCount})`],
-                ] as const
+                  ...(canModerate ? [["reported" as TypeFilter, `Reports (${reports.length})`]] : []),
+                ] as [TypeFilter, string][]
               ).map(([type, label]) => (
                 <button
                   key={type}
@@ -1395,7 +1559,11 @@ export default function CommentsModerationPage() {
                   onClick={() => setTypeFilter(type)}
                   className={`px-2.5 py-1 text-xs font-mono uppercase tracking-wider transition-colors duration-150 ${
                     typeFilter === type
-                      ? "!bg-[#8a2ae3] !text-white font-semibold"
+                      ? type === "reported" && reports.length > 0
+                        ? "!bg-red-600 !text-white font-semibold"
+                        : "!bg-[#8a2ae3] !text-white font-semibold"
+                      : type === "reported" && reports.length > 0
+                      ? "text-red-400 hover:bg-red-500/10 font-semibold"
                       : "text-white/50 hover:bg-white/5 hover:text-white"
                   }`}
                 >
@@ -1455,7 +1623,7 @@ export default function CommentsModerationPage() {
         </div>
       </section>
       <p className="text-xs tabular-nums text-white/35 pt-2">
-        Showing <span className="font-medium text-white/65">{shownEntryCount}</span> of {allEntries.length}
+        Showing <span className="font-medium text-white/65">{typeFilter === "reported" ? reports.length : shownEntryCount}</span> of {typeFilter === "reported" ? reports.length : allEntries.length}
       </p>
 
       {error ? <p role="alert" className="mt-4 border-l-2 border-red-300 bg-red-300/[0.06] px-4 py-3 text-sm text-red-200">{error}</p> : null}
@@ -1464,57 +1632,181 @@ export default function CommentsModerationPage() {
           {[0, 1, 2].map((item) => <div key={item} className="flex animate-pulse gap-4 border border-white/10 px-5 py-6"><div className="h-10 w-10 bg-white/10" /><div className="flex-1 space-y-3"><div className="h-3 w-40 bg-white/10" /><div className="h-4 max-w-xl bg-white/[0.07]" /></div></div>)}
         </div>
       ) : null}
-      {!loading && filteredThreads.length === 0 ? (
-        <div className="border-b border-white/15 py-20 text-center">
-          <MessageSquare className="mx-auto h-8 w-8 text-white/20" />
-          <p className="mt-4 font-medium">
-            {typeFilter === "mentions"
-              ? replyProfile?.handle
-                ? `No mentions found for @${replyProfile.handle}`
-                : "Set your profile handle to view mentions"
-              : "No comments found"}
-          </p>
-          <p className="mt-1 text-sm text-white/40">
-            {typeFilter === "mentions" ? (
-              replyProfile?.handle ? (
-                "You haven't been tagged in any comments or replies matching your search/filters."
-              ) : (
-                <Link href="/admin/profile" className="text-[#8a2ae3] underline hover:text-white">
-                  Go to Profile Settings to configure your handle
-                </Link>
-              )
-            ) : (
-              "Try another search or filter."
-            )}
-          </p>
-        </div>
-      ) : null}
 
-      <section className="space-y-4 py-5 pb-16" aria-label="Moderation results">
-        {filteredThreads.map((thread) => (
-          <article key={thread.parent.id} className="border border-white/10 bg-white/[0.012] px-4 transition-colors duration-200 hover:border-white/15 sm:px-5">
-            <ModerationRow
-              entry={thread.parent}
-              busyId={busyId}
-              contextOnly={thread.parentIsContext}
-              canHide={canHideEntry(thread.parent)}
-              canDelete={canDeleteEntry(thread.parent)}
-              canPin={userRole === "admin" || userRole === "super"}
-              reaction={reactions[thread.parent.id]}
-              reactionBusyId={reactionBusyId}
-              translation={translations[thread.parent.id]}
-              isTranslating={translatingIds.has(thread.parent.id)}
-              targetLangName={getLanguageName(targetLang)}
-              onTranslate={toggleTranslation}
-              onReact={reactToComment}
-              onStatusChange={setEntryStatus}
-              onDelete={removeEntry}
-              onTogglePin={togglePinEntry}
-              onViewUser={openUserDetails}
-              onOpenLightbox={(imgs, idx, author) =>
-                setLightboxGallery({ images: imgs, currentIndex: idx, author })
-              }
-            />
+      {typeFilter === "reported" ? (
+        <section className="space-y-4 py-5 pb-16" aria-label="Reported content queue">
+          {reports.length === 0 ? (
+            <div className="border-b border-white/15 py-20 text-center">
+              <ShieldAlert className="mx-auto h-8 w-8 text-emerald-400/40" />
+              <p className="mt-4 font-medium text-emerald-300">All clear! No pending reports.</p>
+              <p className="mt-1 text-sm text-white/40">
+                When readers report users or comments, they will appear here for review.
+              </p>
+            </div>
+          ) : (
+            reports.map((report) => {
+              const timeAgo = report.createdAt?.toDate ? report.createdAt.toDate().toLocaleString() : "Recently"
+              const isBusy = busyId === `report:${report.id}`
+
+              return (
+                <article
+                  key={report.id}
+                  className="border border-red-500/30 bg-red-500/[0.03] p-5 transition-colors duration-200 hover:border-red-500/50"
+                >
+                  <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4 border-b border-white/10 pb-4">
+                    <div className="space-y-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="inline-flex items-center gap-1 bg-red-500/20 text-red-300 border border-red-500/40 px-2 py-0.5 text-xs font-mono font-semibold uppercase tracking-wider">
+                          <AlertTriangle className="h-3.5 w-3.5 text-red-400" /> {report.reasonLabel}
+                        </span>
+                        <span className="text-xs font-mono uppercase text-white/40">
+                          Reported {report.type === "user" ? "User Profile" : report.type === "reply" ? "Reply" : "Comment"}
+                        </span>
+                      </div>
+
+                      <p className="text-xs text-white/60">
+                        Reported user:{" "}
+                        <button
+                          type="button"
+                          onClick={() => openUserDetails(report.reportedUserId, { name: report.reportedUserName, handle: report.reportedUserHandle })}
+                          className="font-semibold text-white hover:text-[#8a2ae3] underline"
+                        >
+                          @{report.reportedUserHandle}
+                        </button>{" "}
+                        · Reported by <strong className="text-white/80">@{report.reporterHandle}</strong> ·{" "}
+                        <span className="font-mono text-white/40">{timeAgo}</span>
+                      </p>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        disabled={isBusy}
+                        onClick={() => dismissReport(report)}
+                        className="h-8 border-white/20 bg-white/[0.03] text-xs font-mono text-white/70 hover:bg-white/10 hover:text-white"
+                      >
+                        Dismiss Report
+                      </Button>
+
+                      {report.commentId ? (
+                        <>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            disabled={isBusy}
+                            onClick={() => resolveReportWithAction(report, "hide")}
+                            className="h-8 border-amber-500/30 bg-amber-500/10 text-xs font-mono text-amber-300 hover:bg-amber-500/20"
+                          >
+                            <EyeOff className="h-3.5 w-3.5 mr-1" /> Hide Comment
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="destructive"
+                            size="sm"
+                            disabled={isBusy}
+                            onClick={() => resolveReportWithAction(report, "delete")}
+                            className="h-8 bg-red-600/80 text-xs font-mono text-white hover:bg-red-600"
+                          >
+                            <Trash2 className="h-3.5 w-3.5 mr-1" /> Delete Comment
+                          </Button>
+                        </>
+                      ) : (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => openUserDetails(report.reportedUserId, { name: report.reportedUserName, handle: report.reportedUserHandle })}
+                          className="h-8 border-[#8a2ae3]/40 bg-[#8a2ae3]/10 text-xs font-mono text-[#8a2ae3] hover:bg-[#8a2ae3]/20"
+                        >
+                          View Profile
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+
+                  {report.details ? (
+                    <div className="mt-3 bg-black/40 border border-white/10 p-3 text-xs text-white/80">
+                      <p className="font-mono text-[10px] uppercase text-white/40 mb-0.5">Reporter Note:</p>
+                      <p className="italic">&ldquo;{report.details}&rdquo;</p>
+                    </div>
+                  ) : null}
+
+                  {report.commentContent ? (
+                    <div className="mt-3 border-l-2 border-red-500/60 bg-black/30 pl-3 py-2 text-xs text-white/90">
+                      <p className="font-mono text-[10px] uppercase text-white/40 mb-1">Reported Content:</p>
+                      <p className="whitespace-pre-wrap font-sans leading-relaxed">{report.commentContent}</p>
+                      {report.articleTitle ? (
+                        <p className="mt-2 text-[11px] text-white/40">
+                          Article:{" "}
+                          <span className="text-[#8a2ae3]">
+                            {report.articleTitle}
+                          </span>
+                        </p>
+                      ) : null}
+                    </div>
+                  ) : null}
+                </article>
+              )
+            })
+          )}
+        </section>
+      ) : (
+        <>
+          {!loading && filteredThreads.length === 0 ? (
+            <div className="border-b border-white/15 py-20 text-center">
+              <MessageSquare className="mx-auto h-8 w-8 text-white/20" />
+              <p className="mt-4 font-medium">
+                {typeFilter === "mentions"
+                  ? replyProfile?.handle
+                    ? `No mentions found for @${replyProfile.handle}`
+                    : "Set your profile handle to view mentions"
+                  : "No comments found"}
+              </p>
+              <p className="mt-1 text-sm text-white/40">
+                {typeFilter === "mentions" ? (
+                  replyProfile?.handle ? (
+                    "You haven't been tagged in any comments or replies matching your search/filters."
+                  ) : (
+                    <Link href="/admin/profile" className="text-[#8a2ae3] underline hover:text-white">
+                      Go to Profile Settings to configure your handle
+                    </Link>
+                  )
+                ) : (
+                  "Try another search or filter."
+                )}
+              </p>
+            </div>
+          ) : null}
+
+          <section className="space-y-4 py-5 pb-16" aria-label="Moderation results">
+            {filteredThreads.map((thread) => (
+              <article key={thread.parent.id} className="border border-white/10 bg-white/[0.012] px-4 transition-colors duration-200 hover:border-white/15 sm:px-5">
+                <ModerationRow
+                  entry={thread.parent}
+                  busyId={busyId}
+                  contextOnly={thread.parentIsContext}
+                  canHide={canHideEntry(thread.parent)}
+                  canDelete={canDeleteEntry(thread.parent)}
+                  canPin={userRole === "admin" || userRole === "super"}
+                  reaction={reactions[thread.parent.id]}
+                  reactionBusyId={reactionBusyId}
+                  translation={translations[thread.parent.id]}
+                  isTranslating={translatingIds.has(thread.parent.id)}
+                  targetLangName={getLanguageName(targetLang)}
+                  onTranslate={toggleTranslation}
+                  onReact={reactToComment}
+                  onStatusChange={setEntryStatus}
+                  onDelete={removeEntry}
+                  onTogglePin={togglePinEntry}
+                  onViewUser={openUserDetails}
+                  onOpenLightbox={(imgs, idx, author) =>
+                    setLightboxGallery({ images: imgs, currentIndex: idx, author })
+                  }
+                  reportItem={reportedCommentIds.get(thread.parent.id)}
+                />
             {thread.parent.status === "visible" ? (
               <div className="-mt-1 mb-5 sm:ml-14">
                 {replyingToId === thread.parent.id ? (
@@ -1667,6 +1959,7 @@ export default function CommentsModerationPage() {
                       onOpenLightbox={(imgs, idx, author) =>
                         setLightboxGallery({ images: imgs, currentIndex: idx, author })
                       }
+                      reportItem={reportedCommentIds.get(reply.id)}
                     />
                   ))}
                 </div>
@@ -1675,6 +1968,8 @@ export default function CommentsModerationPage() {
           </article>
         ))}
       </section>
+      </>
+      )}
 
       <UserDetailsDialog
         userId={selectedUserDetailsId}

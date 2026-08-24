@@ -17,6 +17,8 @@ function isModeratorRoute(pathname: string) {
   return pathname === "/admin" ||
     pathname === "/admin/comments" ||
     pathname.startsWith("/admin/comments/") ||
+    pathname === "/admin/reports" ||
+    pathname.startsWith("/admin/reports/") ||
     pathname === "/admin/notifications" ||
     pathname.startsWith("/admin/notifications/") ||
     pathname === "/admin/profile" ||
