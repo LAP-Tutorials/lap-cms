@@ -22,3 +22,28 @@ no longer present.
 
 IP addresses are private investigation signals. Never recreate the legacy
 public `bannedIps` check or use an IP address by itself as an enforcement key.
+
+## Reliable Cloud Functions deployment on Windows
+
+Firebase CLI 15.28.1 can intermittently fail while discovering functions over
+localhost with `TypeError: fetch failed`. Use its file-based discovery mode to
+bypass that local HTTP request:
+
+```powershell
+$env:FIREBASE_FUNCTIONS_DISCOVERY_OUTPUT_PATH = "true"
+$env:FUNCTIONS_DISCOVERY_TIMEOUT = "60"
+
+try {
+  firebase.cmd deploy --only functions --project lap-docs-c9078 --force
+  if ($LASTEXITCODE -ne 0) {
+    throw "Firebase Functions deployment failed with exit code $LASTEXITCODE"
+  }
+}
+finally {
+  Remove-Item Env:FIREBASE_FUNCTIONS_DISCOVERY_OUTPUT_PATH -ErrorAction SilentlyContinue
+  Remove-Item Env:FUNCTIONS_DISCOVERY_TIMEOUT -ErrorAction SilentlyContinue
+}
+```
+
+This temporary manifest contains function metadata and secret names only; it
+does not contain the value of `DEVICE_FINGERPRINT_PEPPER`.
