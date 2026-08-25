@@ -259,6 +259,51 @@ function normalizeTeamHandle(value: unknown) {
     : "";
 }
 
+function getCommenterIdentity(
+  author: admin.firestore.DocumentSnapshot,
+  user: admin.firestore.DocumentSnapshot,
+  action: "comments" | "replies"
+) {
+  const authorData = author.data() || {};
+  const userData = user.data() || {};
+  const isStaff =
+    author.exists && RESERVABLE_TEAM_ROLES.includes(authorData.role);
+  if (!isStaff && (!user.exists || !isAccountAllowedToParticipate(userData))) {
+    throw new HttpsError(
+      "permission-denied",
+      action === "replies"
+        ? "This account cannot post replies."
+        : "This account cannot post comments."
+    );
+  }
+  const handle = normalizeTeamHandle(
+    isStaff ? authorData.handle || userData.handle : userData.handle
+  );
+  if (!handle) {
+    throw new HttpsError(
+      "failed-precondition",
+      isStaff
+        ? "Set your team handle in the CMS before commenting."
+        : action === "replies"
+          ? "Set your handle before replying."
+          : "Set your handle before commenting."
+    );
+  }
+  return {
+    handle,
+    name: String(
+      (isStaff
+        ? authorData.name || userData.displayName
+        : userData.displayName) || handle
+    ),
+    photoURL: String(
+      (isStaff
+        ? authorData.avatar || authorData.photoURL || userData.photoURL
+        : userData.photoURL) || ""
+    ),
+  };
+}
+
 export const syncPublicReaderProfile = onDocumentWritten(
   { document: "users/{userId}", region: "europe-west1" },
   async (event) => {
@@ -4867,10 +4912,7 @@ export const createComment = onCall(
         reservationRef ? transaction.get(reservationRef) : Promise.resolve(null),
         ...claimRefs.map((ref) => transaction.get(ref)),
       ]);
-      const isStaff = author.exists && RESERVABLE_TEAM_ROLES.includes(author.data()?.role);
-      if (!isStaff && (!user.exists || !isAccountAllowedToParticipate(user.data()))) {
-        throw new HttpsError("permission-denied", "This account cannot post comments.");
-      }
+      const identity = getCommenterIdentity(author, user, "comments");
       if (!article.exists || article.data()?.publish !== true) {
         throw new HttpsError("failed-precondition", "Comments are available only on published articles.");
       }
@@ -4882,9 +4924,6 @@ export const createComment = onCall(
           attachments.some((attachment) => !reservation.data()?.storagePaths?.includes(attachment.storagePath)))) {
         throw new HttpsError("failed-precondition", "The image upload reservation is invalid or expired.");
       }
-      const identity = isStaff ? author.data() || {} : user.data() || {};
-      const handle = normalizeTeamHandle(identity.handle);
-      if (!handle) throw new HttpsError("failed-precondition", "Set your handle before commenting.");
       const images = attachments;
       const now = admin.firestore.FieldValue.serverTimestamp();
       transaction.create(commentRef, {
@@ -4892,9 +4931,9 @@ export const createComment = onCall(
         articleSlug: article.data()?.slug || "",
         articleTitle: article.data()?.title || "",
         authorId: uid,
-        authorName: identity.name || identity.displayName || handle,
-        authorHandle: handle,
-        authorPhotoURL: identity.avatar || identity.photoURL || "",
+        authorName: identity.name,
+        authorHandle: identity.handle,
+        authorPhotoURL: identity.photoURL,
         content,
         ...(images.length ? {
           images,
@@ -4962,15 +5001,14 @@ export const createCommentReply = onCall(
         reservationRef ? transaction.get(reservationRef) : Promise.resolve(null),
         ...claimRefs.map((ref) => transaction.get(ref)),
       ]);
-      const isStaff = author.exists && RESERVABLE_TEAM_ROLES.includes(author.data()?.role);
-      if (!isStaff && (!user.exists || !isAccountAllowedToParticipate(user.data()))) {
-        throw new HttpsError("permission-denied", "This account cannot post replies.");
-      }
+      const identity = getCommenterIdentity(author, user, "replies");
       if (!parent.exists || parent.data()?.status !== "visible") {
         throw new HttpsError("failed-precondition", "That comment is not available for replies.");
       }
       const articleRef = firestore.collection("articles").doc(parent.data()?.articleId || "_");
       const article = await transaction.get(articleRef);
+      const isStaff =
+        author.exists && RESERVABLE_TEAM_ROLES.includes(author.data()?.role);
       if (!article.exists || (!isStaff && article.data()?.publish !== true)) {
         throw new HttpsError("failed-precondition", "Replies are unavailable for this article.");
       }
@@ -4982,9 +5020,6 @@ export const createCommentReply = onCall(
           attachments.some((attachment) => !reservation.data()?.storagePaths?.includes(attachment.storagePath)))) {
         throw new HttpsError("failed-precondition", "The image upload reservation is invalid or expired.");
       }
-      const identity = isStaff ? author.data() || {} : user.data() || {};
-      const handle = normalizeTeamHandle(identity.handle);
-      if (!handle) throw new HttpsError("failed-precondition", "Set your handle before replying.");
       const images = attachments;
       const now = admin.firestore.FieldValue.serverTimestamp();
       transaction.create(replyRef, {
@@ -4993,9 +5028,9 @@ export const createCommentReply = onCall(
         articleSlug: parent.data()?.articleSlug || article.data()?.slug || "",
         articleTitle: parent.data()?.articleTitle || article.data()?.title || "",
         authorId: uid,
-        authorName: identity.name || identity.displayName || handle,
-        authorHandle: handle,
-        authorPhotoURL: identity.avatar || identity.photoURL || "",
+        authorName: identity.name,
+        authorHandle: identity.handle,
+        authorPhotoURL: identity.photoURL,
         content,
         ...(images.length ? {
           images,
