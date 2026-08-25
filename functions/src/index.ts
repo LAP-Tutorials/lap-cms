@@ -208,12 +208,14 @@ function sanitizePublicSocials(value: unknown) {
 }
 
 function shouldPublishAuthor(data: admin.firestore.DocumentData | undefined) {
-  return Boolean(data && data.showOnTeam !== false && data.role !== "moderator");
+  return Boolean(
+    data && ["super", "admin", "author", "moderator"].includes(data.role)
+  );
 }
 
 function safePublicAuthor(data: admin.firestore.DocumentData | undefined, uid: string) {
   const publicKeys = [
-    "name", "job", "city", "avatar", "imgAlt", "imageAlt", "slug",
+    "name", "handle", "job", "city", "avatar", "imgAlt", "imageAlt", "slug",
     "biography", "bio", "socials", "role", "showOnTeam", "createdAt",
     "created_at", "updatedAt", "updated_at",
   ];
