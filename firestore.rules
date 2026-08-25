@@ -167,6 +167,8 @@ service cloud.firestore {
         request.resource.data.displayName == request.resource.data.handle &&
         existsAfter(/databases/$(database)/documents/handles/$(request.resource.data.handle)) &&
         getAfter(/databases/$(database)/documents/handles/$(request.resource.data.handle)).data.uid == userId &&
+        (!request.resource.data.keys().hasAny(['lastIp']) ||
+          !exists(/databases/$(database)/documents/bannedIps/$(request.resource.data.lastIp.lower().replace('[:.]', '_')))) &&
         request.resource.data.createdAt == request.time &&
         request.resource.data.updatedAt == request.time;
       allow update: if isAuthenticated() &&
@@ -185,6 +187,8 @@ service cloud.firestore {
         request.resource.data.photoURL.size() <= 1000 &&
         request.resource.data.provider in ['password', 'google.com'] &&
         request.resource.data.handle is string &&
+        (!request.resource.data.keys().hasAny(['lastIp']) ||
+          !exists(/databases/$(database)/documents/bannedIps/$(request.resource.data.lastIp.lower().replace('[:.]', '_')))) &&
         // A handle may be claimed once during onboarding. A non-empty handle
         // must remain unchanged for the lifetime of the reader account.
         (

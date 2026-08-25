@@ -3849,12 +3849,23 @@ export const unsuspendUser = onCall(
     }
     const userData = userSnap.data() || {};
     const targetHandle = userData.handle || userData.displayName || "reader";
+    const nextStatus = (userData.warningCount ?? 0) > 0 ? "warning" : "active";
 
     await userRef.update({
-      status: "active",
+      status: nextStatus,
       suspendedUntil: admin.firestore.FieldValue.delete(),
       suspensionReason: admin.firestore.FieldValue.delete(),
+      suspendedAt: admin.firestore.FieldValue.delete(),
+      suspendedBy: admin.firestore.FieldValue.delete(),
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
+    await sendNotification({
+      userId: targetUid,
+      type: "suspension",
+      title: "Commenting Privileges Restored",
+      message: "Your commenting suspension has been lifted. You can now post comments and replies.",
+      link: "/community-guidelines",
     });
 
     await writeServerAuditLog({
@@ -3864,9 +3875,10 @@ export const unsuspendUser = onCall(
       details: `Lifted commenting suspension for @${targetHandle}`,
       targetId: targetUid,
       targetTitle: `@${targetHandle}`,
+      metadata: { targetUid, targetHandle, nextStatus },
     });
 
-    return { success: true };
+    return { success: true, nextStatus };
   }
 );
 
@@ -3901,6 +3913,7 @@ export const unbanUser = onCall(
     }
     const userData = userSnap.data() || {};
     const targetHandle = userData.handle || userData.displayName || "reader";
+    const nextStatus = (userData.warningCount ?? 0) > 0 ? "warning" : "active";
 
     // 1. Re-enable Auth account
     try {
@@ -3909,36 +3922,137 @@ export const unbanUser = onCall(
       logger.warn(`Could not re-enable Auth for ${targetUid}:`, authErr);
     }
 
-    // 2. Remove user's banned IPs from /bannedIps
+    // 2. Collect and remove all associated banned IPs
+    const ipsToRemove = new Set<string>();
     if (Array.isArray(userData.bannedIps)) {
-      for (const ip of userData.bannedIps) {
-        const key = sanitizeIpKey(ip);
-        if (key) {
+      userData.bannedIps.forEach((ip: string) => ipsToRemove.add(ip));
+    }
+    if (userData.lastIp) {
+      ipsToRemove.add(userData.lastIp);
+    }
+    if (Array.isArray(userData.ipHistory)) {
+      userData.ipHistory.forEach((ip: string) => ipsToRemove.add(ip));
+    }
+
+    for (const ip of ipsToRemove) {
+      const key = sanitizeIpKey(ip);
+      if (key) {
+        try {
           await db.collection("bannedIps").doc(key).delete();
+        } catch (ipErr) {
+          logger.warn(`Could not delete bannedIp doc for ${key}:`, ipErr);
         }
       }
     }
 
     // 3. Update user doc
     await userRef.update({
-      status: "active",
+      status: nextStatus,
       bannedAt: admin.firestore.FieldValue.delete(),
       banReason: admin.firestore.FieldValue.delete(),
       bannedBy: admin.firestore.FieldValue.delete(),
       bannedIps: admin.firestore.FieldValue.delete(),
+      suspendedUntil: admin.firestore.FieldValue.delete(),
+      suspensionReason: admin.firestore.FieldValue.delete(),
+      suspendedAt: admin.firestore.FieldValue.delete(),
+      suspendedBy: admin.firestore.FieldValue.delete(),
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
+    await sendNotification({
+      userId: targetUid,
+      type: "warning",
+      title: "Account Restored",
+      message: "Your account ban has been lifted by an administrator. Please adhere to the Community Guidelines.",
+      link: "/community-guidelines",
     });
 
     await writeServerAuditLog({
       actorUid: callerUid,
       action: "moderation.unban_user",
       category: "team",
-      details: `Lifted permanent ban for @${targetHandle}`,
+      details: `Lifted permanent ban and restored @${targetHandle} (${ipsToRemove.size} IP(s) unblocked)`,
       targetId: targetUid,
       targetTitle: `@${targetHandle}`,
+      metadata: { targetUid, targetHandle, unblockedIps: Array.from(ipsToRemove), nextStatus },
     });
 
-    return { success: true };
+    return { success: true, nextStatus, unblockedIpsCount: ipsToRemove.size };
+  }
+);
+
+/**
+ * Clear User Warnings
+ * Accessible by: Super Admins, Admins, Moderators
+ */
+export const clearUserWarnings = onCall(
+  { region: "europe-west1" },
+  async (request) => {
+    if (!request.auth) {
+      throw new HttpsError("unauthenticated", "You must be signed in.");
+    }
+    const db = getDb();
+    const callerUid = request.auth.uid;
+    const callerSnap = await db.collection("authors").doc(callerUid).get();
+    const callerRole = callerSnap.data()?.role;
+
+    if (!callerSnap.exists || !["super", "admin", "moderator"].includes(callerRole)) {
+      throw new HttpsError("permission-denied", "You do not have permission to clear warnings.");
+    }
+
+    const { targetUid } = request.data || {};
+    if (!targetUid) {
+      throw new HttpsError("invalid-argument", "Missing required field: targetUid.");
+    }
+
+    const userRef = db.collection("users").doc(targetUid);
+    const userSnap = await userRef.get();
+    if (!userSnap.exists) {
+      throw new HttpsError("not-found", "Target user profile does not exist.");
+    }
+    const userData = userSnap.data() || {};
+    const targetHandle = userData.handle || userData.displayName || "reader";
+
+    // 1. Delete all warning subcollection documents
+    const warningsSnap = await userRef.collection("warnings").get();
+    const batch = db.batch();
+    warningsSnap.docs.forEach((d) => {
+      batch.delete(d.ref);
+    });
+    await batch.commit();
+
+    // 2. Update user status (if currently "warning", restore to "active")
+    const currentStatus = userData.status || "active";
+    const nextStatus = currentStatus === "warning" ? "active" : currentStatus;
+
+    await userRef.update({
+      warningCount: 0,
+      status: nextStatus,
+      lastWarnedAt: admin.firestore.FieldValue.delete(),
+      lastWarningReason: admin.firestore.FieldValue.delete(),
+      lastWarningBy: admin.firestore.FieldValue.delete(),
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
+    await sendNotification({
+      userId: targetUid,
+      type: "warning",
+      title: "Warnings Cleared",
+      message: "Your account warnings have been cleared by moderation staff. Your account is now in Good Standing.",
+      link: "/account",
+    });
+
+    await writeServerAuditLog({
+      actorUid: callerUid,
+      action: "moderation.clear_warnings",
+      category: "comments",
+      details: `Cleared ${warningsSnap.size} warning(s) for @${targetHandle}`,
+      targetId: targetUid,
+      targetTitle: `@${targetHandle}`,
+      metadata: { targetUid, targetHandle, clearedCount: warningsSnap.size },
+    });
+
+    return { success: true, clearedCount: warningsSnap.size, nextStatus };
   }
 );
 

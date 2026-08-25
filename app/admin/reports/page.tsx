@@ -1,8 +1,9 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
+import { createPortal } from "react-dom"
 import Link from "next/link"
-import { useSearchParams } from "next/navigation"
+import { useRouter, useSearchParams } from "next/navigation"
 import {
   collection,
   doc,
@@ -18,6 +19,7 @@ import { httpsCallable } from "firebase/functions"
 import {
   AlertTriangle,
   Ban,
+  Check,
   CheckCircle2,
   Clock,
   ExternalLink,
@@ -30,6 +32,7 @@ import {
   Lock,
   MessageSquare,
   RefreshCw,
+  RotateCcw,
   Search,
   Shield,
   ShieldAlert,
@@ -55,11 +58,12 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { UserDetailsDialog } from "@/components/admin/user-details-dialog"
+import { ReasonCombobox } from "@/components/admin/reason-combobox"
 import { logAuditActivity } from "@/lib/audit-logger"
 
-export type ReportType = "user" | "comment" | "reply"
-export type ReportStatus = "pending" | "action_taken" | "dismissed"
-export type ViolationReason =
+type ReportType = "user" | "comment" | "reply"
+type ReportStatus = "pending" | "action_taken" | "dismissed"
+type ViolationReason =
   | "harassment"
   | "spam"
   | "hate_speech"
@@ -67,7 +71,16 @@ export type ViolationReason =
   | "impersonation"
   | "other"
 
-export interface ReportDocument {
+const REASON_LABELS: Record<ViolationReason, string> = {
+  harassment: "Harassment, Bullying, or Threats",
+  spam: "Spam, Advertising, or Scams",
+  hate_speech: "Hate Speech or Discrimination",
+  inappropriate: "Inappropriate or Explicit Content",
+  impersonation: "Impersonation or False Identity",
+  other: "Other Policy Violation",
+}
+
+interface ReportDocument {
   id: string
   type: ReportType
   reportedUserId: string
@@ -86,11 +99,11 @@ export interface ReportDocument {
   articleTitle?: string
   articleSlug?: string
   status: ReportStatus
-  actionTaken?: "warning" | "suspension" | "permanent_ban"
-  resolutionNotes?: string
-  resolvedBy?: string
-  resolvedAt?: Timestamp
   createdAt?: Timestamp
+  resolvedAt?: Timestamp
+  resolvedBy?: string
+  actionTaken?: string
+  resolutionNotes?: string
 }
 
 interface UserTargetDetails {
@@ -98,37 +111,30 @@ interface UserTargetDetails {
   displayName?: string
   handle?: string
   email?: string
-  photoURL?: string
   status?: string
   warningCount?: number
-  lastWarnedAt?: Timestamp
   lastWarningReason?: string
   suspendedUntil?: Timestamp
   suspensionReason?: string
   bannedAt?: Timestamp
   banReason?: string
   lastIp?: string
-  bannedIps?: string[]
-  createdAt?: Timestamp
-}
-
-const REASON_LABELS: Record<ViolationReason, string> = {
-  harassment: "Harassment, Bullying, or Threats",
-  spam: "Spam, Advertising, or Scams",
-  hate_speech: "Hate Speech or Discrimination",
-  inappropriate: "Inappropriate or Explicit Content",
-  impersonation: "Impersonation or False Identity",
-  other: "Other Policy Violation",
 }
 
 export default function ReportsManagementPage() {
-  const { user, userRole } = useAuth()
+  const { user, userRole, isLoading } = useAuth()
+  const router = useRouter()
   const searchParams = useSearchParams()
 
   const [reports, setReports] = useState<ReportDocument[]>([])
   const [loading, setLoading] = useState(true)
+  const [mounted, setMounted] = useState(false)
   const [error, setError] = useState("")
   const [successMessage, setSuccessMessage] = useState("")
+
+  useEffect(() => {
+    setMounted(true)
+  }, [])
 
   // Filters
   const [statusFilter, setStatusFilter] = useState<"all" | ReportStatus>("pending")
@@ -140,15 +146,15 @@ export default function ReportsManagementPage() {
   const [selectedReport, setSelectedReport] = useState<ReportDocument | null>(null)
   const [targetUser, setTargetUser] = useState<UserTargetDetails | null>(null)
   const [targetUserLoading, setTargetUserLoading] = useState(false)
-  const [activeTab, setActiveTab] = useState<"warn" | "suspend" | "ban" | "dismiss">("warn")
+  const [activeTab, setActiveTab] = useState<"warn" | "suspend" | "ban" | "restore" | "dismiss">("warn")
 
   // Form states for enforcement
   const [warnReason, setWarnReason] = useState<string>("Harassment or disrespectful behavior")
   const [warnCustomMessage, setWarnCustomMessage] = useState("")
   const [suspendDays, setSuspendDays] = useState("3")
-  const [suspendReason, setSuspendReason] = useState("Repeated Community Guidelines violations")
+  const [suspendReason, setSuspendReason] = useState("Repeated off-topic disruption or trolling")
   const [suspendCustomMessage, setSuspendCustomMessage] = useState("")
-  const [banReason, setBanReason] = useState("Severe Community Guidelines violations (Hate speech / harassment / spam)")
+  const [banReason, setBanReason] = useState("Severe or repeated Community Guidelines violations")
   const [banCustomMessage, setBanCustomMessage] = useState("")
   const [banAdditionalIps, setBanAdditionalIps] = useState("")
   const [dismissNotes, setDismissNotes] = useState("")
@@ -289,6 +295,12 @@ export default function ReportsManagementPage() {
 
   const handleIssueWarning = async () => {
     if (!selectedReport) return
+    const effectiveReason = warnReason.trim()
+    if (!effectiveReason) {
+      setError("Please select or enter a valid warning reason.")
+      return
+    }
+
     setActionBusy(true)
     setError("")
     setSuccessMessage("")
@@ -297,7 +309,7 @@ export default function ReportsManagementPage() {
       const warnUserFn = httpsCallable(functions, "warnUser")
       await warnUserFn({
         targetUid: selectedReport.reportedUserId,
-        reason: warnReason,
+        reason: effectiveReason,
         customMessage: warnCustomMessage,
         reportId: selectedReport.id,
         commentId: selectedReport.commentId,
@@ -316,6 +328,12 @@ export default function ReportsManagementPage() {
 
   const handleSuspendUser = async () => {
     if (!selectedReport) return
+    const effectiveReason = suspendReason.trim()
+    if (!effectiveReason) {
+      setError("Please select or enter a valid suspension reason.")
+      return
+    }
+
     setActionBusy(true)
     setError("")
     setSuccessMessage("")
@@ -325,7 +343,7 @@ export default function ReportsManagementPage() {
       await suspendUserFn({
         targetUid: selectedReport.reportedUserId,
         durationDays: parseInt(suspendDays, 10) || 3,
-        reason: suspendReason,
+        reason: effectiveReason,
         customMessage: suspendCustomMessage,
         reportId: selectedReport.id,
         commentId: selectedReport.commentId,
@@ -349,6 +367,12 @@ export default function ReportsManagementPage() {
       return
     }
 
+    const effectiveReason = banReason.trim()
+    if (!effectiveReason) {
+      setError("Please select or enter a valid ban reason.")
+      return
+    }
+
     const confirmMsg = `Are you sure you want to PERMANENTLY BAN @${selectedReport.reportedUserHandle}? This will revoke their auth account, lock their handle, and blacklist all associated IP addresses.`
     if (!window.confirm(confirmMsg)) return
 
@@ -365,7 +389,7 @@ export default function ReportsManagementPage() {
       const banUserFn = httpsCallable(functions, "banUser")
       const result = (await banUserFn({
         targetUid: selectedReport.reportedUserId,
-        reason: banReason,
+        reason: effectiveReason,
         customMessage: banCustomMessage,
         additionalIps: additionalIpsList,
         reportId: selectedReport.id,
@@ -417,6 +441,80 @@ export default function ReportsManagementPage() {
     } catch (err: any) {
       console.error("Error dismissing report:", err)
       setError(err?.message || "Failed to dismiss report.")
+    } finally {
+      setActionBusy(false)
+    }
+  }
+
+  const handleUnbanReportedUser = async () => {
+    if (!selectedReport) return
+    if (!canExecuteBan) {
+      setError("Only Super Admins and Admins can lift permanent bans.")
+      return
+    }
+
+    const confirmMsg = `Lift permanent ban for @${selectedReport.reportedUserHandle}? This will re-enable their auth account and unblock all blacklisted IPs.`
+    if (!window.confirm(confirmMsg)) return
+
+    setActionBusy(true)
+    setError("")
+    setSuccessMessage("")
+
+    try {
+      const fn = httpsCallable<{ targetUid: string }, { success: boolean; unblockedIpsCount?: number; nextStatus?: string }>(
+        functions,
+        "unbanUser"
+      )
+      const res = await fn({ targetUid: selectedReport.reportedUserId })
+      setTargetUser((prev) => (prev ? { ...prev, status: res.data?.nextStatus || "active", bannedAt: undefined, banReason: undefined } : null))
+      setSuccessMessage(`Permanent ban lifted for @${selectedReport.reportedUserHandle}. ${res.data?.unblockedIpsCount ?? 0} IP(s) unblocked.`)
+    } catch (err: any) {
+      console.error("Error unbanning user:", err)
+      setError(err?.message || "Failed to lift permanent ban.")
+    } finally {
+      setActionBusy(false)
+    }
+  }
+
+  const handleUnsuspendReportedUser = async () => {
+    if (!selectedReport) return
+    setActionBusy(true)
+    setError("")
+    setSuccessMessage("")
+
+    try {
+      const fn = httpsCallable<{ targetUid: string }, { success: boolean; nextStatus: string }>(
+        functions,
+        "unsuspendUser"
+      )
+      const res = await fn({ targetUid: selectedReport.reportedUserId })
+      setTargetUser((prev) => (prev ? { ...prev, status: res.data?.nextStatus || "active", suspendedUntil: undefined, suspensionReason: undefined } : null))
+      setSuccessMessage(`Commenting suspension lifted early for @${selectedReport.reportedUserHandle}.`)
+    } catch (err: any) {
+      console.error("Error lifting suspension:", err)
+      setError(err?.message || "Failed to lift suspension.")
+    } finally {
+      setActionBusy(false)
+    }
+  }
+
+  const handleClearReportedUserWarnings = async () => {
+    if (!selectedReport) return
+    setActionBusy(true)
+    setError("")
+    setSuccessMessage("")
+
+    try {
+      const fn = httpsCallable<{ targetUid: string }, { success: boolean; clearedCount: number; nextStatus: string }>(
+        functions,
+        "clearUserWarnings"
+      )
+      const res = await fn({ targetUid: selectedReport.reportedUserId })
+      setTargetUser((prev) => (prev ? { ...prev, warningCount: 0, status: res.data?.nextStatus || "active", lastWarnedAt: undefined, lastWarningReason: undefined } : null))
+      setSuccessMessage(`Cleared ${res.data?.clearedCount ?? 0} warning(s) for @${selectedReport.reportedUserHandle}.`)
+    } catch (err: any) {
+      console.error("Error clearing warnings:", err)
+      setError(err?.message || "Failed to clear warnings.")
     } finally {
       setActionBusy(false)
     }
@@ -795,29 +893,29 @@ export default function ReportsManagementPage() {
       </div>
 
       {/* Enforcement & Action Modal Dialog */}
-      {selectedReport && (
+      {mounted && selectedReport && createPortal(
         <div
           role="dialog"
           aria-modal="true"
-          className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 bg-black/85 backdrop-blur-sm"
+          className="fixed inset-0 z-[9999] flex items-center justify-center p-2 sm:p-4 md:p-6 bg-black/85 backdrop-blur-sm overflow-y-auto"
         >
-          <div className="w-full max-w-3xl max-h-[92vh] overflow-y-auto border border-white/20 bg-[#141414] shadow-2xl text-white">
+          <div className="w-full max-w-3xl max-h-[94vh] sm:max-h-[92vh] overflow-y-auto border border-white/20 bg-[#141414] shadow-2xl text-white my-auto">
             {/* Modal Header */}
-            <div className="flex items-center justify-between border-b border-white/15 bg-black/60 px-6 py-4 sticky top-0 z-10">
+            <div className="flex items-center justify-between border-b border-white/15 bg-black/60 px-4 sm:px-6 py-3.5 sm:py-4 sticky top-0 z-10">
               <div className="flex items-center gap-2">
                 <ShieldAlert className="h-5 w-5 text-red-400" />
-                <h3 className="font-semibold text-base">Community Moderation & Enforcement</h3>
+                <h3 className="font-semibold text-sm sm:text-base">Community Moderation & Enforcement</h3>
               </div>
               <button
                 type="button"
                 onClick={() => setSelectedReport(null)}
-                className="text-white/40 hover:text-white transition-colors"
+                className="text-white/40 hover:text-white transition-colors p-1"
               >
                 <X className="h-5 w-5" />
               </button>
             </div>
 
-            <div className="p-6 space-y-6">
+            <div className="p-4 sm:p-6 space-y-4 sm:space-y-6">
               {/* Target User & Violation Overview Card */}
               <div className="border border-white/10 bg-white/[0.02] p-4 space-y-3">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-white/10 pb-3">
@@ -841,120 +939,112 @@ export default function ReportsManagementPage() {
                         <span className="text-xs font-mono px-2 py-0.5 bg-white/10 border border-white/20">
                           Status: <strong className="uppercase">{targetUser.status || "active"}</strong>
                         </span>
-                        <span className="text-xs font-mono px-2 py-0.5 bg-amber-500/10 border border-amber-500/30 text-amber-300">
-                          Warnings: {targetUser.warningCount || 0}
-                        </span>
+                        {(targetUser.warningCount ?? 0) > 0 && (
+                          <span className="text-xs font-mono px-2 py-0.5 bg-amber-500/20 text-amber-300 border border-amber-500/40">
+                            Warnings: {targetUser.warningCount}
+                          </span>
+                        )}
                         {targetUser.lastIp && (
-                          <span className="text-xs font-mono px-2 py-0.5 bg-blue-500/10 border border-blue-500/30 text-blue-300" title="Recorded IP Address">
+                          <span className="text-xs font-mono px-2 py-0.5 bg-red-500/10 text-red-300 border border-red-500/30">
                             IP: {targetUser.lastIp}
                           </span>
                         )}
                       </>
-                    ) : null}
+                    ) : (
+                      <span className="text-xs text-white/40">Profile not loaded</span>
+                    )}
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
                   <div>
-                    <span className="text-white/40 block">Violation Reason:</span>
-                    <span className="font-semibold text-red-300">{selectedReport.reasonLabel}</span>
+                    <span className="text-white/40 block font-mono text-[10px] uppercase">Reason for Report</span>
+                    <strong className="text-red-300">{selectedReport.reasonLabel}</strong>
                   </div>
                   <div>
-                    <span className="text-white/40 block">Reported By:</span>
-                    <span>@{selectedReport.reporterHandle}</span>
+                    <span className="text-white/40 block font-mono text-[10px] uppercase">Reported By</span>
+                    <span className="font-mono text-white/90">@{selectedReport.reporterHandle}</span>
                   </div>
+                  {selectedReport.articleTitle && (
+                    <div className="sm:col-span-2">
+                      <span className="text-white/40 block font-mono text-[10px] uppercase">Associated Article</span>
+                      <span className="text-white/80">{selectedReport.articleTitle}</span>
+                    </div>
+                  )}
+                  {selectedReport.commentContent && (
+                    <div className="sm:col-span-2 border-l-2 border-red-500 bg-black/40 p-2.5">
+                      <span className="text-white/40 block font-mono text-[10px] uppercase mb-1">Infringing Comment:</span>
+                      <p className="italic text-white/90 whitespace-pre-wrap">{selectedReport.commentContent}</p>
+                    </div>
+                  )}
                 </div>
-
-                {selectedReport.details && (
-                  <div className="text-xs bg-black/40 p-2.5 border border-white/10">
-                    <span className="text-white/40 block text-[10px] font-mono uppercase mb-0.5">Reporter Note:</span>
-                    <p className="italic">&ldquo;{selectedReport.details}&rdquo;</p>
-                  </div>
-                )}
-
-                {selectedReport.commentContent && (
-                  <div className="text-xs border-l-2 border-red-500/60 bg-black/30 pl-3 py-1.5">
-                    <span className="text-white/40 block text-[10px] font-mono uppercase mb-0.5">Reported Text:</span>
-                    <p className="whitespace-pre-wrap">{selectedReport.commentContent}</p>
-                  </div>
-                )}
               </div>
 
               {/* Action Tabs Selector */}
-              <div>
-                <p className="text-xs font-mono uppercase text-white/50 mb-2 font-semibold">
-                  Select Enforcement Tier
-                </p>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setActiveTab("warn")}
-                    className={`p-3 border text-left transition-all ${
-                      activeTab === "warn"
-                        ? "border-amber-500 bg-amber-500/10 text-amber-200"
-                        : "border-white/10 bg-white/[0.02] text-white/60 hover:text-white"
-                    }`}
-                  >
-                    <div className="flex items-center gap-1.5 font-bold text-xs">
-                      <AlertTriangle className="h-3.5 w-3.5" />
-                      1. Warning
-                    </div>
-                    <span className="text-[10px] text-white/40 block mt-1">Hide & Issue Warning</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setActiveTab("suspend")}
-                    className={`p-3 border text-left transition-all ${
-                      activeTab === "suspend"
-                        ? "border-orange-500 bg-orange-500/10 text-orange-200"
-                        : "border-white/10 bg-white/[0.02] text-white/60 hover:text-white"
-                    }`}
-                  >
-                    <div className="flex items-center gap-1.5 font-bold text-xs">
-                      <Clock className="h-3.5 w-3.5" />
-                      2. Suspension
-                    </div>
-                    <span className="text-[10px] text-white/40 block mt-1">Temp Comment Lock</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setActiveTab("ban")}
-                    className={`p-3 border text-left transition-all ${
-                      activeTab === "ban"
-                        ? "border-red-600 bg-red-600/10 text-red-200"
-                        : "border-white/10 bg-white/[0.02] text-white/60 hover:text-white"
-                    }`}
-                  >
-                    <div className="flex items-center gap-1.5 font-bold text-xs">
-                      <Ban className="h-3.5 w-3.5" />
-                      3. Account & IP Ban
-                    </div>
-                    <span className="text-[10px] text-white/40 block mt-1">
-                      {canExecuteBan ? "Permanent Ban & IP" : "Admin Only"}
-                    </span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setActiveTab("dismiss")}
-                    className={`p-3 border text-left transition-all ${
-                      activeTab === "dismiss"
-                        ? "border-white/40 bg-white/10 text-white"
-                        : "border-white/10 bg-white/[0.02] text-white/60 hover:text-white"
-                    }`}
-                  >
-                    <div className="flex items-center gap-1.5 font-bold text-xs">
-                      <CheckCircle2 className="h-3.5 w-3.5" />
-                      Dismiss
-                    </div>
-                    <span className="text-[10px] text-white/40 block mt-1">No Violation Found</span>
-                  </button>
-                </div>
+              <div className="flex border-b border-white/10 gap-2 overflow-x-auto pb-1">
+                <button
+                  type="button"
+                  onClick={() => setActiveTab("warn")}
+                  className={`px-3 py-2 text-xs font-mono uppercase tracking-wider border-b-2 font-semibold transition-all shrink-0 ${
+                    activeTab === "warn"
+                      ? "border-amber-400 text-amber-300 bg-amber-500/10"
+                      : "border-transparent text-white/50 hover:text-white"
+                  }`}
+                >
+                  <AlertTriangle className="h-3.5 w-3.5 inline mr-1" />
+                  1. Formal Warning
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab("suspend")}
+                  className={`px-3 py-2 text-xs font-mono uppercase tracking-wider border-b-2 font-semibold transition-all shrink-0 ${
+                    activeTab === "suspend"
+                      ? "border-orange-500 text-orange-300 bg-orange-500/10"
+                      : "border-transparent text-white/50 hover:text-white"
+                  }`}
+                >
+                  <Clock className="h-3.5 w-3.5 inline mr-1" />
+                  2. Suspend (1-30d)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab("ban")}
+                  className={`px-3 py-2 text-xs font-mono uppercase tracking-wider border-b-2 font-semibold transition-all shrink-0 ${
+                    activeTab === "ban"
+                      ? "border-red-500 text-red-300 bg-red-500/10"
+                      : "border-transparent text-white/50 hover:text-white"
+                  }`}
+                >
+                  <Ban className="h-3.5 w-3.5 inline mr-1" />
+                  3. Permanent Ban
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab("restore")}
+                  className={`px-3 py-2 text-xs font-mono uppercase tracking-wider border-b-2 font-semibold transition-all shrink-0 ${
+                    activeTab === "restore"
+                      ? "border-emerald-500 text-emerald-300 bg-emerald-500/10"
+                      : "border-transparent text-white/50 hover:text-white"
+                  }`}
+                >
+                  <RotateCcw className="h-3.5 w-3.5 inline mr-1" />
+                  Reversal / Clear
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab("dismiss")}
+                  className={`px-3 py-2 text-xs font-mono uppercase tracking-wider border-b-2 font-semibold transition-all shrink-0 ${
+                    activeTab === "dismiss"
+                      ? "border-white/50 text-white bg-white/10"
+                      : "border-transparent text-white/40 hover:text-white"
+                  }`}
+                >
+                  <EyeOff className="h-3.5 w-3.5 inline mr-1" />
+                  Dismiss Report
+                </button>
               </div>
 
-              {/* TAB 1: ISSUE WARNING */}
+              {/* TAB 1: FORMAL WARNING */}
               {activeTab === "warn" && (
                 <div className="border border-amber-500/30 bg-amber-500/[0.02] p-4 space-y-4">
                   <div>
@@ -963,25 +1053,18 @@ export default function ReportsManagementPage() {
                       Tier 1: Issue Formal Warning & Hide Content
                     </h4>
                     <p className="text-xs text-white/60 mt-1">
-                      This will automatically hide the reported comment, record a formal warning in the reader&apos;s record, and display a warning notice to the user.
+                      Increments the user&apos;s warning strike counter, sends an in-app notice, and hides the reported comment. Account privileges remain active.
                     </p>
                   </div>
 
                   <div className="space-y-3 text-xs">
                     <div>
                       <label className="font-mono text-white/60 block mb-1">Warning Category / Reason</label>
-                      <Select value={warnReason} onValueChange={setWarnReason}>
-                        <SelectTrigger className="border-white/15 bg-black/60 text-xs">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent className="bg-[#181818] border-white/20 text-white">
-                          <SelectItem value="Harassment or disrespectful behavior">Harassment or disrespectful behavior</SelectItem>
-                          <SelectItem value="Spam, promotional links, or self-advertising">Spam, promotional links, or self-advertising</SelectItem>
-                          <SelectItem value="Inappropriate or offensive language">Inappropriate or offensive language</SelectItem>
-                          <SelectItem value="Impersonation or misleading identity">Impersonation or misleading identity</SelectItem>
-                          <SelectItem value="Off-topic disruption or trolling">Off-topic disruption or trolling</SelectItem>
-                        </SelectContent>
-                      </Select>
+                      <ReasonCombobox
+                        value={warnReason}
+                        onChange={setWarnReason}
+                        placeholder="Select preset or type custom reason..."
+                      />
                     </div>
 
                     <div>
@@ -1050,10 +1133,10 @@ export default function ReportsManagementPage() {
 
                     <div>
                       <label className="font-mono text-white/60 block mb-1">Suspension Rationale / Reason</label>
-                      <Input
+                      <ReasonCombobox
                         value={suspendReason}
-                        onChange={(e) => setSuspendReason(e.target.value)}
-                        className="bg-black/60 border-white/15 text-xs"
+                        onChange={setSuspendReason}
+                        placeholder="Select preset or type custom reason..."
                       />
                     </div>
 
@@ -1116,10 +1199,10 @@ export default function ReportsManagementPage() {
                     <div className="space-y-3 text-xs">
                       <div>
                         <label className="font-mono text-white/60 block mb-1">Permanent Ban Reason</label>
-                        <Input
+                        <ReasonCombobox
                           value={banReason}
-                          onChange={(e) => setBanReason(e.target.value)}
-                          className="bg-black/60 border-white/15 text-xs"
+                          onChange={setBanReason}
+                          placeholder="Select preset or type custom reason..."
                         />
                       </div>
 
@@ -1141,40 +1224,164 @@ export default function ReportsManagementPage() {
                       </div>
 
                       <div>
-                        <label className="font-mono text-white/60 block mb-1">Additional IP Addresses to Blacklist (Optional, comma-separated)</label>
+                        <label className="font-mono text-white/60 block mb-1">Additional Known IP Addresses (Optional)</label>
                         <Input
                           value={banAdditionalIps}
                           onChange={(e) => setBanAdditionalIps(e.target.value)}
-                          placeholder="e.g. 192.168.1.1, 2001:db8::1"
-                          className="bg-black/60 border-white/15 text-xs font-mono placeholder:text-white/30"
+                          placeholder="Comma or space-separated IPs (e.g. 192.168.1.1, 10.0.0.1)"
+                          className="bg-black/60 border-white/15 text-xs font-mono"
                         />
                       </div>
 
-                      <div className="flex justify-end gap-2 pt-2">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => setSelectedReport(null)}
-                          className="border-white/20 text-xs"
-                        >
-                          Cancel
-                        </Button>
-                        <Button
-                          size="sm"
-                          disabled={actionBusy}
-                          onClick={handleBanUser}
-                          className="bg-red-600 text-white hover:bg-red-700 text-xs font-semibold"
-                        >
-                          {actionBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : <Ban className="h-3.5 w-3.5 mr-1" />}
-                          Execute Permanent Ban & IP Blacklist
-                        </Button>
+                      <div>
+                        <label className="font-mono text-white/60 block mb-1">Final Notice to Banned User (Optional)</label>
+                        <Textarea
+                          value={banCustomMessage}
+                          onChange={(e) => setBanCustomMessage(e.target.value)}
+                          placeholder="State final explanation for permanent removal..."
+                          className="bg-black/60 border-white/15 text-xs placeholder:text-white/30"
+                          rows={2}
+                        />
                       </div>
                     </div>
                   )}
+
+                  <div className="flex justify-end gap-2 pt-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setSelectedReport(null)}
+                      className="border-white/20 text-xs"
+                    >
+                      Cancel
+                    </Button>
+                    <Button
+                      size="sm"
+                      disabled={actionBusy || !canExecuteBan}
+                      onClick={handleBanUser}
+                      className="bg-red-600 text-white hover:bg-red-500 text-xs font-semibold"
+                    >
+                      {actionBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : <Ban className="h-3.5 w-3.5 mr-1" />}
+                      Permanently Ban & Blacklist IP
+                    </Button>
+                  </div>
                 </div>
               )}
 
-              {/* TAB 4: DISMISS REPORT */}
+              {/* TAB 4: REVERSAL & CLEAR CONTROLS */}
+              {activeTab === "restore" && (
+                <div className="border border-emerald-500/30 bg-emerald-500/[0.02] p-4 space-y-4">
+                  <div>
+                    <h4 className="text-sm font-semibold text-emerald-300 flex items-center gap-1.5">
+                      <RotateCcw className="h-4 w-4" />
+                      Restore Account Standing & Reversal
+                    </h4>
+                    <p className="text-xs text-white/60 mt-1">
+                      Quickly lift suspensions, unban accounts, or clear warnings directly for @{selectedReport.reportedUserHandle}.
+                    </p>
+                  </div>
+
+                  <div className="border border-white/10 bg-black/40 p-3 space-y-2 text-xs">
+                    <div className="flex items-center justify-between">
+                      <span className="text-white/60">Current Status:</span>
+                      <Badge
+                        variant="outline"
+                        className={
+                          targetUser?.status === "banned"
+                            ? "border-red-500/40 text-red-300"
+                            : targetUser?.status === "suspended" || targetUser?.suspendedUntil
+                            ? "border-orange-500/40 text-orange-300"
+                            : (targetUser?.warningCount ?? 0) > 0 || targetUser?.status === "warning"
+                            ? "border-amber-500/40 text-amber-300"
+                            : "border-emerald-500/40 text-emerald-300"
+                        }
+                      >
+                        {targetUser?.status === "banned"
+                          ? "Permanently Banned"
+                          : targetUser?.status === "suspended" || targetUser?.suspendedUntil
+                          ? "Suspended"
+                          : (targetUser?.warningCount ?? 0) > 0 || targetUser?.status === "warning"
+                          ? `Warned (${targetUser?.warningCount || 0})`
+                          : "Good Standing"}
+                      </Badge>
+                    </div>
+
+                    {targetUser?.lastIp && (
+                      <div className="flex items-center justify-between">
+                        <span className="text-white/60">Recorded IP:</span>
+                        <span className="font-mono text-white/90">{targetUser.lastIp}</span>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="space-y-2 pt-1">
+                    {/* Unban Action */}
+                    <div className="flex items-center justify-between p-2.5 border border-white/10 bg-white/[0.02]">
+                      <div>
+                        <span className="font-semibold text-xs text-white block">Unban Account & IP(s)</span>
+                        <span className="text-[10px] text-white/40">Re-enables login and unblocks all associated IP addresses.</span>
+                      </div>
+                      <Button
+                        size="sm"
+                        disabled={actionBusy || !canExecuteBan}
+                        onClick={handleUnbanReportedUser}
+                        className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs h-7 font-mono"
+                        title={!canExecuteBan ? "Only Super Admins and Admins can unban" : "Unban user"}
+                      >
+                        {actionBusy ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <RotateCcw className="h-3 w-3 mr-1" />}
+                        Unban Account
+                      </Button>
+                    </div>
+
+                    {/* Lift Suspension */}
+                    <div className="flex items-center justify-between p-2.5 border border-white/10 bg-white/[0.02]">
+                      <div>
+                        <span className="font-semibold text-xs text-white block">Lift Suspension Early</span>
+                        <span className="text-[10px] text-white/40">Restores commenting privileges immediately.</span>
+                      </div>
+                      <Button
+                        size="sm"
+                        disabled={actionBusy}
+                        onClick={handleUnsuspendReportedUser}
+                        className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs h-7 font-mono"
+                      >
+                        {actionBusy ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <Check className="h-3 w-3 mr-1" />}
+                        Lift Suspension
+                      </Button>
+                    </div>
+
+                    {/* Clear Warnings */}
+                    <div className="flex items-center justify-between p-2.5 border border-white/10 bg-white/[0.02]">
+                      <div>
+                        <span className="font-semibold text-xs text-white block">Clear All Warnings</span>
+                        <span className="text-[10px] text-white/40">Resets warning count to 0 and restores Good Standing.</span>
+                      </div>
+                      <Button
+                        size="sm"
+                        disabled={actionBusy}
+                        onClick={handleClearReportedUserWarnings}
+                        className="bg-amber-600/30 hover:bg-amber-600 text-amber-200 hover:text-white border border-amber-500/40 text-xs h-7 font-mono"
+                      >
+                        {actionBusy ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <RotateCcw className="h-3 w-3 mr-1" />}
+                        Clear Warnings
+                      </Button>
+                    </div>
+                  </div>
+
+                  <div className="flex justify-end pt-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setSelectedReport(null)}
+                      className="border-white/20 text-xs"
+                    >
+                      Close Drawer
+                    </Button>
+                  </div>
+                </div>
+              )}
+
+              {/* TAB 5: DISMISS REPORT */}
               {activeTab === "dismiss" && (
                 <div className="border border-white/15 bg-white/[0.02] p-4 space-y-4">
                   <div>
@@ -1222,7 +1429,8 @@ export default function ReportsManagementPage() {
               )}
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       {/* User Details Dialog */}

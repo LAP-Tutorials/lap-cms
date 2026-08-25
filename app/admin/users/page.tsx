@@ -10,15 +10,19 @@ import {
   type Timestamp,
 } from "firebase/firestore"
 import {
+  AlertTriangle,
   AtSign,
+  Ban,
   Calendar,
   CheckCircle2,
+  Clock,
   ExternalLink,
   Eye,
   Mail,
   RefreshCw,
   Search,
   Shield,
+  ShieldAlert,
   UserCheck,
   Users,
   UserX,
@@ -40,6 +44,14 @@ interface UserRecord {
   email?: string
   photoURL?: string
   provider?: string
+  status?: "active" | "warning" | "suspended" | "banned"
+  warningCount?: number
+  lastWarningReason?: string
+  suspendedUntil?: Timestamp
+  suspensionReason?: string
+  bannedAt?: Timestamp
+  banReason?: string
+  lastIp?: string
   createdAt?: Timestamp
   updatedAt?: Timestamp
   [key: string]: unknown
@@ -55,6 +67,22 @@ interface AuthorRecord {
   createdAt?: Timestamp
   created_at?: Timestamp
   [key: string]: unknown
+}
+
+type UserStandingCategory =
+  | "all"
+  | "normal"
+  | "staff"
+  | "warning"
+  | "suspended"
+  | "banned"
+
+interface UserStandingInfo {
+  category: "staff" | "banned" | "suspended" | "warning" | "normal"
+  label: string
+  className: string
+  borderClass: string
+  icon: typeof Shield
 }
 
 function parseAnyDate(value: any): Date | null {
@@ -108,6 +136,80 @@ function getAuthorDate(author: any): Date | null {
   return null
 }
 
+function getUserStanding(
+  user: UserRecord,
+  authorRole?: string
+): UserStandingInfo {
+  if (authorRole) {
+    const roleLabel =
+      authorRole === "super"
+        ? "Super Admin"
+        : authorRole === "admin"
+          ? "Admin"
+          : authorRole === "moderator"
+            ? "Moderator"
+            : "Author"
+    return {
+      category: "staff",
+      label: roleLabel,
+      className:
+        authorRole === "super" || authorRole === "admin"
+          ? "bg-[#8a2ae3]/15 border-[#8a2ae3] text-[#c084fc]"
+          : authorRole === "moderator"
+            ? "bg-[#5eead4]/15 border-[#5eead4] text-[#5eead4]"
+            : "bg-[#f3c969]/15 border-[#f3c969] text-[#f3c969]",
+      borderClass: "border-l-[#8a2ae3]",
+      icon: Shield,
+    }
+  }
+
+  if (user.status === "banned" || user.bannedAt) {
+    return {
+      category: "banned",
+      label: "Banned",
+      className: "bg-red-500/20 border-red-500/80 text-red-400 font-bold",
+      borderClass: "border-l-red-500",
+      icon: Ban,
+    }
+  }
+
+  const suspendedUntilDate = parseAnyDate(user.suspendedUntil)
+  if (
+    user.status === "suspended" ||
+    (suspendedUntilDate && suspendedUntilDate.getTime() > Date.now())
+  ) {
+    return {
+      category: "suspended",
+      label: "Suspended",
+      className:
+        "bg-orange-500/20 border-orange-500/80 text-orange-400 font-semibold",
+      borderClass: "border-l-orange-500",
+      icon: Clock,
+    }
+  }
+
+  const warnCount =
+    typeof user.warningCount === "number" ? user.warningCount : 0
+  if (user.status === "warning" || warnCount > 0) {
+    return {
+      category: "warning",
+      label: warnCount > 1 ? `Warned (${warnCount})` : "Warned",
+      className:
+        "bg-amber-500/20 border-amber-500/80 text-amber-300 font-medium",
+      borderClass: "border-l-amber-500",
+      icon: AlertTriangle,
+    }
+  }
+
+  return {
+    category: "normal",
+    label: "Active",
+    className: "bg-emerald-500/10 border-emerald-500/40 text-emerald-400",
+    borderClass: "border-l-transparent",
+    icon: CheckCircle2,
+  }
+}
+
 type ProviderFilter = "all" | "google.com" | "password" | "staff"
 type SortOrder = "newest" | "oldest" | "name"
 
@@ -131,11 +233,17 @@ export default function AdminUsersPage() {
   const [loadingAuthors, setLoadingAuthors] = useState(true)
 
   const [searchTerm, setSearchTerm] = useState(initialQuery)
+  const [categoryFilter, setCategoryFilter] =
+    useState<UserStandingCategory>("all")
   const [providerFilter, setProviderFilter] = useState<ProviderFilter>("all")
   const [sortOrder, setSortOrder] = useState<SortOrder>("newest")
 
-  const [selectedUserId, setSelectedUserId] = useState<string | null>(initialUserId)
-  const [isDetailsOpen, setIsDetailsOpen] = useState<boolean>(Boolean(initialUserId))
+  const [selectedUserId, setSelectedUserId] = useState<string | null>(
+    initialUserId
+  )
+  const [isDetailsOpen, setIsDetailsOpen] = useState<boolean>(
+    Boolean(initialUserId)
+  )
 
   if (isLoading || userRole === "author" || userRole === "moderator") {
     return null
@@ -156,7 +264,7 @@ export default function AdminUsersPage() {
       (err) => {
         console.error("Error loading authors in users page:", err)
         setLoadingAuthors(false)
-      },
+      }
     )
     return () => unsub()
   }, [])
@@ -177,7 +285,7 @@ export default function AdminUsersPage() {
       (err) => {
         console.error("Error loading users collection:", err)
         setLoadingUsers(false)
-      },
+      }
     )
     return () => unsub()
   }, [])
@@ -192,11 +300,9 @@ export default function AdminUsersPage() {
 
   // Combine and augment user list with author metadata
   const enrichedUsers = useMemo(() => {
-    // Collect all unique user IDs
     const userMap = new Map<string, UserRecord>()
     users.forEach((u) => userMap.set(u.id, u))
 
-    // Ensure all authors are also represented if not in users
     Object.entries(authors).forEach(([id, author]) => {
       if (!userMap.has(id)) {
         userMap.set(id, {
@@ -214,6 +320,34 @@ export default function AdminUsersPage() {
     return Array.from(userMap.values())
   }, [users, authors])
 
+  // Category counts breakdown
+  const categoryCounts = useMemo(() => {
+    let normal = 0
+    let staff = 0
+    let warning = 0
+    let suspended = 0
+    let banned = 0
+
+    enrichedUsers.forEach((u) => {
+      const author = authors[u.id]
+      const standing = getUserStanding(u, author?.role)
+      if (standing.category === "staff") staff++
+      else if (standing.category === "banned") banned++
+      else if (standing.category === "suspended") suspended++
+      else if (standing.category === "warning") warning++
+      else normal++
+    })
+
+    return {
+      total: enrichedUsers.length,
+      normal,
+      staff,
+      warning,
+      suspended,
+      banned,
+    }
+  }, [enrichedUsers, authors])
+
   // Filtered and sorted users
   const filteredUsers = useMemo(() => {
     const needle = searchTerm.trim().toLowerCase()
@@ -222,6 +356,15 @@ export default function AdminUsersPage() {
       .filter((u) => {
         const author = authors[u.id]
         const role = author?.role
+        const standing = getUserStanding(u, role)
+
+        // Standing / Category filter
+        if (
+          categoryFilter !== "all" &&
+          standing.category !== categoryFilter
+        ) {
+          return false
+        }
 
         // Provider filter
         if (providerFilter === "staff" && !role) return false
@@ -240,9 +383,11 @@ export default function AdminUsersPage() {
           u.handle,
           u.email,
           u.id,
+          u.lastIp,
           author?.name,
           author?.handle,
           author?.role,
+          standing.label,
         ]
           .filter(Boolean)
           .join(" ")
@@ -269,15 +414,14 @@ export default function AdminUsersPage() {
         // newest default
         return getEffectiveDate(b) - getEffectiveDate(a)
       })
-  }, [enrichedUsers, authors, searchTerm, providerFilter, sortOrder])
-
-  // Key stats
-  const totalCount = enrichedUsers.length
-  const claimedHandlesCount = enrichedUsers.filter((u) => u.handle).length
-  const googleUsersCount = enrichedUsers.filter(
-    (u) => u.provider === "google.com",
-  ).length
-  const staffCount = Object.keys(authors).length
+  }, [
+    enrichedUsers,
+    authors,
+    searchTerm,
+    categoryFilter,
+    providerFilter,
+    sortOrder,
+  ])
 
   const openUserDetails = (userId: string) => {
     setSelectedUserId(userId)
@@ -307,97 +451,225 @@ export default function AdminUsersPage() {
         </PageTitle>
       </div>
 
-      {/* Summary KPI Cards */}
-      <div className="mb-8 grid grid-cols-2 gap-4 sm:grid-cols-4">
-        <div className="border border-white/10 bg-white/[0.02] p-5">
-          <div className="flex items-center justify-between text-xs font-mono uppercase tracking-wider text-white/50 mb-2">
-            <span>Total Accounts</span>
-            <Users className="h-4 w-4 text-[#8a2ae3]" />
+      {/* Summary KPI Cards with Category Filtering */}
+      <div className="mb-8 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+        {/* 1. All Users */}
+        <div
+          onClick={() => setCategoryFilter("all")}
+          className={`border p-4 transition-all cursor-pointer select-none ${
+            categoryFilter === "all"
+              ? "border-white bg-white/[0.07] ring-1 ring-white"
+              : "border-white/10 bg-white/[0.02] hover:border-white/30 hover:bg-white/[0.04]"
+          }`}
+        >
+          <div className="flex items-center justify-between text-xs font-mono uppercase tracking-wider text-white/50 mb-1.5">
+            <span>Total Users</span>
+            <Users className="h-3.5 w-3.5 text-white/70" />
           </div>
-          <p className="font-mono text-3xl font-bold tabular-nums text-white">
-            {loading ? "..." : totalCount}
+          <p className="font-mono text-2xl font-bold tabular-nums text-white">
+            {loading ? "..." : categoryCounts.total}
           </p>
+          <span className="text-[10px] font-mono text-white/40 uppercase tracking-tight mt-1 block">
+            All registered
+          </span>
         </div>
 
-        <div className="border border-white/10 bg-white/[0.02] p-5">
-          <div className="flex items-center justify-between text-xs font-mono uppercase tracking-wider text-white/50 mb-2">
-            <span>Claimed Handles</span>
-            <AtSign className="h-4 w-4 text-[#8a2ae3]" />
+        {/* 2. Normal / Active Users */}
+        <div
+          onClick={() => setCategoryFilter("normal")}
+          className={`border p-4 transition-all cursor-pointer select-none ${
+            categoryFilter === "normal"
+              ? "border-emerald-500 bg-emerald-500/10 ring-1 ring-emerald-500"
+              : "border-white/10 bg-white/[0.02] hover:border-emerald-500/40 hover:bg-emerald-500/[0.03]"
+          }`}
+        >
+          <div className="flex items-center justify-between text-xs font-mono uppercase tracking-wider text-emerald-400/80 mb-1.5">
+            <span>Active Readers</span>
+            <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />
           </div>
-          <p className="font-mono text-3xl font-bold tabular-nums text-white">
-            {loading ? "..." : claimedHandlesCount}
+          <p className="font-mono text-2xl font-bold tabular-nums text-emerald-400">
+            {loading ? "..." : categoryCounts.normal}
           </p>
+          <span className="text-[10px] font-mono text-emerald-400/60 uppercase tracking-tight mt-1 block">
+            Good standing
+          </span>
         </div>
 
-        <div className="border border-white/10 bg-white/[0.02] p-5">
-          <div className="flex items-center justify-between text-xs font-mono uppercase tracking-wider text-white/50 mb-2">
-            <span>Google Auth</span>
-            <UserCheck className="h-4 w-4 text-emerald-400" />
+        {/* 3. Staff / Team */}
+        <div
+          onClick={() => setCategoryFilter("staff")}
+          className={`border p-4 transition-all cursor-pointer select-none ${
+            categoryFilter === "staff"
+              ? "border-[#8a2ae3] bg-[#8a2ae3]/10 ring-1 ring-[#8a2ae3]"
+              : "border-white/10 bg-white/[0.02] hover:border-[#8a2ae3]/40 hover:bg-[#8a2ae3]/[0.03]"
+          }`}
+        >
+          <div className="flex items-center justify-between text-xs font-mono uppercase tracking-wider text-[#c084fc] mb-1.5">
+            <span>Staff & Team</span>
+            <Shield className="h-3.5 w-3.5 text-[#8a2ae3]" />
           </div>
-          <p className="font-mono text-3xl font-bold tabular-nums text-white">
-            {loading ? "..." : googleUsersCount}
+          <p className="font-mono text-2xl font-bold tabular-nums text-[#c084fc]">
+            {loading ? "..." : categoryCounts.staff}
           </p>
+          <span className="text-[10px] font-mono text-white/40 uppercase tracking-tight mt-1 block">
+            CMS authors & admin
+          </span>
         </div>
 
-        <div className="border border-white/10 bg-white/[0.02] p-5">
-          <div className="flex items-center justify-between text-xs font-mono uppercase tracking-wider text-white/50 mb-2">
-            <span>Team & Staff</span>
-            <Shield className="h-4 w-4 text-[#f3c969]" />
+        {/* 4. Warning Users */}
+        <div
+          onClick={() => setCategoryFilter("warning")}
+          className={`border p-4 transition-all cursor-pointer select-none ${
+            categoryFilter === "warning"
+              ? "border-amber-500 bg-amber-500/10 ring-1 ring-amber-500"
+              : "border-white/10 bg-white/[0.02] hover:border-amber-500/40 hover:bg-amber-500/[0.03]"
+          }`}
+        >
+          <div className="flex items-center justify-between text-xs font-mono uppercase tracking-wider text-amber-400/80 mb-1.5">
+            <span>Warned</span>
+            <AlertTriangle className="h-3.5 w-3.5 text-amber-400" />
           </div>
-          <p className="font-mono text-3xl font-bold tabular-nums text-white">
-            {loading ? "..." : staffCount}
+          <p className="font-mono text-2xl font-bold tabular-nums text-amber-400">
+            {loading ? "..." : categoryCounts.warning}
           </p>
+          <span className="text-[10px] font-mono text-amber-400/60 uppercase tracking-tight mt-1 block">
+            Active warnings
+          </span>
+        </div>
+
+        {/* 5. Suspended Users */}
+        <div
+          onClick={() => setCategoryFilter("suspended")}
+          className={`border p-4 transition-all cursor-pointer select-none ${
+            categoryFilter === "suspended"
+              ? "border-orange-500 bg-orange-500/10 ring-1 ring-orange-500"
+              : "border-white/10 bg-white/[0.02] hover:border-orange-500/40 hover:bg-orange-500/[0.03]"
+          }`}
+        >
+          <div className="flex items-center justify-between text-xs font-mono uppercase tracking-wider text-orange-400/80 mb-1.5">
+            <span>Suspended</span>
+            <Clock className="h-3.5 w-3.5 text-orange-400" />
+          </div>
+          <p className="font-mono text-2xl font-bold tabular-nums text-orange-400">
+            {loading ? "..." : categoryCounts.suspended}
+          </p>
+          <span className="text-[10px] font-mono text-orange-400/60 uppercase tracking-tight mt-1 block">
+            Comments locked
+          </span>
+        </div>
+
+        {/* 6. Banned Users */}
+        <div
+          onClick={() => setCategoryFilter("banned")}
+          className={`border p-4 transition-all cursor-pointer select-none ${
+            categoryFilter === "banned"
+              ? "border-red-500 bg-red-500/10 ring-1 ring-red-500"
+              : "border-white/10 bg-white/[0.02] hover:border-red-500/40 hover:bg-red-500/[0.03]"
+          }`}
+        >
+          <div className="flex items-center justify-between text-xs font-mono uppercase tracking-wider text-red-400/80 mb-1.5">
+            <span>Banned</span>
+            <Ban className="h-3.5 w-3.5 text-red-400" />
+          </div>
+          <p className="font-mono text-2xl font-bold tabular-nums text-red-400">
+            {loading ? "..." : categoryCounts.banned}
+          </p>
+          <span className="text-[10px] font-mono text-red-400/60 uppercase tracking-tight mt-1 block">
+            Perm ban & IP lock
+          </span>
         </div>
       </div>
 
       {/* Search & Filter Toolbar */}
-      <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between border border-white/10 bg-white/[0.02] p-4">
-        <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-white/40" />
-          <Input
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            placeholder="Search users by name, handle, email, UID..."
-            className="pl-9 bg-black/40 border-white/15 text-white placeholder:text-white/30 rounded-none focus-visible:ring-[#8a2ae3]"
-          />
+      <div className="mb-6 flex flex-col gap-4 border border-white/10 bg-white/[0.02] p-4">
+        {/* Category Filter Tabs */}
+        <div className="flex flex-wrap items-center gap-1.5 border-b border-white/10 pb-3">
+          <span className="text-xs font-mono uppercase tracking-wider text-white/40 mr-2 flex items-center gap-1">
+            Status:
+          </span>
+          {(
+            [
+              ["all", `All (${categoryCounts.total})`],
+              ["normal", `Active Readers (${categoryCounts.normal})`],
+              ["staff", `Staff (${categoryCounts.staff})`],
+              ["warning", `Warned (${categoryCounts.warning})`],
+              ["suspended", `Suspended (${categoryCounts.suspended})`],
+              ["banned", `Banned (${categoryCounts.banned})`],
+            ] as const
+          ).map(([key, label]) => (
+            <button
+              key={key}
+              type="button"
+              onClick={() => setCategoryFilter(key)}
+              className={`px-3 py-1 uppercase font-mono tracking-wider transition-colors text-xs ${
+                categoryFilter === key
+                  ? key === "banned"
+                    ? "bg-red-500 text-white font-semibold"
+                    : key === "suspended"
+                      ? "bg-orange-500 text-white font-semibold"
+                      : key === "warning"
+                        ? "bg-amber-500 text-black font-bold"
+                        : key === "staff"
+                          ? "bg-[#8a2ae3] text-white font-semibold"
+                          : key === "normal"
+                            ? "bg-emerald-600 text-white font-semibold"
+                            : "bg-white text-black font-semibold"
+                  : "text-white/60 hover:text-white hover:bg-white/5"
+              }`}
+            >
+              {label}
+            </button>
+          ))}
         </div>
 
-        <div className="flex flex-wrap items-center gap-3">
-          {/* Provider Filter */}
-          <div className="flex items-center gap-1 border border-white/15 bg-black/40 p-1 text-xs">
-            {(
-              [
-                ["all", "All"],
-                ["google.com", "Google"],
-                ["password", "Password"],
-                ["staff", "Staff"],
-              ] as const
-            ).map(([key, label]) => (
-              <button
-                key={key}
-                type="button"
-                onClick={() => setProviderFilter(key)}
-                className={`px-2.5 py-1 uppercase font-mono tracking-wider transition-colors ${
-                  providerFilter === key
-                    ? "bg-[#8a2ae3] text-white font-semibold"
-                    : "text-white/50 hover:text-white"
-                }`}
-              >
-                {label}
-              </button>
-            ))}
+        {/* Search Input & Provider / Sort Selectors */}
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-white/40" />
+            <Input
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              placeholder="Search users by name, handle, email, IP, UID..."
+              className="pl-9 bg-black/40 border-white/15 text-white placeholder:text-white/30 rounded-none focus-visible:ring-[#8a2ae3]"
+            />
           </div>
 
-          {/* Sort Selector */}
-          <select
-            value={sortOrder}
-            onChange={(e) => setSortOrder(e.target.value as SortOrder)}
-            className="border border-white/15 bg-black px-3 py-1.5 text-xs font-mono uppercase text-white/80 outline-none focus:border-[#8a2ae3]"
-          >
-            <option value="newest">Newest First</option>
-            <option value="oldest">Oldest First</option>
-            <option value="name">Name (A-Z)</option>
-          </select>
+          <div className="flex flex-wrap items-center gap-3">
+            {/* Provider Filter */}
+            <div className="flex items-center gap-1 border border-white/15 bg-black/40 p-1 text-xs">
+              {(
+                [
+                  ["all", "All Auth"],
+                  ["google.com", "Google"],
+                  ["password", "Password"],
+                ] as const
+              ).map(([key, label]) => (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => setProviderFilter(key)}
+                  className={`px-2.5 py-1 uppercase font-mono tracking-wider transition-colors ${
+                    providerFilter === key
+                      ? "bg-[#8a2ae3] text-white font-semibold"
+                      : "text-white/50 hover:text-white"
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+
+            {/* Sort Selector */}
+            <select
+              value={sortOrder}
+              onChange={(e) => setSortOrder(e.target.value as SortOrder)}
+              className="border border-white/15 bg-black px-3 py-1.5 text-xs font-mono uppercase text-white/80 outline-none focus:border-[#8a2ae3]"
+            >
+              <option value="newest">Newest First</option>
+              <option value="oldest">Oldest First</option>
+              <option value="name">Name (A-Z)</option>
+            </select>
+          </div>
         </div>
       </div>
 
@@ -415,7 +687,7 @@ export default function AdminUsersPage() {
             No matching users found
           </p>
           <p className="text-xs text-white/30">
-            Try adjusting your search criteria or filter options.
+            Try adjusting your search criteria or switching the category filter.
           </p>
         </div>
       ) : (
@@ -426,6 +698,7 @@ export default function AdminUsersPage() {
                 <th className="p-4">User</th>
                 <th className="p-4">Handle</th>
                 <th className="p-4">Email</th>
+                <th className="p-4">Standing / Status</th>
                 <th className="p-4">Role</th>
                 <th className="p-4">Joined</th>
                 <th className="p-4 text-right">Actions</th>
@@ -435,15 +708,18 @@ export default function AdminUsersPage() {
               {filteredUsers.map((item) => {
                 const author = authors[item.id]
                 const isStaff = Boolean(author?.role)
-                const displayName = author?.name || item.displayName || "Reader"
+                const displayName =
+                  author?.name || item.displayName || "Reader"
                 const handle = author?.handle || item.handle || ""
                 const photoURL = author?.avatar || item.photoURL || ""
+                const standing = getUserStanding(item, author?.role)
+                const StandingIcon = standing.icon
 
                 return (
                   <tr
                     key={item.id}
                     onClick={() => openUserDetails(item.id)}
-                    className="hover:bg-white/[0.03] transition-colors cursor-pointer group"
+                    className={`hover:bg-white/[0.03] transition-colors cursor-pointer group border-l-2 ${standing.borderClass}`}
                   >
                     {/* User Avatar + Name */}
                     <td className="p-4">
@@ -508,6 +784,17 @@ export default function AdminUsersPage() {
                       </div>
                     </td>
 
+                    {/* Standing / Moderation Status */}
+                    <td className="p-4">
+                      <Badge
+                        variant="outline"
+                        className={`text-xs uppercase font-mono inline-flex items-center gap-1 px-2 py-0.5 ${standing.className}`}
+                      >
+                        <StandingIcon className="h-3 w-3" />
+                        <span>{standing.label}</span>
+                      </Badge>
+                    </td>
+
                     {/* Role */}
                     <td className="p-4">
                       {author?.role === "super" ? (
@@ -551,9 +838,15 @@ export default function AdminUsersPage() {
                     {/* Joined Date */}
                     <td className="p-4 font-mono text-xs text-white/50">
                       {(() => {
-                        const authDate = isStaff ? getAuthorDate(author) : null
-                        const userDate = parseAnyDate(item.createdAt || item.updatedAt)
-                        const eff = isStaff ? (authDate || userDate) : (userDate || authDate)
+                        const authDate = isStaff
+                          ? getAuthorDate(author)
+                          : null
+                        const userDate = parseAnyDate(
+                          item.createdAt || item.updatedAt
+                        )
+                        const eff = isStaff
+                          ? authDate || userDate
+                          : userDate || authDate
                         if (eff) {
                           return eff.toLocaleDateString("en-US", {
                             year: "numeric",
@@ -562,7 +855,11 @@ export default function AdminUsersPage() {
                           })
                         }
                         if (isStaff) {
-                          return <span className="text-[#8a2ae3] font-semibold">Team Member</span>
+                          return (
+                            <span className="text-[#8a2ae3] font-semibold">
+                              Team Member
+                            </span>
+                          )
                         }
                         return "—"
                       })()}
@@ -601,3 +898,4 @@ export default function AdminUsersPage() {
     </div>
   )
 }
+

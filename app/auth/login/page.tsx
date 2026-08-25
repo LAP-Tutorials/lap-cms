@@ -82,24 +82,32 @@ export default function LoginPage() {
 
   const handleAuthError = (err: any) => {
     let friendlyMessage = "";
-    switch (err.code) {
-      case "auth/invalid-email":
-        friendlyMessage = "The email address is invalid.";
-        break;
-      case "auth/user-not-found":
-        friendlyMessage = "No account found with this email address.";
-        break;
-      case "auth/wrong-password":
-        friendlyMessage = "Incorrect password. Please try again.";
-        break;
-      case "auth/too-many-requests":
-        friendlyMessage = "Too many failed attempts. Please try again later.";
-        break;
-      case "auth/popup-closed-by-user":
-        friendlyMessage = "Sign-in popup was closed. Please try again.";
-        break;
-      default:
-        friendlyMessage = "An error occurred. Please try again.";
+    const code = err?.code || "";
+    const msg = String(err?.message || "");
+
+    if (code === "auth/user-disabled" || msg.includes("user-disabled")) {
+      friendlyMessage = "This account has been disabled or permanently banned.";
+    } else {
+      switch (code) {
+        case "auth/invalid-email":
+          friendlyMessage = "The email address is invalid.";
+          break;
+        case "auth/user-not-found":
+          friendlyMessage = "No account found with this email address.";
+          break;
+        case "auth/wrong-password":
+        case "auth/invalid-credential":
+          friendlyMessage = "Incorrect email or password. Please try again.";
+          break;
+        case "auth/too-many-requests":
+          friendlyMessage = "Too many failed attempts. Please try again later.";
+          break;
+        case "auth/popup-closed-by-user":
+          friendlyMessage = "Sign-in popup was closed. Please try again.";
+          break;
+        default:
+          friendlyMessage = "An error occurred. Please try again.";
+      }
     }
     setError(friendlyMessage);
     console.error("Authentication error:", err);

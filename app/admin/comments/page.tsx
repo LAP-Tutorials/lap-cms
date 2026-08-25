@@ -1449,6 +1449,9 @@ export default function CommentsModerationPage() {
           Comments
         </PageTitle>
 
+      </div>
+
+      <div>
         {canModerate && (
           <Link href="/admin/reports">
             <Button
@@ -1465,6 +1468,7 @@ export default function CommentsModerationPage() {
             </Button>
           </Link>
         )}
+        
       </div>
 
       <dl className="grid grid-cols-2 gap-x-4 gap-y-3 border-b border-white/15 py-4 sm:flex sm:flex-wrap sm:items-center sm:gap-x-7">
