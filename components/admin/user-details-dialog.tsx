@@ -42,7 +42,6 @@ import { db, functions } from "@/lib/firebase"
 import { useAuth } from "@/lib/auth-context"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import {
   Select,
@@ -90,7 +89,10 @@ interface UserProfileDetails {
   bannedAt?: Timestamp
   banReason?: string
   lastIp?: string
-  bannedIps?: string[]
+  ipHistory?: string[]
+  lastDeviceLabel?: string
+  deviceHashes?: string[]
+  fingerprintHashes?: string[]
   commentsCount: number
   repliesCount: number
   recentComments: Array<{
@@ -207,7 +209,6 @@ export function UserDetailsDialog({
   const [moderateReason, setModerateReason] = useState<string>("Harassment or disrespectful behavior")
   const [moderateCustomMessage, setModerateCustomMessage] = useState("")
   const [moderateDurationDays, setModerateDurationDays] = useState("3")
-  const [moderateAdditionalIps, setModerateAdditionalIps] = useState("")
 
   const canExecuteBan = userRole === "super" || userRole === "admin"
   const canModerate = userRole === "super" || userRole === "admin" || userRole === "moderator"
@@ -345,7 +346,10 @@ export function UserDetailsDialog({
           bannedAt: userData?.bannedAt,
           banReason: userData?.banReason,
           lastIp: userData?.lastIp,
-          bannedIps: userData?.bannedIps,
+          ipHistory: userData?.ipHistory,
+          lastDeviceLabel: userData?.lastDeviceLabel,
+          deviceHashes: userData?.deviceHashes,
+          fingerprintHashes: userData?.fingerprintHashes,
           commentsCount: commentsCountSnap.data().count,
           repliesCount: repliesCountSnap.data().count,
           recentComments,
@@ -394,7 +398,7 @@ export function UserDetailsDialog({
       return
     }
 
-    const confirmMsg = `Lift permanent ban for @${profile.handle || profile.displayName}? This will re-enable their Firebase Auth account and unblock all blacklisted IP addresses.`
+    const confirmMsg = `Lift permanent ban for @${profile.handle || profile.displayName}? This will re-enable their Firebase Auth account and release device and browser-fingerprint blocks owned by this account.`
     if (!window.confirm(confirmMsg)) return
 
     setActionBusy(true)
@@ -402,7 +406,10 @@ export function UserDetailsDialog({
     setActionSuccess("")
 
     try {
-      const fn = httpsCallable<{ targetUid: string }, { success: boolean; unblockedIpsCount?: number; nextStatus?: string }>(
+      const fn = httpsCallable<
+        { targetUid: string },
+        { success: boolean; unblockedDevicesCount?: number; clearedFingerprintsCount?: number; nextStatus?: string }
+      >(
         functions,
         "unbanUser"
       )
@@ -420,7 +427,7 @@ export function UserDetailsDialog({
           : prev
       )
       setActionSuccess(
-        `Permanent ban lifted for @${profile.handle || profile.displayName}. ${res.data?.unblockedIpsCount ?? 0} IP(s) unblocked.`
+        `Permanent ban lifted for @${profile.handle || profile.displayName}. ${res.data?.unblockedDevicesCount ?? 0} device(s) released and ${res.data?.clearedFingerprintsCount ?? 0} fingerprint risk signal(s) cleared.`
       )
     } catch (err: any) {
       console.error("Error unbanning user:", err)
@@ -563,18 +570,12 @@ export function UserDetailsDialog({
           setActionError("Only Super Admins and Admins can execute permanent bans.")
           return
         }
-        const additionalIpsList = moderateAdditionalIps
-          .split(/[,\s\n]+/)
-          .map((s) => s.trim())
-          .filter(Boolean)
-
         const banFn = httpsCallable(functions, "banUser")
         const result = (await banFn({
           targetUid: profile.uid,
           reason: effectiveReason,
           customMessage: moderateCustomMessage,
-          additionalIps: additionalIpsList,
-        })) as { data?: { bannedIpsCount?: number } }
+        })) as { data?: { blockedDevicesCount?: number; flaggedFingerprintsCount?: number } }
 
         setProfile((prev) =>
           prev
@@ -586,7 +587,7 @@ export function UserDetailsDialog({
             : prev
         )
         setActionSuccess(
-          `Permanently banned @${profile.handle || profile.displayName}. Blacklisted ${result.data?.bannedIpsCount ?? 1} IP(s).`
+          `Permanently banned @${profile.handle || profile.displayName}. Blocked ${result.data?.blockedDevicesCount ?? 0} device(s) and flagged ${result.data?.flaggedFingerprintsCount ?? 0} browser fingerprint risk signal(s). Shared networks remain unaffected.`
         )
         setIsModerateFormOpen(false)
       }
@@ -831,9 +832,23 @@ export function UserDetailsDialog({
               </div>
 
               <div>
-                <span className="text-white/40 block mb-0.5">Recorded IP Address</span>
+                <span className="text-white/40 block mb-0.5">Network Signal (not blocked)</span>
                 <span className="font-mono text-white/80 text-xs">
                   {profile?.lastIp || "None recorded"}
+                </span>
+              </div>
+
+              <div>
+                <span className="text-white/40 block mb-0.5">Last Browser Installation</span>
+                <span className="font-mono text-white/80 text-xs">
+                  {profile?.lastDeviceLabel || "None recorded"}
+                </span>
+              </div>
+
+              <div>
+                <span className="text-white/40 block mb-0.5">Identity Signals</span>
+                <span className="font-mono text-white/80 text-xs">
+                  {profile?.deviceHashes?.length || 0} device(s) · {profile?.fingerprintHashes?.length || 0} fingerprint(s)
                 </span>
               </div>
 
@@ -868,14 +883,14 @@ export function UserDetailsDialog({
                     disabled={actionBusy || !canExecuteBan}
                     onClick={handleUnbanUser}
                     className="bg-emerald-600 hover:bg-emerald-500 text-white font-mono text-[11px] h-8 sm:h-7 px-2.5"
-                    title={!canExecuteBan ? "Only Super Admins & Admins can unban" : "Unban user & clear blacklisted IPs"}
+                    title={!canExecuteBan ? "Only Super Admins & Admins can unban" : "Unban user and release their device blocks"}
                   >
                     {actionBusy ? (
                       <Loader2 className="h-3 w-3 animate-spin mr-1" />
                     ) : (
                       <RotateCcw className="h-3 w-3 mr-1" />
                     )}
-                    Unban User & Clear IPs
+                    Unban User & Devices
                   </Button>
                 )}
 
@@ -1027,15 +1042,9 @@ export function UserDetailsDialog({
                   </div>
 
                   {moderateAction === "ban" && (
-                    <div>
-                      <label className="font-mono text-white/60 block mb-1">Additional IP Addresses (Optional)</label>
-                      <Input
-                        value={moderateAdditionalIps}
-                        onChange={(e) => setModerateAdditionalIps(e.target.value)}
-                        placeholder="Comma or space separated IPs"
-                        className="bg-black/60 border-white/15 text-xs font-mono"
-                      />
-                    </div>
+                    <p className="border border-white/10 bg-black/40 p-2 text-[11px] leading-relaxed text-white/55">
+                      The account, handle, and recorded browser installations will be blocked. Matching fingerprints are corroborating risk signals, not sole proof. IP addresses remain investigation-only signals so people sharing a café, school, office, or mobile network are not blocked.
+                    </p>
                   )}
                 </div>
 

@@ -677,6 +677,11 @@ export default function CommentsModerationPage() {
     >
   >({})
   const [translatingIds, setTranslatingIds] = useState<Set<string>>(new Set())
+  const translationsRef = useRef(translations)
+  const translatingIdsRef = useRef(translatingIds)
+  const replyImagesRef = useRef<SanitizedImageResult[]>([])
+  translationsRef.current = translations
+  translatingIdsRef.current = translatingIds
 
   const replyFileInputRef = useRef<HTMLInputElement>(null)
 
@@ -708,12 +713,14 @@ export default function CommentsModerationPage() {
     const toProcess = files.slice(0, maxAllowed)
     setReplyImageProcessing(true)
     setReplyImageError(null)
+    const sanitizedList: SanitizedImageResult[] = []
     try {
-      const sanitizedList = await Promise.all(
-        toProcess.map((f) => sanitizeAndCompressImage(f))
-      )
+      for (const file of toProcess) {
+        sanitizedList.push(await sanitizeAndCompressImage(file))
+      }
       setReplyImages((prev) => [...prev, ...sanitizedList])
     } catch (err: any) {
+      sanitizedList.forEach((image) => URL.revokeObjectURL(image.previewUrl))
       setReplyImageError(err?.message || "Could not process image.")
     } finally {
       setReplyImageProcessing(false)
@@ -775,9 +782,10 @@ export default function CommentsModerationPage() {
 
   // Language detection & translation pipeline in CMS
   useEffect(() => {
+    if (!autoTranslate) return
     const all = [...comments, ...replies]
     const toCheck = all.filter(
-      (entry) => entry.content?.trim() && !translations[entry.id] && !translatingIds.has(entry.id)
+      (entry) => entry.content?.trim() && !translationsRef.current[entry.id] && !translatingIdsRef.current.has(entry.id)
     )
     if (toCheck.length === 0) return
 
@@ -793,13 +801,39 @@ export default function CommentsModerationPage() {
               sourceLangName: res.sourceLangName,
               isSameLanguage: res.isSameLanguage,
               isUnrecognizedLanguage: res.isUnrecognizedLanguage,
-              showingOriginal: !autoTranslate,
+              showingOriginal: false,
             },
           }))
         } catch {}
       })
     )
   }, [autoTranslate, targetLang, comments, replies])
+
+  useEffect(() => {
+    replyImagesRef.current = replyImages
+  }, [replyImages])
+
+  useEffect(
+    () => () => {
+      replyImagesRef.current.forEach((image) => URL.revokeObjectURL(image.previewUrl))
+    },
+    [],
+  )
+
+  const clearPendingReplyImages = () => {
+    setReplyImages((current) => {
+      current.forEach((image) => URL.revokeObjectURL(image.previewUrl))
+      return []
+    })
+  }
+
+  const removePendingReplyImage = (index: number) => {
+    setReplyImages((current) => {
+      const removed = current[index]
+      if (removed) URL.revokeObjectURL(removed.previewUrl)
+      return current.filter((_, itemIndex) => itemIndex !== index)
+    })
+  }
 
   useEffect(() => {
     if (!user) {
@@ -1391,8 +1425,8 @@ export default function CommentsModerationPage() {
 
     setReplyBusy(true)
     setError("")
+    let uploadedImages: CommentImageAttachment[] = []
     try {
-      let uploadedImages: CommentImageAttachment[] = []
       if (replyImages.length > 0) {
         uploadedImages = await uploadMultipleSanitizedImages(storage, user.uid, replyImages)
       }
@@ -1423,10 +1457,11 @@ export default function CommentsModerationPage() {
 
       await addDoc(collection(db, "commentReplies"), replyData)
       setReplyContent("")
-      setReplyImages([])
+      clearPendingReplyImages()
       setReplyImageError(null)
       setReplyingToId(null)
     } catch (replyError) {
+      await deleteMultipleCommentImagesSafe(storage, uploadedImages)
       console.error("Unable to post staff reply:", replyError)
       setError("The reply could not be posted. Check your profile handle and the deployed Firestore rules.")
     } finally {
@@ -1858,9 +1893,7 @@ export default function CommentsModerationPage() {
                     {/* Image Previews */}
                     <ImageAttachmentPreviews
                       images={replyImages}
-                      onRemove={(idx) =>
-                        setReplyImages((prev) => prev.filter((_, i) => i !== idx))
-                      }
+                      onRemove={removePendingReplyImage}
                       maxCount={4}
                     />
 
@@ -1903,7 +1936,7 @@ export default function CommentsModerationPage() {
                           onClick={() => {
                             setReplyingToId(null)
                             setReplyContent("")
-                            setReplyImages([])
+                            clearPendingReplyImages()
                             setReplyImageError(null)
                           }}
                           className="text-white/45 transition-colors hover:text-white"
@@ -1926,7 +1959,7 @@ export default function CommentsModerationPage() {
                     onClick={() => {
                       setReplyingToId(thread.parent.id)
                       setReplyContent("")
-                      setReplyImages([])
+                      clearPendingReplyImages()
                       setReplyImageError(null)
                     }}
                     className="inline-flex items-center gap-2 text-xs font-medium text-white/45 transition-colors duration-200 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#8a2ae3]"

@@ -7,6 +7,9 @@ import {
 } from "firebase-functions/v2/firestore";
 import * as logger from "firebase-functions/logger";
 import * as admin from "firebase-admin";
+import { createHash, createHmac, randomBytes } from "node:crypto";
+import { isIP } from "node:net";
+import { defineSecret } from "firebase-functions/params";
 import { BetaAnalyticsDataClient } from "@google-analytics/data";
 import * as JSZip from "jszip";
 // import { google } from "googleapis";
@@ -73,12 +76,400 @@ const OFFICIAL_HANDLE_KEYS = [
   "arclapain",
 ];
 const TEAM_HANDLE_PATTERN = /^[a-z0-9_-]{3,20}$/;
+const DEVICE_ID_PATTERN = /^[a-zA-Z0-9_-]{20,128}$/;
+const ACTIVE_ACCOUNT_STATUSES = new Set(["active", "warning"]);
+const REPORT_REASONS = new Set([
+  "harassment",
+  "hate_speech",
+  "spam",
+  "inappropriate",
+  "impersonation",
+  "other",
+]);
+const DEVICE_FINGERPRINT_PEPPER = defineSecret("DEVICE_FINGERPRINT_PEPPER");
+
+function normalizeDeviceId(value: unknown) {
+  const candidate = typeof value === "string" ? value.trim() : "";
+  return DEVICE_ID_PATTERN.test(candidate) ? candidate : "";
+}
+
+function hashDeviceId(value: string) {
+  return createHash("sha256").update(value, "utf8").digest("hex");
+}
+
+function normalizeFingerprint(value: unknown) {
+  if (!value || typeof value !== "object") return null;
+  const source = value as Record<string, unknown>;
+  const text = (key: string, max: number) =>
+    typeof source[key] === "string" ? source[key].trim().slice(0, max) : "";
+  const number = (key: string, max: number) => {
+    const candidate = Number(source[key]);
+    return Number.isFinite(candidate) ? Math.max(0, Math.min(max, Math.round(candidate))) : 0;
+  };
+  const normalized = {
+    userAgent: text("userAgent", 300),
+    platform: text("platform", 80),
+    language: text("language", 30),
+    timezone: text("timezone", 80),
+    screen: text("screen", 40),
+    hardwareConcurrency: number("hardwareConcurrency", 128),
+    deviceMemory: number("deviceMemory", 128),
+    touchPoints: number("touchPoints", 64),
+  };
+  return normalized.userAgent && normalized.platform && normalized.timezone
+    ? normalized
+    : null;
+}
+
+function hashFingerprint(
+  value: ReturnType<typeof normalizeFingerprint>,
+  pepper: string
+) {
+  if (!value) return "";
+  return createHmac("sha256", pepper)
+    .update(JSON.stringify(value), "utf8")
+    .digest("hex");
+}
+
+function normalizeDeviceLabel(value: unknown) {
+  return typeof value === "string"
+    ? value.replace(/[\r\n\t]+/g, " ").trim().slice(0, 120)
+    : "Unknown browser";
+}
+
+function getRequestIp(rawRequest: { ip?: string; headers?: Record<string, unknown> }) {
+  const normalized = String(rawRequest.ip || "").replace(/^::ffff:/, "").trim();
+  return isIP(normalized) ? normalized : "";
+}
+
+function isAccountAllowedToParticipate(data: admin.firestore.DocumentData | undefined) {
+  if (!data) return false;
+  const suspendedUntil = data.suspendedUntil;
+  const suspensionActive =
+    suspendedUntil instanceof admin.firestore.Timestamp &&
+    suspendedUntil.toMillis() > Date.now();
+  if (suspensionActive) return false;
+  return ACTIVE_ACCOUNT_STATUSES.has(data.status || "active") ||
+    (data.status === "suspended" && suspendedUntil instanceof admin.firestore.Timestamp);
+}
+
+function safePublicProfile(data: admin.firestore.DocumentData | undefined) {
+  return {
+    uid: typeof data?.uid === "string" ? data.uid : "",
+    displayName: typeof data?.displayName === "string" ? data.displayName : "Reader",
+    handle: typeof data?.handle === "string" ? data.handle : "",
+    photoURL: typeof data?.photoURL === "string" ? data.photoURL : "",
+    createdAt: data?.createdAt || admin.firestore.FieldValue.serverTimestamp(),
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+  };
+}
+
+function safePublicAuthor(data: admin.firestore.DocumentData | undefined, uid: string) {
+  const publicKeys = [
+    "name", "job", "city", "avatar", "imgAlt", "imageAlt", "slug",
+    "biography", "bio", "socials", "role", "showOnTeam", "createdAt",
+    "created_at", "updatedAt", "updated_at",
+  ];
+  const profile: Record<string, unknown> = { uid };
+  for (const key of publicKeys) {
+    if (data?.[key] !== undefined) profile[key] = data[key];
+  }
+  profile.updatedAt = admin.firestore.FieldValue.serverTimestamp();
+  return profile;
+}
+
+async function enforceRateLimit(
+  key: string,
+  limit: number,
+  windowMs: number,
+  message: string
+) {
+  const ref = getDb().collection("rateLimits").doc(key);
+  await getDb().runTransaction(async (transaction) => {
+    const snapshot = await transaction.get(ref);
+    const now = Date.now();
+    const data = snapshot.data();
+    const windowStart = data?.windowStart instanceof admin.firestore.Timestamp
+      ? data.windowStart.toMillis()
+      : 0;
+    const inWindow = now - windowStart < windowMs;
+    const count = inWindow ? Number(data?.count) || 0 : 0;
+    if (count >= limit) {
+      throw new HttpsError("resource-exhausted", message);
+    }
+    transaction.set(ref, {
+      count: count + 1,
+      windowStart: admin.firestore.Timestamp.fromMillis(inWindow ? windowStart : now),
+      expiresAt: admin.firestore.Timestamp.fromMillis(now + windowMs * 2),
+    });
+  });
+}
 
 function normalizeTeamHandle(value: unknown) {
   return typeof value === "string"
     ? value.trim().toLowerCase().replace(/^@+/, "").replace(/\s+/g, "_")
     : "";
 }
+
+export const syncPublicReaderProfile = onDocumentWritten(
+  { document: "users/{userId}", region: "europe-west1" },
+  async (event) => {
+    const publicRef = getDb().collection("publicProfiles").doc(event.params.userId);
+    const after = event.data?.after;
+    if (!after?.exists) {
+      await publicRef.delete().catch((error) => {
+        if ((error as { code?: number }).code !== 5) throw error;
+      });
+      return;
+    }
+    const data = after.data();
+    if (!data) return;
+    if (!event.data?.before.exists) {
+      await getDb().collection("riskAttestations").doc(event.params.userId).delete().catch((error) => {
+        if ((error as { code?: number }).code !== 5) throw error;
+      });
+    }
+    if (data.status === "banned") {
+      await publicRef.set({
+        uid: event.params.userId,
+        displayName: "Unavailable user",
+        handle: data.handle || "",
+        photoURL: "",
+        createdAt: data.createdAt || admin.firestore.FieldValue.serverTimestamp(),
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+      return;
+    }
+    await publicRef.set(safePublicProfile({ ...data, uid: event.params.userId }));
+  }
+);
+
+export const syncPublicAuthorProfile = onDocumentWritten(
+  { document: "authors/{userId}", region: "europe-west1" },
+  async (event) => {
+    const publicRef = getDb().collection("publicAuthors").doc(event.params.userId);
+    const after = event.data?.after;
+    if (!after?.exists) {
+      await publicRef.delete().catch((error) => {
+        if ((error as { code?: number }).code !== 5) throw error;
+      });
+      return;
+    }
+    await publicRef.set(safePublicAuthor(after.data(), event.params.userId));
+  }
+);
+
+export const issueDeviceIdentity = onCall(
+  { region: "europe-west1", minInstances: 0 },
+  async (request) => {
+    const deviceId = randomBytes(32).toString("base64url");
+    const deviceHash = hashDeviceId(deviceId);
+    const clientIp = getRequestIp(request.rawRequest);
+    if (clientIp) {
+      await enforceRateLimit(
+        `device_issue_${hashDeviceId(clientIp)}`,
+        100,
+        60 * 60_000,
+        "Too many browser identities were requested from this network. Please try again later."
+      );
+    }
+    await getDb().collection("deviceIdentityRegistry").doc(deviceHash).create({
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      ...(clientIp ? { issuedNetworkHash: hashDeviceId(clientIp) } : {}),
+    });
+    return { deviceId };
+  }
+);
+
+export const backfillPublicProfiles = onCall(
+  { region: "europe-west1", minInstances: 0, timeoutSeconds: 120 },
+  async (request) => {
+    if (!request.auth) throw new HttpsError("unauthenticated", "Authentication is required.");
+    const caller = await getDb().collection("authors").doc(request.auth.uid).get();
+    if (!caller.exists || !["admin", "super"].includes(caller.data()?.role)) {
+      throw new HttpsError("permission-denied", "Only administrators can backfill public profiles.");
+    }
+    const [users, authors] = await Promise.all([
+      getDb().collection("users").get(),
+      getDb().collection("authors").get(),
+    ]);
+    for (let offset = 0; offset < users.docs.length; offset += 400) {
+      const batch = getDb().batch();
+      users.docs.slice(offset, offset + 400).forEach((snapshot) => {
+        const data = snapshot.data();
+        const publicRef = getDb().collection("publicProfiles").doc(snapshot.id);
+        batch.set(publicRef, data.status === "banned"
+          ? {
+              uid: snapshot.id,
+              displayName: "Unavailable user",
+              handle: data.handle || "",
+              photoURL: "",
+              createdAt: data.createdAt || admin.firestore.FieldValue.serverTimestamp(),
+              updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+            }
+          : safePublicProfile({ ...data, uid: snapshot.id }));
+      });
+      await batch.commit();
+    }
+    for (let offset = 0; offset < authors.docs.length; offset += 400) {
+      const batch = getDb().batch();
+      authors.docs.slice(offset, offset + 400).forEach((snapshot) => {
+        batch.set(
+          getDb().collection("publicAuthors").doc(snapshot.id),
+          safePublicAuthor(snapshot.data(), snapshot.id)
+        );
+      });
+      await batch.commit();
+    }
+    return { updatedReaders: users.size, updatedAuthors: authors.size };
+  }
+);
+
+export const checkDeviceRisk = onCall(
+  { region: "europe-west1", minInstances: 0 },
+  async (request) => {
+    const deviceId = normalizeDeviceId(request.data?.deviceId);
+    if (!deviceId) {
+      throw new HttpsError("invalid-argument", "A valid browser installation ID is required.");
+    }
+    const deviceHash = hashDeviceId(deviceId);
+    const [registeredDevice, blockedDevice] = await Promise.all([
+      getDb().collection("deviceIdentityRegistry").doc(deviceHash).get(),
+      getDb().collection("bannedDevices").doc(deviceHash).get(),
+    ]);
+    if (!registeredDevice.exists) {
+      throw new HttpsError("failed-precondition", "This browser identity must be issued by the server.");
+    }
+    const blocked = blockedDevice.exists;
+    return {
+      blocked,
+      reason: blocked
+        ? "This browser installation has been blocked for Community Guidelines violations."
+        : "",
+    };
+  }
+);
+
+export const syncUserRisk = onCall(
+  {
+    region: "europe-west1",
+    minInstances: 0,
+    secrets: [DEVICE_FINGERPRINT_PEPPER],
+  },
+  async (request) => {
+    if (!request.auth) {
+      throw new HttpsError("unauthenticated", "You must be signed in.");
+    }
+    const deviceId = normalizeDeviceId(request.data?.deviceId);
+    if (!deviceId) {
+      throw new HttpsError("invalid-argument", "A valid browser installation ID is required.");
+    }
+
+    const uid = request.auth.uid;
+    const deviceHash = hashDeviceId(deviceId);
+    const fingerprintHash = hashFingerprint(
+      normalizeFingerprint(request.data?.fingerprint),
+      DEVICE_FINGERPRINT_PEPPER.value()
+    );
+    const deviceLabel = normalizeDeviceLabel(request.data?.deviceLabel);
+    const clientIp = getRequestIp(request.rawRequest);
+    const firestore = getDb();
+    const [registeredDevice, blockedDevice, blockedFingerprint, staffDoc, userDoc, knownDevice] = await Promise.all([
+      firestore.collection("deviceIdentityRegistry").doc(deviceHash).get(),
+      firestore.collection("bannedDevices").doc(deviceHash).get(),
+      fingerprintHash
+        ? firestore.collection("bannedFingerprints").doc(fingerprintHash).get()
+        : Promise.resolve(null),
+      firestore.collection("authors").doc(uid).get(),
+      firestore.collection("users").doc(uid).get(),
+      firestore.collection("users").doc(uid).collection("devices").doc(deviceHash).get(),
+    ]);
+
+    if (!registeredDevice.exists) {
+      throw new HttpsError("failed-precondition", "This browser identity must be issued by the server.");
+    }
+
+    if (blockedDevice.exists && !staffDoc.exists) {
+      await admin.auth().updateUser(uid, { disabled: true }).catch((error) => {
+        logger.warn("Unable to disable account seen on a blocked device", { uid, error });
+      });
+      await admin.auth().revokeRefreshTokens(uid).catch(() => undefined);
+      if (userDoc.exists) {
+        await userDoc.ref.set({
+          status: "banned",
+          bannedAt: admin.firestore.FieldValue.serverTimestamp(),
+          banReason: "Associated browser installation is permanently blocked.",
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        }, { merge: true });
+      }
+      return {
+        blocked: true,
+        reason: "This browser installation has been blocked for Community Guidelines violations.",
+      };
+    }
+
+    const now = admin.firestore.Timestamp.now();
+    const previousHashes = Array.isArray(userDoc.data()?.deviceHashes)
+      ? userDoc.data()!.deviceHashes.filter((value: unknown): value is string => typeof value === "string")
+      : [];
+    const previousIps = Array.isArray(userDoc.data()?.ipHistory)
+      ? userDoc.data()!.ipHistory.filter((value: unknown): value is string => typeof value === "string")
+      : [];
+    const previousFingerprints = Array.isArray(userDoc.data()?.fingerprintHashes)
+      ? userDoc.data()!.fingerprintHashes.filter((value: unknown): value is string => typeof value === "string")
+      : [];
+    const deviceHashes = [...new Set([...previousHashes, deviceHash])].slice(-10);
+    const fingerprintHashes = fingerprintHash
+      ? [...new Set([...previousFingerprints, fingerprintHash])].slice(-10)
+      : previousFingerprints.slice(-10);
+    const ipHistory = clientIp
+      ? [...new Set([...previousIps, clientIp])].slice(-10)
+      : previousIps.slice(-10);
+
+    const batch = firestore.batch();
+    if (userDoc.exists) {
+      batch.set(userDoc.ref, {
+        deviceHashes,
+        fingerprintHashes,
+        lastDeviceHash: deviceHash,
+        lastDeviceLabel: deviceLabel,
+        ...(fingerprintHash ? { lastFingerprintHash: fingerprintHash } : {}),
+        ...(blockedFingerprint?.exists === true ? {
+          fingerprintRiskMatch: true,
+          fingerprintRiskMatchedAt: admin.firestore.FieldValue.serverTimestamp(),
+        } : {}),
+        ...(clientIp ? { lastIp: clientIp, ipHistory } : {}),
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      }, { merge: true });
+    } else {
+      batch.set(firestore.collection("riskAttestations").doc(uid), {
+        uid,
+        deviceHash,
+        ...(fingerprintHash ? { fingerprintHash } : {}),
+        fingerprintRiskMatch: blockedFingerprint?.exists === true,
+        verifiedAt: now,
+        expiresAt: admin.firestore.Timestamp.fromMillis(now.toMillis() + 15 * 60_000),
+      });
+    }
+    batch.set(
+      userDoc.ref.collection("devices").doc(deviceHash),
+      {
+        deviceHash,
+        ...(fingerprintHash ? { fingerprintHash } : {}),
+        label: deviceLabel,
+        ...(clientIp ? { lastIp: clientIp } : {}),
+        ...(!knownDevice.exists
+          ? { firstSeenAt: admin.firestore.FieldValue.serverTimestamp() }
+          : {}),
+        lastSeenAt: now,
+      },
+      { merge: true }
+    );
+    await batch.commit();
+
+    return { blocked: false };
+  }
+);
 
 async function writeServerAuditLog(params: {
   actorUid: string;
@@ -669,6 +1060,12 @@ export const reactToComment = onCall(
           "Complete your reader account before reacting to comments."
         );
       }
+      if (!isAccountAllowedToParticipate(account.data())) {
+        throw new HttpsError(
+          "permission-denied",
+          "Your account is not currently allowed to participate."
+        );
+      }
       if (!comment.exists || comment.data()?.status !== "visible") {
         throw new HttpsError("not-found", "That comment is not available.");
       }
@@ -705,8 +1102,15 @@ export const reactToComment = onCall(
 
 export const ensureCommentCounts = onCall(
   { region: "europe-west1", minInstances: 0 },
-  async () => {
+  async (request) => {
+    if (!request.auth) {
+      throw new HttpsError("unauthenticated", "Authentication is required.");
+    }
     const firestore = getDb();
+    const caller = await firestore.collection("authors").doc(request.auth.uid).get();
+    if (!caller.exists || !["admin", "super"].includes(caller.data()?.role)) {
+      throw new HttpsError("permission-denied", "Only administrators can migrate comment counts.");
+    }
     const configRef = firestore.collection("commentConfig").doc("reactions");
     const config = await configRef.get();
     if (
@@ -756,6 +1160,13 @@ export const searchMentionHandles = onCall(
       throw new HttpsError("unauthenticated", "Sign in to tag another user.");
     }
 
+    await enforceRateLimit(
+      `mentions_${request.auth.uid}`,
+      30,
+      60_000,
+      "Too many mention searches. Please wait a moment."
+    );
+
     const prefix = normalizeTeamHandle(request.data?.prefix);
     if (!prefix || !/^[a-z0-9_-]{1,20}$/.test(prefix)) {
       return { suggestions: [] };
@@ -780,6 +1191,7 @@ export const searchMentionHandles = onCall(
         ]);
         const userData = user.data();
         const authorData = author.data();
+        if (!author.exists && !isAccountAllowedToParticipate(userData)) return null;
         return {
           handle: handleDoc.id,
           name:
@@ -843,6 +1255,9 @@ async function deleteAccountData(uid: string) {
       updatedReservations,
       promotedAuthors,
       reactions,
+      devices,
+      warnings,
+      notifications,
     ] = await Promise.all([
       firestore.collection("articles").where("authorUID", "==", uid).get(),
       firestore
@@ -868,6 +1283,9 @@ async function deleteAccountData(uid: string) {
         .get(),
       firestore.collection("authors").where("promotedBy", "==", uid).get(),
       reactionOwnerRef.collection("items").get(),
+      userRef.collection("devices").get(),
+      userRef.collection("warnings").get(),
+      userRef.collection("notifications").get(),
     ]);
 
     await mutateDocumentsInChunks(articles.docs, (batch, snapshot) => {
@@ -960,6 +1378,11 @@ async function deleteAccountData(uid: string) {
     await reactionOwnerRef.delete().catch((error) => {
       if ((error as { code?: number }).code !== 5) throw error;
     });
+    for (const privateSubcollection of [devices, warnings, notifications]) {
+      await mutateDocumentsInChunks(privateSubcollection.docs, (batch, snapshot) => {
+        batch.delete(snapshot.ref);
+      });
+    }
 
     const configRef = firestore.collection("handleConfig").doc("status");
     const config = await configRef.get();
@@ -998,6 +1421,7 @@ async function deleteAccountData(uid: string) {
 
     const storageCleanup: Promise<unknown>[] = [
       bucket.deleteFiles({ prefix: `users/${uid}/` }),
+      bucket.deleteFiles({ prefix: `authors/${uid}/` }),
       bucket.file(`avatars/team/${uid}.webp`).delete({ ignoreNotFound: true }),
     ];
     if (legacyTeamAvatarPath) {
@@ -1086,9 +1510,54 @@ export const syncCommentReplyCount = onDocumentWritten(
   }
 );
 
+function getCommentAttachmentPaths(data: admin.firestore.DocumentData | undefined) {
+  const paths = new Set<string>();
+  const authorId = typeof data?.authorId === "string" && /^[a-zA-Z0-9_-]+$/.test(data.authorId)
+    ? data.authorId
+    : "";
+  if (typeof data?.imageStoragePath === "string") paths.add(data.imageStoragePath);
+  if (Array.isArray(data?.images)) {
+    data.images.forEach((image: unknown) => {
+      if (
+        image &&
+        typeof image === "object" &&
+        typeof (image as { storagePath?: unknown }).storagePath === "string"
+      ) {
+        paths.add((image as { storagePath: string }).storagePath);
+      }
+    });
+  }
+  return authorId
+    ? [...paths].filter((path) =>
+        new RegExp(`^comments/${authorId}/[a-zA-Z0-9_-]+\\.(webp|jpg)$`).test(path)
+      )
+    : [];
+}
+
+async function deleteCommentAttachments(data: admin.firestore.DocumentData | undefined) {
+  const paths = getCommentAttachmentPaths(data);
+  if (!paths.length) return;
+  const bucket = admin.storage().bucket();
+  await Promise.all(
+    paths.map((path) =>
+      bucket.file(path).delete({ ignoreNotFound: true }).catch((error) => {
+        logger.error("Unable to remove comment attachment", { path, error });
+      })
+    )
+  );
+}
+
+export const cleanupDeletedReplyAttachments = onDocumentDeleted(
+  { document: "commentReplies/{replyId}", region: "europe-west1" },
+  async (event) => {
+    await deleteCommentAttachments(event.data?.data());
+  }
+);
+
 export const removeRepliesWithComment = onDocumentDeleted(
   { document: "comments/{commentId}", region: "europe-west1" },
   async (event) => {
+    await deleteCommentAttachments(event.data?.data());
     const firestore = getDb();
     const replies = await firestore
       .collection("commentReplies")
@@ -2078,20 +2547,76 @@ export const manageAssets = onCall(
         "You do not have permission to manage assets."
       );
     }
+    const callerRole = caller.data()?.role;
+    const isAssetAdmin = callerRole === "admin" || callerRole === "super";
+    await enforceRateLimit(
+      `assets_${request.auth.uid}`,
+      30,
+      60_000,
+      "Too many asset operations. Please wait a minute and try again."
+    );
 
     logger.info("Starting manageAssets function", {
-      action: request.data.action,
-      itemsCount: request.data.items?.length,
+      action: request.data?.action,
+      itemsCount: request.data?.items?.length,
     });
 
-    const { action, items, destPath, newName } = request.data;
+    const { action, items, destPath, newName } = request.data || {};
+    const supportedActions = new Set([
+      "rename", "copy", "move", "delete", "downloadFolder",
+      "downloadFile", "syncIndex",
+    ]);
+    if (typeof action !== "string" || !supportedActions.has(action)) {
+      throw new HttpsError("invalid-argument", "Unknown asset action.");
+    }
+    if (action === "syncIndex" && !isAssetAdmin) {
+      throw new HttpsError("permission-denied", "Only administrators can rebuild the asset index.");
+    }
 
     // items should be an array of full storage paths, e.g. ["folder/file.png"]
-    if (!action || !items || !Array.isArray(items) || items.length === 0) {
+    if (!Array.isArray(items) || (action !== "syncIndex" && items.length === 0) || items.length > 100) {
       throw new HttpsError(
         "invalid-argument",
-        "Missing required arguments: action and items array."
+        "Provide between 1 and 100 asset paths."
       );
+    }
+
+    const isSafeStoragePath = (value: unknown): value is string =>
+      typeof value === "string" && value.length >= 1 && value.length <= 1024 &&
+      !value.startsWith("/") && !value.includes("//") &&
+      !value.split("/").some((part) => part === "." || part === ".." || /[\r\n\0]/.test(part));
+    if (action !== "syncIndex" && !items.every(isSafeStoragePath)) {
+      throw new HttpsError("invalid-argument", "One or more asset paths are invalid.");
+    }
+    if (newName != null &&
+      (typeof newName !== "string" || !newName.trim() || newName.length > 255 || /[\\/\r\n\0]/.test(newName))) {
+      throw new HttpsError("invalid-argument", "The new asset name is invalid.");
+    }
+    if (destPath != null && destPath !== "" && !isSafeStoragePath(destPath)) {
+      throw new HttpsError("invalid-argument", "The destination path is invalid.");
+    }
+
+    if (!isAssetAdmin && action !== "syncIndex") {
+      const articleIds = new Set<string>();
+      [...items, ...(destPath ? [destPath] : [])].forEach((path) => {
+        const match = /^Articles\/([^/]+)(?:\/|$)/.exec(path);
+        if (!match) {
+          throw new HttpsError(
+            "permission-denied",
+            "Authors may manage only assets belonging to their own articles."
+          );
+        }
+        articleIds.add(match[1]);
+      });
+      const ownership = await Promise.all(
+        [...articleIds].map((articleId) => getDb().collection("articles").doc(articleId).get())
+      );
+      if (ownership.some((article) => !article.exists || article.data()?.authorUID !== request.auth!.uid)) {
+        throw new HttpsError(
+          "permission-denied",
+          "Authors may manage only assets belonging to their own articles."
+        );
+      }
     }
 
     const bucket = admin.storage().bucket();
@@ -2323,6 +2848,24 @@ export const manageAssets = onCall(
         const srcPath = items[0];
         const prefix = srcPath.endsWith("/") ? srcPath : `${srcPath}/`;
         const [files] = await bucket.getFiles({ prefix });
+
+        if (files.length > 250) {
+          throw new HttpsError(
+            "resource-exhausted",
+            "Folders with more than 250 files must be downloaded in smaller sections."
+          );
+        }
+
+        const totalBytes = files.reduce(
+          (sum, file) => sum + (Number(file.metadata.size) || 0),
+          0
+        );
+        if (totalBytes > 250 * 1024 * 1024) {
+          throw new HttpsError(
+            "resource-exhausted",
+            "Folders larger than 250 MB must be downloaded in smaller sections."
+          );
+        }
 
         if (files.length === 0) {
           // It might be empty, just return empty zip? Or error?
@@ -3189,84 +3732,6 @@ export const onArticlePublished = onDocumentWritten(
   }
 );
 
-export const checkPasswordResetEligibility = onCall(
-  { region: "europe-west1", minInstances: 0 },
-  async (request) => {
-    const rawEmail = request.data?.email;
-    if (typeof rawEmail !== "string" || !rawEmail.trim()) {
-      throw new HttpsError("invalid-argument", "An email address is required.");
-    }
-    const email = rawEmail.trim().toLowerCase();
-
-    try {
-      const authUser = await admin.auth().getUserByEmail(email);
-      const authorDoc = await getDb().collection("authors").doc(authUser.uid).get();
-      if (authorDoc.exists) {
-        const role = authorDoc.data()?.role;
-        if (["super", "admin", "manager", "moderator"].includes(role)) {
-          return {
-            allowed: false,
-            isStaff: true,
-            message: "Contact admin or super admin to reset your password.",
-          };
-        }
-      }
-    } catch (err: any) {
-      if (err?.code === "auth/user-not-found") {
-        return { allowed: true, isStaff: false };
-      }
-      logger.error("Error checking password reset eligibility:", err);
-    }
-
-    return { allowed: true, isStaff: false };
-  }
-);
-
-export const onCommentDeleted = onDocumentDeleted(
-  {
-    document: "comments/{commentId}",
-    region: "europe-west1",
-  },
-  async (event) => {
-    const commentId = event.params.commentId;
-    logger.info(`Comment ${commentId} deleted. Cleaning up child replies...`);
-
-    try {
-      const firestore = getDb();
-      const repliesSnapshot = await firestore
-        .collection("commentReplies")
-        .where("parentCommentId", "==", commentId)
-        .get();
-
-      if (repliesSnapshot.empty) {
-        logger.info(`No child replies to delete for comment ${commentId}.`);
-        return;
-      }
-
-      const BATCH_SIZE = 400;
-      let batch = firestore.batch();
-      let count = 0;
-
-      for (const replyDoc of repliesSnapshot.docs) {
-        batch.delete(replyDoc.ref);
-        count++;
-        if (count % BATCH_SIZE === 0) {
-          await batch.commit();
-          batch = firestore.batch();
-        }
-      }
-
-      if (count % BATCH_SIZE !== 0) {
-        await batch.commit();
-      }
-
-      logger.info(`Successfully deleted ${count} child replies for comment ${commentId}.`);
-    } catch (error) {
-      logger.error(`Error deleting child replies for comment ${commentId}:`, error);
-    }
-  }
-);
-
 export const togglePinComment = onCall(
   { region: "europe-west1", minInstances: 0 },
   async (request) => {
@@ -3346,6 +3811,117 @@ export const togglePinComment = onCall(
     });
 
     return { success: true, pinned };
+  }
+);
+
+export const submitReport = onCall(
+  { region: "europe-west1", minInstances: 0 },
+  async (request) => {
+    if (!request.auth) {
+      throw new HttpsError("unauthenticated", "Sign in to submit a report.");
+    }
+    const uid = request.auth.uid;
+    const type = request.data?.type;
+    const targetId = typeof request.data?.targetId === "string"
+      ? request.data.targetId.trim()
+      : "";
+    const reason = typeof request.data?.reason === "string"
+      ? request.data.reason.trim()
+      : "";
+    const details = typeof request.data?.details === "string"
+      ? request.data.details.replace(/[\r\n\t]+/g, " ").trim().slice(0, 500)
+      : "";
+    if (
+      !["user", "comment", "reply"].includes(type) ||
+      !targetId || targetId.length > 128 || targetId.includes("/") || /[\r\n\0]/.test(targetId) ||
+      !REPORT_REASONS.has(reason)
+    ) {
+      throw new HttpsError("invalid-argument", "Invalid report target or reason.");
+    }
+
+    await enforceRateLimit(
+      `reports_${uid}`,
+      5,
+      60 * 60_000,
+      "You have submitted several reports. Please wait before reporting again."
+    );
+
+    const firestore = getDb();
+    const reporter = await firestore.collection("users").doc(uid).get();
+    if (!reporter.exists || !isAccountAllowedToParticipate(reporter.data())) {
+      throw new HttpsError("permission-denied", "This account cannot submit reports.");
+    }
+
+    let targetData: admin.firestore.DocumentData | undefined;
+    let reportedUserId = targetId;
+    let commentId: string | null = null;
+    let parentCommentId: string | null = null;
+    if (type === "comment") {
+      const snapshot = await firestore.collection("comments").doc(targetId).get();
+      if (!snapshot.exists || snapshot.data()?.status !== "visible") {
+        throw new HttpsError("not-found", "That comment is no longer available.");
+      }
+      targetData = snapshot.data();
+      reportedUserId = targetData?.authorId;
+      commentId = snapshot.id;
+    } else if (type === "reply") {
+      const snapshot = await firestore.collection("commentReplies").doc(targetId).get();
+      if (!snapshot.exists || snapshot.data()?.status !== "visible") {
+        throw new HttpsError("not-found", "That reply is no longer available.");
+      }
+      targetData = snapshot.data();
+      reportedUserId = targetData?.authorId;
+      commentId = snapshot.id;
+      parentCommentId = targetData?.parentCommentId || null;
+    } else {
+      const snapshot = await firestore.collection("users").doc(targetId).get();
+      if (!snapshot.exists) {
+        throw new HttpsError("not-found", "That user is no longer available.");
+      }
+      targetData = snapshot.data();
+    }
+
+    if (typeof reportedUserId !== "string" || !reportedUserId || reportedUserId === uid) {
+      throw new HttpsError("failed-precondition", "You cannot report this target.");
+    }
+    const targetAuthor = await firestore.collection("authors").doc(reportedUserId).get();
+    if (targetAuthor.exists) {
+      throw new HttpsError("failed-precondition", "Team accounts cannot be reported here.");
+    }
+
+    const reportedUser = await firestore.collection("users").doc(reportedUserId).get();
+    const reportedData = reportedUser.data() || targetData || {};
+    const reporterData = reporter.data() || {};
+    const reasonLabels: Record<string, string> = {
+      harassment: "Harassment, Bullying, or Threats",
+      spam: "Spam, Advertising, or Scams",
+      hate_speech: "Hate Speech or Discrimination",
+      inappropriate: "Inappropriate or Explicit Content",
+      impersonation: "Impersonation or False Identity",
+      other: "Other Policy Violation",
+    };
+    const reportRef = firestore.collection("reports").doc();
+    await reportRef.set({
+      type,
+      reportedUserId,
+      reportedUserHandle: reportedData.handle || targetData?.authorHandle || "unknown",
+      reportedUserName: reportedData.displayName || targetData?.authorName || "Reader",
+      reporterId: uid,
+      reporterHandle: reporterData.handle || "anonymous",
+      reporterName: reporterData.displayName || "Reader",
+      reason,
+      reasonLabel: reasonLabels[reason],
+      details,
+      commentId,
+      parentCommentId,
+      commentContent: typeof targetData?.content === "string" ? targetData.content.slice(0, 2000) : null,
+      articleId: targetData?.articleId || null,
+      articleTitle: targetData?.articleTitle || null,
+      articleSlug: targetData?.articleSlug || null,
+      status: "pending",
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+    return { submitted: true, reportId: reportRef.id };
   }
 );
 
@@ -3443,6 +4019,60 @@ function sanitizeIpKey(ip: string): string {
   return ip.trim().replace(/[:.]/g, "_").toLowerCase();
 }
 
+async function validateModerationReferences(params: {
+  firestore: admin.firestore.Firestore;
+  targetUid: string;
+  reportId?: unknown;
+  commentId?: unknown;
+  commentType?: unknown;
+}) {
+  const { firestore, targetUid, reportId, commentId, commentType } = params;
+  const isSafeId = (value: unknown): value is string =>
+    typeof value === "string" && value.length >= 1 && value.length <= 128 && !value.includes("/");
+
+  let reportData: admin.firestore.DocumentData | undefined;
+  if (reportId != null) {
+    if (!isSafeId(reportId)) {
+      throw new HttpsError("invalid-argument", "Invalid report reference.");
+    }
+    const report = await firestore.collection("reports").doc(reportId).get();
+    reportData = report.data();
+    if (!report.exists || reportData?.reportedUserId !== targetUid) {
+      throw new HttpsError("failed-precondition", "The report does not belong to this user.");
+    }
+  }
+
+  if (commentId != null) {
+    if (!isSafeId(commentId) || !["comment", "reply"].includes(String(commentType))) {
+      throw new HttpsError("invalid-argument", "Invalid comment reference.");
+    }
+    if (reportData && reportData.commentId !== commentId) {
+      throw new HttpsError("failed-precondition", "The content does not belong to this report.");
+    }
+    const collectionName = commentType === "reply" ? "commentReplies" : "comments";
+    const content = await firestore.collection(collectionName).doc(commentId).get();
+    if (!content.exists || content.data()?.authorId !== targetUid) {
+      throw new HttpsError("failed-precondition", "The content does not belong to this user.");
+    }
+  }
+}
+
+function validateModerationPayload(
+  targetUid: unknown,
+  reason: unknown,
+  customMessage: unknown
+) {
+  if (
+    typeof targetUid !== "string" || !targetUid || targetUid.length > 128 ||
+    targetUid.includes("/") || /[\r\n\0]/.test(targetUid) ||
+    typeof reason !== "string" || !reason.trim() || reason.length > 300 ||
+    (customMessage != null &&
+      (typeof customMessage !== "string" || customMessage.length > 1000))
+  ) {
+    throw new HttpsError("invalid-argument", "Invalid moderation target, reason, or notice.");
+  }
+}
+
 /**
  * Tier 1: Warning & Content Hide
  * Accessible by: Super Admins, Admins, Moderators
@@ -3463,9 +4093,7 @@ export const warnUser = onCall(
     }
 
     const { targetUid, reason, customMessage, reportId, commentId, commentType } = request.data || {};
-    if (!targetUid || !reason) {
-      throw new HttpsError("invalid-argument", "Missing required fields: targetUid and reason.");
-    }
+    validateModerationPayload(targetUid, reason, customMessage);
 
     const targetAuthorSnap = await db.collection("authors").doc(targetUid).get();
     if (targetAuthorSnap.exists) {
@@ -3481,6 +4109,13 @@ export const warnUser = onCall(
     const targetHandle = userData.handle || userData.displayName || "reader";
 
     // 1. Append warning document
+    await validateModerationReferences({
+      firestore: db,
+      targetUid,
+      reportId,
+      commentId,
+      commentType,
+    });
     const warnRef = await userRef.collection("warnings").add({
       reason,
       customMessage: customMessage || "",
@@ -3577,9 +4212,7 @@ export const suspendUser = onCall(
     }
 
     const { targetUid, durationDays = 3, reason, customMessage, reportId, commentId, commentType } = request.data || {};
-    if (!targetUid || !reason) {
-      throw new HttpsError("invalid-argument", "Missing required fields: targetUid and reason.");
-    }
+    validateModerationPayload(targetUid, reason, customMessage);
 
     const targetAuthorSnap = await db.collection("authors").doc(targetUid).get();
     if (targetAuthorSnap.exists) {
@@ -3594,7 +4227,18 @@ export const suspendUser = onCall(
     const userData = userSnap.data() || {};
     const targetHandle = userData.handle || userData.displayName || "reader";
 
-    const suspensionMs = Math.max(1, Number(durationDays)) * 24 * 60 * 60 * 1000;
+    const normalizedDurationDays = Math.min(
+      365,
+      Math.max(1, Number.isFinite(Number(durationDays)) ? Number(durationDays) : 3)
+    );
+    const suspensionMs = normalizedDurationDays * 24 * 60 * 60 * 1000;
+    await validateModerationReferences({
+      firestore: db,
+      targetUid,
+      reportId,
+      commentId,
+      commentType,
+    });
     const suspendedUntilDate = new Date(Date.now() + suspensionMs);
     const suspendedUntilTimestamp = admin.firestore.Timestamp.fromDate(suspendedUntilDate);
 
@@ -3626,7 +4270,7 @@ export const suspendUser = onCall(
         actionTaken: "suspension",
         resolvedBy: callerUid,
         resolvedAt: admin.firestore.FieldValue.serverTimestamp(),
-        resolutionNotes: customMessage || `Suspended for ${durationDays} days (${reason})`,
+        resolutionNotes: customMessage || `Suspended for ${normalizedDurationDays} days (${reason})`,
       });
     }
 
@@ -3635,11 +4279,11 @@ export const suspendUser = onCall(
       userId: targetUid,
       type: "suspension",
       title: "🚫 Account Commenting Suspended",
-      message: customMessage || `Your commenting privileges have been suspended for ${durationDays} days due to Community Guidelines violations (${reason}). Privileges will be restored after ${suspendedUntilDate.toLocaleDateString()}.`,
+      message: customMessage || `Your commenting privileges have been suspended for ${normalizedDurationDays} days due to Community Guidelines violations (${reason}). Privileges will be restored after ${suspendedUntilDate.toLocaleDateString()}.`,
       link: "/community-guidelines",
       metadata: {
         suspendedUntil: suspendedUntilDate.toISOString(),
-        durationDays,
+        durationDays: normalizedDurationDays,
         reason,
       },
     });
@@ -3649,13 +4293,13 @@ export const suspendUser = onCall(
       actorUid: callerUid,
       action: "moderation.suspend_user",
       category: "comments",
-      details: `Suspended @${targetHandle} for ${durationDays} days (${reason})`,
+      details: `Suspended @${targetHandle} for ${normalizedDurationDays} days (${reason})`,
       targetId: targetUid,
       targetTitle: `@${targetHandle}`,
       metadata: {
         targetUid,
         targetHandle,
-        durationDays,
+        durationDays: normalizedDurationDays,
         suspendedUntil: suspendedUntilDate.toISOString(),
         reason,
         reportId,
@@ -3667,7 +4311,8 @@ export const suspendUser = onCall(
 );
 
 /**
- * Tier 3: Permanent Account Ban (Account + Handle + Email + IP Addresses)
+ * Tier 3: Permanent Account Ban (account + handle + associated browser installations).
+ * Network addresses are retained as private signals and are never blanket-blocked.
  * Accessible STRICTLY by: Super Admins and Admins ONLY.
  * Moderators are explicitly forbidden from executing permanent bans.
  */
@@ -3689,10 +4334,8 @@ export const banUser = onCall(
       );
     }
 
-    const { targetUid, reason, customMessage, additionalIps = [], reportId, commentId, commentType } = request.data || {};
-    if (!targetUid || !reason) {
-      throw new HttpsError("invalid-argument", "Missing required fields: targetUid and reason.");
-    }
+    const { targetUid, reason, customMessage, reportId, commentId, commentType } = request.data || {};
+    validateModerationPayload(targetUid, reason, customMessage);
 
     const targetAuthorSnap = await db.collection("authors").doc(targetUid).get();
     if (targetAuthorSnap.exists) {
@@ -3706,7 +4349,13 @@ export const banUser = onCall(
     }
     const userData = userSnap.data() || {};
     const targetHandle = userData.handle || userData.displayName || "reader";
-    const targetEmail = userData.email || "";
+    await validateModerationReferences({
+      firestore: db,
+      targetUid,
+      reportId,
+      commentId,
+      commentType,
+    });
 
     // 1. Disable Firebase Auth user account & revoke all session tokens
     try {
@@ -3717,40 +4366,76 @@ export const banUser = onCall(
       logger.warn(`Could not disable Firebase Auth account for ${targetUid}:`, authErr);
     }
 
-    // 2. Gather all known IP addresses
-    const ipsToBan = new Set<string>();
-    if (userData.lastIp && typeof userData.lastIp === "string") {
-      ipsToBan.add(userData.lastIp.trim());
-    }
-    if (Array.isArray(userData.ipHistory)) {
-      userData.ipHistory.forEach((ip: string) => {
-        if (typeof ip === "string" && ip.trim()) ipsToBan.add(ip.trim());
+    // 2. Gather associated devices and network signals. Devices are enforceable;
+    // shared network addresses are investigation-only to avoid collateral bans.
+    const devicesSnapshot = await userRef.collection("devices").get();
+    const deviceHashes = new Set<string>();
+    const fingerprintHashes = new Set<string>();
+    if (Array.isArray(userData.deviceHashes)) {
+      userData.deviceHashes.forEach((hash: unknown) => {
+        if (typeof hash === "string" && /^[a-f0-9]{64}$/.test(hash)) deviceHashes.add(hash);
       });
     }
-    if (Array.isArray(additionalIps)) {
-      additionalIps.forEach((ip: string) => {
-        if (typeof ip === "string" && ip.trim()) ipsToBan.add(ip.trim());
+    devicesSnapshot.docs.forEach((snapshot) => {
+      if (/^[a-f0-9]{64}$/.test(snapshot.id)) deviceHashes.add(snapshot.id);
+      const fingerprintHash = snapshot.data()?.fingerprintHash;
+      if (typeof fingerprintHash === "string" && /^[a-f0-9]{64}$/.test(fingerprintHash)) {
+        fingerprintHashes.add(fingerprintHash);
+      }
+    });
+    if (Array.isArray(userData.fingerprintHashes)) {
+      userData.fingerprintHashes.forEach((hash: unknown) => {
+        if (typeof hash === "string" && /^[a-f0-9]{64}$/.test(hash)) fingerprintHashes.add(hash);
       });
     }
 
-    // 3. Write banned IPs to /bannedIps collection
-    const bannedIpsList: string[] = [];
-    for (const rawIp of ipsToBan) {
-      const sanitizedKey = sanitizeIpKey(rawIp);
-      if (sanitizedKey) {
-        await db.collection("bannedIps").doc(sanitizedKey).set({
-          ip: rawIp,
-          bannedAt: admin.firestore.FieldValue.serverTimestamp(),
+    const observedIps = new Set<string>();
+    if (userData.lastIp && typeof userData.lastIp === "string") {
+      observedIps.add(userData.lastIp.trim());
+    }
+    if (Array.isArray(userData.ipHistory)) {
+      userData.ipHistory.forEach((ip: string) => {
+        if (typeof ip === "string" && isIP(ip.trim())) observedIps.add(ip.trim());
+      });
+    }
+
+    const deviceWrites = [...deviceHashes].map(async (deviceHash) => {
+      const device = devicesSnapshot.docs.find((snapshot) => snapshot.id === deviceHash)?.data();
+      await db.collection("bannedDevices").doc(deviceHash).set({
+        deviceHash,
+        label: device?.label || (deviceHash === userData.lastDeviceHash ? userData.lastDeviceLabel : "Unknown browser"),
+        blockedAt: admin.firestore.FieldValue.serverTimestamp(),
+        blockedBy: callerUid,
+        reason,
+        targetUid,
+        targetHandle,
+      });
+    });
+    const networkWrites = [...observedIps].map(async (rawIp) => {
+      const signalKey = createHash("sha256").update(rawIp, "utf8").digest("hex");
+      await db.collection("flaggedIps").doc(signalKey).set({
+        ip: rawIp,
+        observedAt: admin.firestore.FieldValue.serverTimestamp(),
+        associatedAccounts: admin.firestore.FieldValue.arrayUnion(targetUid),
+        latestModeration: {
           bannedBy: callerUid,
-          bannedByRole: callerRole,
           reason,
           targetUid,
           targetHandle,
-          targetEmail,
-        });
-        bannedIpsList.push(rawIp);
-      }
-    }
+        },
+      }, { merge: true });
+    });
+    const fingerprintWrites = [...fingerprintHashes].map((fingerprintHash) =>
+      db.collection("bannedFingerprints").doc(fingerprintHash).set({
+        fingerprintHash,
+        blockedAt: admin.firestore.FieldValue.serverTimestamp(),
+        blockedBy: callerUid,
+        reason,
+        targetUid,
+        targetHandle,
+      })
+    );
+    await Promise.all([...deviceWrites, ...fingerprintWrites, ...networkWrites]);
 
     // 4. Lock handle permanently so it cannot be reclaimed
     if (targetHandle) {
@@ -3774,7 +4459,8 @@ export const banUser = onCall(
       bannedAt: admin.firestore.FieldValue.serverTimestamp(),
       banReason: reason,
       bannedBy: callerUid,
-      bannedIps: bannedIpsList,
+      bannedDeviceHashes: [...deviceHashes],
+      bannedFingerprintHashes: [...fingerprintHashes],
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
 
@@ -3791,7 +4477,7 @@ export const banUser = onCall(
         actionTaken: "permanent_ban",
         resolvedBy: callerUid,
         resolvedAt: admin.firestore.FieldValue.serverTimestamp(),
-        resolutionNotes: customMessage || `Permanently banned (${reason}). Banned IPs: ${bannedIpsList.join(", ") || "none"}`,
+        resolutionNotes: customMessage || `Permanently banned (${reason}). Blocked browser installations: ${deviceHashes.size}; fingerprint risk signals: ${fingerprintHashes.size}.`,
       });
     }
 
@@ -3800,21 +4486,27 @@ export const banUser = onCall(
       actorUid: callerUid,
       action: "moderation.ban_user",
       category: "team",
-      details: `Permanently banned @${targetHandle} (${targetEmail}) and blacklisted ${bannedIpsList.length} IP(s) for ${reason}`,
+      details: `Permanently banned @${targetHandle}; blocked ${deviceHashes.size} browser installation(s) and flagged ${fingerprintHashes.size} fingerprint risk signal(s) for ${reason}`,
       targetId: targetUid,
       targetTitle: `@${targetHandle}`,
       metadata: {
         targetUid,
         targetHandle,
-        targetEmail,
-        bannedIps: bannedIpsList,
+        blockedDeviceHashes: [...deviceHashes],
+        blockedFingerprintHashes: [...fingerprintHashes],
+        observedIpCount: observedIps.size,
         reason,
         customMessage,
         reportId,
       },
     });
 
-    return { success: true, bannedIpsCount: bannedIpsList.length };
+    return {
+      success: true,
+      blockedDevicesCount: deviceHashes.size,
+      flaggedFingerprintsCount: fingerprintHashes.size,
+      observedNetworksCount: observedIps.size,
+    };
   }
 );
 
@@ -3922,19 +4614,52 @@ export const unbanUser = onCall(
       logger.warn(`Could not re-enable Auth for ${targetUid}:`, authErr);
     }
 
-    // 2. Collect and remove all associated banned IPs
-    const ipsToRemove = new Set<string>();
-    if (Array.isArray(userData.bannedIps)) {
-      userData.bannedIps.forEach((ip: string) => ipsToRemove.add(ip));
+    // 2. Unblock browser installations owned by this moderation record.
+    const deviceHashes = new Set<string>();
+    const storedDeviceHashes = Array.isArray(userData.bannedDeviceHashes)
+      ? userData.bannedDeviceHashes
+      : userData.deviceHashes;
+    if (Array.isArray(storedDeviceHashes)) {
+      storedDeviceHashes.forEach((hash: unknown) => {
+        if (typeof hash === "string" && /^[a-f0-9]{64}$/.test(hash)) deviceHashes.add(hash);
+      });
     }
-    if (userData.lastIp) {
-      ipsToRemove.add(userData.lastIp);
+    let unblockedDevicesCount = 0;
+    for (const deviceHash of deviceHashes) {
+      const blockedRef = db.collection("bannedDevices").doc(deviceHash);
+      const blocked = await blockedRef.get();
+      if (blocked.data()?.targetUid === targetUid) {
+        await blockedRef.delete();
+        unblockedDevicesCount += 1;
+      }
     }
-    if (Array.isArray(userData.ipHistory)) {
-      userData.ipHistory.forEach((ip: string) => ipsToRemove.add(ip));
+    const fingerprintHashes = new Set<string>();
+    const storedFingerprintHashes = Array.isArray(userData.bannedFingerprintHashes)
+      ? userData.bannedFingerprintHashes
+      : userData.fingerprintHashes;
+    if (Array.isArray(storedFingerprintHashes)) {
+      storedFingerprintHashes.forEach((hash: unknown) => {
+        if (typeof hash === "string" && /^[a-f0-9]{64}$/.test(hash)) fingerprintHashes.add(hash);
+      });
+    }
+    let clearedFingerprintsCount = 0;
+    for (const fingerprintHash of fingerprintHashes) {
+      const blockedRef = db.collection("bannedFingerprints").doc(fingerprintHash);
+      const blocked = await blockedRef.get();
+      if (blocked.data()?.targetUid === targetUid) {
+        await blockedRef.delete();
+        clearedFingerprintsCount += 1;
+      }
     }
 
-    for (const ip of ipsToRemove) {
+    // Remove legacy blanket IP bans created by older deployments. Network
+    // signals in flaggedIps remain private audit history and are not enforced.
+    const legacyIps = new Set<string>();
+    if (Array.isArray(userData.bannedIps)) {
+      userData.bannedIps.forEach((ip: string) => legacyIps.add(ip));
+    }
+    if (typeof userData.lastIp === "string") legacyIps.add(userData.lastIp);
+    for (const ip of legacyIps) {
       const key = sanitizeIpKey(ip);
       if (key) {
         try {
@@ -3952,6 +4677,10 @@ export const unbanUser = onCall(
       banReason: admin.firestore.FieldValue.delete(),
       bannedBy: admin.firestore.FieldValue.delete(),
       bannedIps: admin.firestore.FieldValue.delete(),
+      bannedDeviceHashes: admin.firestore.FieldValue.delete(),
+      bannedFingerprintHashes: admin.firestore.FieldValue.delete(),
+      fingerprintRiskMatch: admin.firestore.FieldValue.delete(),
+      fingerprintRiskMatchedAt: admin.firestore.FieldValue.delete(),
       suspendedUntil: admin.firestore.FieldValue.delete(),
       suspensionReason: admin.firestore.FieldValue.delete(),
       suspendedAt: admin.firestore.FieldValue.delete(),
@@ -3971,13 +4700,13 @@ export const unbanUser = onCall(
       actorUid: callerUid,
       action: "moderation.unban_user",
       category: "team",
-      details: `Lifted permanent ban and restored @${targetHandle} (${ipsToRemove.size} IP(s) unblocked)`,
+      details: `Lifted permanent ban and restored @${targetHandle} (${unblockedDevicesCount} browser installation(s) unblocked, ${clearedFingerprintsCount} fingerprint risk signal(s) cleared)`,
       targetId: targetUid,
       targetTitle: `@${targetHandle}`,
-      metadata: { targetUid, targetHandle, unblockedIps: Array.from(ipsToRemove), nextStatus },
+      metadata: { targetUid, targetHandle, unblockedDevicesCount, clearedFingerprintsCount, nextStatus },
     });
 
-    return { success: true, nextStatus, unblockedIpsCount: ipsToRemove.size };
+    return { success: true, nextStatus, unblockedDevicesCount, clearedFingerprintsCount };
   }
 );
 
@@ -4053,71 +4782,5 @@ export const clearUserWarnings = onCall(
     });
 
     return { success: true, clearedCount: warningsSnap.size, nextStatus };
-  }
-);
-
-/**
- * Capture & Synchronize Reader IP Address on Sign-In
- */
-export const syncUserIp = onCall(
-  { region: "europe-west1" },
-  async (request) => {
-    if (!request.auth) {
-      throw new HttpsError("unauthenticated", "You must be signed in.");
-    }
-    const uid = request.auth.uid;
-    const rawReq = request.rawRequest;
-    let clientIp = "";
-    if (rawReq?.headers?.["x-forwarded-for"]) {
-      clientIp = String(rawReq.headers["x-forwarded-for"]).split(",")[0].trim();
-    } else if (rawReq?.headers?.["x-real-ip"]) {
-      clientIp = String(rawReq.headers["x-real-ip"]).trim();
-    } else if (rawReq?.ip) {
-      clientIp = String(rawReq.ip).trim();
-    } else if (request.data?.ip) {
-      clientIp = String(request.data.ip).trim();
-    } else {
-      clientIp = "127.0.0.1";
-    }
-
-    if (!clientIp || clientIp === "::1") {
-      clientIp = "127.0.0.1";
-    }
-
-    const db = getDb();
-    const sanitizedKey = sanitizeIpKey(clientIp);
-
-    // 1. Check IP ban
-    let isBanned = false;
-    let banReason = "";
-    try {
-      const bannedDoc = await db.collection("bannedIps").doc(sanitizedKey).get();
-      if (bannedDoc.exists) {
-        isBanned = true;
-        banReason = bannedDoc.data()?.reason || "Violations of Community Guidelines";
-      }
-    } catch (e) {
-      logger.warn("Could not check banned IP in syncUserIp:", e);
-    }
-
-    // 2. Update user's lastIp in Firestore
-    try {
-      const userRef = db.collection("users").doc(uid);
-      const userSnap = await userRef.get();
-      if (userSnap.exists) {
-        await userRef.update({
-          lastIp: clientIp,
-          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-        });
-      }
-    } catch (e) {
-      logger.warn(`Could not update lastIp for user ${uid}:`, e);
-    }
-
-    return {
-      ip: clientIp,
-      isBanned,
-      reason: banReason,
-    };
   }
 );

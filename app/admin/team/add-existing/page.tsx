@@ -35,6 +35,7 @@ import {
   X,
 } from "lucide-react";
 import { generateSlugFromTitle, sanitizeUrl } from "@/lib/utils";
+import { sanitizeAndCompressImage } from "@/lib/image-sanitizer";
 
 interface UserCandidate {
   uid: string;
@@ -259,11 +260,20 @@ export default function AddExistingUserToTeamPage() {
 
     setUploadingImage(true);
     try {
+      const sanitized = await sanitizeAndCompressImage(file, "avatar");
+      const extension = sanitized.contentType === "image/webp" ? "webp" : "jpg";
       const storageRef = ref(
         storage,
-        `authors/${selectedCandidate.uid}/${Date.now()}_${file.name}`
+        `authors/${selectedCandidate.uid}/${Date.now()}.${extension}`
       );
-      await uploadBytes(storageRef, file);
+      try {
+        await uploadBytes(storageRef, sanitized.blob, {
+          contentType: sanitized.contentType,
+          cacheControl: "public,max-age=31536000,immutable",
+        });
+      } finally {
+        URL.revokeObjectURL(sanitized.previewUrl);
+      }
       const downloadURL = await getDownloadURL(storageRef);
       setAvatar(downloadURL);
       toast({

@@ -9,6 +9,7 @@ import {
   query,
   type Timestamp,
 } from "firebase/firestore"
+import { httpsCallable } from "firebase/functions"
 import {
   AlertTriangle,
   AtSign,
@@ -27,7 +28,7 @@ import {
   Users,
   UserX,
 } from "lucide-react"
-import { db } from "@/lib/firebase"
+import { db, functions } from "@/lib/firebase"
 import { useAuth } from "@/lib/auth-context"
 import { Breadcrumb } from "@/components/breadcrumb"
 import PageTitle from "@/components/PageTitle"
@@ -237,6 +238,8 @@ export default function AdminUsersPage() {
     useState<UserStandingCategory>("all")
   const [providerFilter, setProviderFilter] = useState<ProviderFilter>("all")
   const [sortOrder, setSortOrder] = useState<SortOrder>("newest")
+  const [syncingPublicProfiles, setSyncingPublicProfiles] = useState(false)
+  const [publicProfileSyncMessage, setPublicProfileSyncMessage] = useState("")
 
   const [selectedUserId, setSelectedUserId] = useState<string | null>(
     initialUserId
@@ -435,6 +438,26 @@ export default function AdminUsersPage() {
 
   const loading = loadingUsers || loadingAuthors
 
+  const syncPublicProfiles = async () => {
+    setSyncingPublicProfiles(true)
+    setPublicProfileSyncMessage("")
+    try {
+      const backfill = httpsCallable<
+        void,
+        { updatedReaders: number; updatedAuthors: number }
+      >(functions, "backfillPublicProfiles")
+      const result = await backfill()
+      setPublicProfileSyncMessage(
+        `Published ${result.data.updatedReaders} reader and ${result.data.updatedAuthors} staff profile mirror(s).`
+      )
+    } catch (error) {
+      console.error("Unable to publish safe profile mirrors:", error)
+      setPublicProfileSyncMessage("Safe public profile sync failed. Try again before deploying the private-profile rules.")
+    } finally {
+      setSyncingPublicProfiles(false)
+    }
+  }
+
   return (
     <div className="w-full text-white">
       <div className="mb-2">
@@ -449,7 +472,24 @@ export default function AdminUsersPage() {
         >
           Users
         </PageTitle>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={syncPublicProfiles}
+          disabled={syncingPublicProfiles}
+          className="border-white/20 text-xs"
+        >
+          <RefreshCw className={`mr-2 h-3.5 w-3.5 ${syncingPublicProfiles ? "animate-spin" : ""}`} />
+          Sync Safe Public Profiles
+        </Button>
       </div>
+
+      {publicProfileSyncMessage ? (
+        <p className="mb-4 border-l-2 border-[#8a2ae3] pl-3 text-xs text-white/70">
+          {publicProfileSyncMessage}
+        </p>
+      ) : null}
 
       {/* Summary KPI Cards with Category Filtering */}
       <div className="mb-8 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
@@ -898,4 +938,3 @@ export default function AdminUsersPage() {
     </div>
   )
 }
-

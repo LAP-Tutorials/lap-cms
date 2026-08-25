@@ -119,6 +119,9 @@ interface UserTargetDetails {
   bannedAt?: Timestamp
   banReason?: string
   lastIp?: string
+  lastDeviceLabel?: string
+  deviceHashes?: string[]
+  fingerprintHashes?: string[]
 }
 
 export default function ReportsManagementPage() {
@@ -156,7 +159,6 @@ export default function ReportsManagementPage() {
   const [suspendCustomMessage, setSuspendCustomMessage] = useState("")
   const [banReason, setBanReason] = useState("Severe or repeated Community Guidelines violations")
   const [banCustomMessage, setBanCustomMessage] = useState("")
-  const [banAdditionalIps, setBanAdditionalIps] = useState("")
   const [dismissNotes, setDismissNotes] = useState("")
   const [actionBusy, setActionBusy] = useState(false)
 
@@ -373,7 +375,7 @@ export default function ReportsManagementPage() {
       return
     }
 
-    const confirmMsg = `Are you sure you want to PERMANENTLY BAN @${selectedReport.reportedUserHandle}? This will revoke their auth account, lock their handle, and blacklist all associated IP addresses.`
+    const confirmMsg = `Are you sure you want to PERMANENTLY BAN @${selectedReport.reportedUserHandle}? This will revoke their auth account, lock their handle, block recorded browser installations, and flag matching fingerprints for review.`
     if (!window.confirm(confirmMsg)) return
 
     setActionBusy(true)
@@ -381,24 +383,18 @@ export default function ReportsManagementPage() {
     setSuccessMessage("")
 
     try {
-      const additionalIpsList = banAdditionalIps
-        .split(/[,\s\n]+/)
-        .map((s) => s.trim())
-        .filter(Boolean)
-
       const banUserFn = httpsCallable(functions, "banUser")
       const result = (await banUserFn({
         targetUid: selectedReport.reportedUserId,
         reason: effectiveReason,
         customMessage: banCustomMessage,
-        additionalIps: additionalIpsList,
         reportId: selectedReport.id,
         commentId: selectedReport.commentId,
         commentType: selectedReport.type === "reply" ? "reply" : "comment",
-      })) as { data?: { bannedIpsCount?: number } }
+      })) as { data?: { blockedDevicesCount?: number; flaggedFingerprintsCount?: number } }
 
       setSuccessMessage(
-        `Permanently banned @${selectedReport.reportedUserHandle}. Blacklisted ${result.data?.bannedIpsCount ?? 1} IP address(es).`
+        `Permanently banned @${selectedReport.reportedUserHandle}. Blocked ${result.data?.blockedDevicesCount ?? 0} device(s) and flagged ${result.data?.flaggedFingerprintsCount ?? 0} browser fingerprint risk signal(s). Shared networks remain unaffected.`
       )
       setSelectedReport(null)
     } catch (err: any) {
@@ -453,7 +449,7 @@ export default function ReportsManagementPage() {
       return
     }
 
-    const confirmMsg = `Lift permanent ban for @${selectedReport.reportedUserHandle}? This will re-enable their auth account and unblock all blacklisted IPs.`
+    const confirmMsg = `Lift permanent ban for @${selectedReport.reportedUserHandle}? This will re-enable their auth account and release device and browser-fingerprint blocks owned by this account.`
     if (!window.confirm(confirmMsg)) return
 
     setActionBusy(true)
@@ -461,13 +457,16 @@ export default function ReportsManagementPage() {
     setSuccessMessage("")
 
     try {
-      const fn = httpsCallable<{ targetUid: string }, { success: boolean; unblockedIpsCount?: number; nextStatus?: string }>(
+      const fn = httpsCallable<
+        { targetUid: string },
+        { success: boolean; unblockedDevicesCount?: number; clearedFingerprintsCount?: number; nextStatus?: string }
+      >(
         functions,
         "unbanUser"
       )
       const res = await fn({ targetUid: selectedReport.reportedUserId })
       setTargetUser((prev) => (prev ? { ...prev, status: res.data?.nextStatus || "active", bannedAt: undefined, banReason: undefined } : null))
-      setSuccessMessage(`Permanent ban lifted for @${selectedReport.reportedUserHandle}. ${res.data?.unblockedIpsCount ?? 0} IP(s) unblocked.`)
+      setSuccessMessage(`Permanent ban lifted for @${selectedReport.reportedUserHandle}. ${res.data?.unblockedDevicesCount ?? 0} device(s) released and ${res.data?.clearedFingerprintsCount ?? 0} fingerprint risk signal(s) cleared.`)
     } catch (err: any) {
       console.error("Error unbanning user:", err)
       setError(err?.message || "Failed to lift permanent ban.")
@@ -944,9 +943,9 @@ export default function ReportsManagementPage() {
                             Warnings: {targetUser.warningCount}
                           </span>
                         )}
-                        {targetUser.lastIp && (
+                        {targetUser.lastDeviceLabel && (
                           <span className="text-xs font-mono px-2 py-0.5 bg-red-500/10 text-red-300 border border-red-500/30">
-                            IP: {targetUser.lastIp}
+                            Device: {targetUser.lastDeviceLabel}
                           </span>
                         )}
                       </>
@@ -1174,16 +1173,16 @@ export default function ReportsManagementPage() {
                 </div>
               )}
 
-              {/* TAB 3: PERMANENT BAN & IP BLACKLIST */}
+              {/* TAB 3: permanent account and device block */}
               {activeTab === "ban" && (
                 <div className="border border-red-600/40 bg-red-600/[0.03] p-4 space-y-4">
                   <div>
                     <h4 className="text-sm font-semibold text-red-400 flex items-center gap-1.5">
                       <Ban className="h-4 w-4" />
-                      Tier 3: Permanent Account Ban & IP Blacklist
+                      Tier 3: Permanent Account & Device Block
                     </h4>
                     <p className="text-xs text-white/60 mt-1">
-                      Permanently disables the reader&apos;s Firebase Auth account, locks their handle, and adds their IP address(es) to the blacklisted IP database to prevent re-registration.
+                      Permanently disables the reader&apos;s Firebase Auth account, locks their handle, and blocks recorded browser installations. Matching fingerprints and network IPs remain corroborating investigation signals, not sole proof.
                     </p>
                   </div>
 
@@ -1192,7 +1191,7 @@ export default function ReportsManagementPage() {
                       <Lock className="h-5 w-5 text-amber-400 shrink-0 mt-0.5" />
                       <div>
                         <strong className="block text-amber-300 font-semibold mb-1">Restricted Permission</strong>
-                        Moderators do not have permission to execute permanent bans or IP blacklisting. If this account requires a permanent ban, please leave a note on this report and escalate to an Admin or Super Admin.
+                        Moderators do not have permission to execute permanent account or device blocks. If this account requires a permanent ban, please leave a note on this report and escalate to an Admin or Super Admin.
                       </div>
                     </div>
                   ) : (
@@ -1213,9 +1212,9 @@ export default function ReportsManagementPage() {
                           <div>Handle: <strong className="text-white">@{selectedReport.reportedUserHandle}</strong></div>
                           {targetUser?.email && <div>Email: <strong className="text-white">{targetUser.email}</strong></div>}
                           <div>
-                            Recorded IP:{" "}
+                            Network signal (not blocked):{" "}
                             {targetUser?.lastIp ? (
-                              <strong className="text-red-400 font-mono">{targetUser.lastIp}</strong>
+                              <strong className="text-white/70 font-mono">{targetUser.lastIp}</strong>
                             ) : (
                               <span className="text-white/40">No IP on file</span>
                             )}
@@ -1223,14 +1222,8 @@ export default function ReportsManagementPage() {
                         </div>
                       </div>
 
-                      <div>
-                        <label className="font-mono text-white/60 block mb-1">Additional Known IP Addresses (Optional)</label>
-                        <Input
-                          value={banAdditionalIps}
-                          onChange={(e) => setBanAdditionalIps(e.target.value)}
-                          placeholder="Comma or space-separated IPs (e.g. 192.168.1.1, 10.0.0.1)"
-                          className="bg-black/60 border-white/15 text-xs font-mono"
-                        />
+                      <div className="border border-white/10 bg-black/40 p-3 text-[11px] leading-relaxed text-white/55">
+                        Recorded identity signals: {targetUser?.deviceHashes?.length || 0} device(s), {targetUser?.fingerprintHashes?.length || 0} fingerprint(s). Shared café, school, office, and carrier networks will not be blocked.
                       </div>
 
                       <div>
@@ -1308,7 +1301,7 @@ export default function ReportsManagementPage() {
 
                     {targetUser?.lastIp && (
                       <div className="flex items-center justify-between">
-                        <span className="text-white/60">Recorded IP:</span>
+                        <span className="text-white/60">Network signal (not blocked):</span>
                         <span className="font-mono text-white/90">{targetUser.lastIp}</span>
                       </div>
                     )}
@@ -1318,8 +1311,8 @@ export default function ReportsManagementPage() {
                     {/* Unban Action */}
                     <div className="flex items-center justify-between p-2.5 border border-white/10 bg-white/[0.02]">
                       <div>
-                        <span className="font-semibold text-xs text-white block">Unban Account & IP(s)</span>
-                        <span className="text-[10px] text-white/40">Re-enables login and unblocks all associated IP addresses.</span>
+                        <span className="font-semibold text-xs text-white block">Unban Account & Devices</span>
+                        <span className="text-[10px] text-white/40">Re-enables login and releases device blocks owned by this account.</span>
                       </div>
                       <Button
                         size="sm"
@@ -1400,6 +1393,7 @@ export default function ReportsManagementPage() {
                       <Input
                         value={dismissNotes}
                         onChange={(e) => setDismissNotes(e.target.value)}
+                        maxLength={1000}
                         placeholder="e.g., Reviewed content - does not violate community guidelines."
                         className="bg-black/60 border-white/15 text-xs placeholder:text-white/30"
                       />

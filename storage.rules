@@ -5,48 +5,90 @@ service firebase.storage {
     function isCmsUser() {
       return request.auth != null &&
         firestore.exists(/databases/(default)/documents/authors/$(request.auth.uid)) &&
-        firestore.get(/databases/(default)/documents/authors/$(request.auth.uid)).data.role in ['manager', 'admin', 'super'];
+        firestore.get(/databases/(default)/documents/authors/$(request.auth.uid)).data.role in ['author', 'admin', 'super'];
+    }
+
+    function isAdminUser() {
+      return request.auth != null &&
+        firestore.exists(/databases/(default)/documents/authors/$(request.auth.uid)) &&
+        firestore.get(/databases/(default)/documents/authors/$(request.auth.uid)).data.role in ['admin', 'super'];
+    }
+
+    function canModerate() {
+      return request.auth != null &&
+        firestore.exists(/databases/(default)/documents/authors/$(request.auth.uid)) &&
+        firestore.get(/databases/(default)/documents/authors/$(request.auth.uid)).data.role in ['moderator', 'admin', 'super'];
+    }
+
+    function canManageArticle(articleId) {
+      return isAdminUser() ||
+        (isCmsUser() &&
+          firestore.exists(/databases/(default)/documents/articles/$(articleId)) &&
+          firestore.get(/databases/(default)/documents/articles/$(articleId)).data.authorUID == request.auth.uid);
     }
 
     match /users/{userId}/profile/{fileName} {
-      allow read: if true;
+      allow get: if true;
       allow create, update: if request.auth != null &&
         request.auth.uid == userId &&
         fileName == 'avatar' &&
         request.resource.size <= 5 * 1024 * 1024 &&
         request.resource.contentType.matches('image/(jpeg|png|webp)');
-      allow delete: if (request.auth != null && request.auth.uid == userId) || isCmsUser();
+      allow delete: if (request.auth != null && request.auth.uid == userId) || isAdminUser();
     }
 
     // Every team member may update only the avatar named after their own UID.
     // This lets moderators manage their profile without granting asset access.
     match /avatars/team/{fileName} {
-      allow read: if true;
+      allow get: if true;
       allow create, update: if request.auth != null &&
         firestore.exists(/databases/(default)/documents/authors/$(request.auth.uid)) &&
-        fileName == request.auth.uid + '.webp' &&
+        (fileName == request.auth.uid + '.webp' ||
+          firestore.get(/databases/(default)/documents/authors/$(request.auth.uid)).data.role in ['admin', 'super']) &&
+        fileName.matches('[a-zA-Z0-9_-]{1,128}\\.webp') &&
         request.resource.size <= 5 * 1024 * 1024 &&
         request.resource.contentType.matches('image/(jpeg|png|webp)');
       allow delete: if (
         request.auth != null &&
         firestore.exists(/databases/(default)/documents/authors/$(request.auth.uid)) &&
         fileName == request.auth.uid + '.webp'
-      ) || isCmsUser();
+      ) || isAdminUser();
     }
 
     // Comment and reply attachments: clean sanitized images uploaded by the authenticated author.
     match /comments/{userId}/{fileName} {
-      allow read: if true;
+      allow get: if true;
       allow create, update: if request.auth != null &&
         request.auth.uid == userId &&
+        fileName.matches('[a-zA-Z0-9_-]{1,128}\\.(webp|jpg)') &&
         request.resource.size <= 2 * 1024 * 1024 &&
-        request.resource.contentType.matches('image/(webp|jpeg|png)');
-      allow delete: if (request.auth != null && request.auth.uid == userId) || isCmsUser();
+        request.resource.contentType.matches('image/(webp|jpeg)');
+      allow delete: if (request.auth != null && request.auth.uid == userId) || canModerate();
+    }
+
+    match /authors/{userId}/{fileName} {
+      allow get: if true;
+      allow create, update: if isAdminUser() &&
+        fileName.matches('[a-zA-Z0-9_-]{1,128}\\.(webp|jpg)') &&
+        request.resource.size <= 2 * 1024 * 1024 &&
+        request.resource.contentType.matches('image/(webp|jpeg)');
+      allow delete: if isAdminUser();
+    }
+
+    // Authors can manage article-scoped assets; other bucket areas are
+    // reserved for admins. Public pages may fetch objects but cannot enumerate.
+    match /Articles/{articleId}/{allPaths=**} {
+      allow get: if true;
+      allow list: if canManageArticle(articleId);
+      allow create, update: if canManageArticle(articleId) &&
+        request.resource.size <= 25 * 1024 * 1024;
+      allow delete: if canManageArticle(articleId);
     }
 
     match /{allPaths=**} {
-      allow read: if true;
-      allow write: if isCmsUser();
+      allow get: if true;
+      allow list: if isAdminUser();
+      allow create, update, delete: if isAdminUser();
     }
   }
 }

@@ -29,6 +29,54 @@ service cloud.firestore {
       return isSuperAdmin() || isAdmin() || isModerator();
     }
 
+    function isActiveParticipant() {
+      return isAuthenticated() &&
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        (!get(/databases/$(database)/documents/users/$(request.auth.uid)).data.keys().hasAny(['status']) ||
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.status in ['active', 'warning'] ||
+          (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.status == 'suspended' &&
+            get(/databases/$(database)/documents/users/$(request.auth.uid)).data.suspendedUntil <= request.time)) &&
+        (!get(/databases/$(database)/documents/users/$(request.auth.uid)).data.keys().hasAny(['bannedAt'])) &&
+        (!get(/databases/$(database)/documents/users/$(request.auth.uid)).data.keys().hasAny(['suspendedUntil']) ||
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.suspendedUntil <= request.time);
+    }
+
+    function isAllowedReaderPhoto(url) {
+      return url is string && url.size() >= 1 && url.size() <= 1000 &&
+        url.matches('^https://(firebasestorage\\.googleapis\\.com|([a-z0-9-]+\\.)?googleusercontent\\.com)/.*$');
+    }
+
+    function isValidAttachment(item) {
+      return item is map &&
+        item.keys().hasAll(['url', 'storagePath']) &&
+        item.keys().hasOnly(['url', 'storagePath', 'width', 'height', 'alt']) &&
+        item.url is string &&
+        item.url.matches('^https://firebasestorage\\.googleapis\\.com/.*$') &&
+        item.storagePath is string &&
+        item.storagePath.matches('^comments/' + request.auth.uid + '/[a-zA-Z0-9_-]+\\.(webp|jpg)$') &&
+        (!item.keys().hasAny(['width']) || (item.width is int && item.width > 0 && item.width <= 1600)) &&
+        (!item.keys().hasAny(['height']) || (item.height is int && item.height > 0 && item.height <= 1600)) &&
+        (!item.keys().hasAny(['alt']) || (item.alt is string && item.alt.size() <= 180));
+    }
+
+    function hasValidAttachments(data) {
+      return (!data.keys().hasAny(['images']) ||
+        (data.images is list && data.images.size() >= 1 && data.images.size() <= 4 &&
+          isValidAttachment(data.images[0]) &&
+          (data.images.size() < 2 || isValidAttachment(data.images[1])) &&
+          (data.images.size() < 3 || isValidAttachment(data.images[2])) &&
+          (data.images.size() < 4 || isValidAttachment(data.images[3])))) &&
+        (!data.keys().hasAny(['imageUrl']) ||
+          (data.imageUrl is string && data.imageUrl.matches('^https://firebasestorage\\.googleapis\\.com/.*$'))) &&
+        (!data.keys().hasAny(['imageStoragePath']) ||
+          (data.imageStoragePath is string &&
+            data.imageStoragePath.matches('^comments/' + request.auth.uid + '/[a-zA-Z0-9_-]+\\.(webp|jpg)$'))) &&
+        (!data.keys().hasAny(['imageUrl']) ||
+          (data.keys().hasAny(['images']) && data.imageUrl == data.images[0].url)) &&
+        (!data.keys().hasAny(['imageStoragePath']) ||
+          (data.keys().hasAny(['images']) && data.imageStoragePath == data.images[0].storagePath));
+    }
+
     function handleReservationKey(handle) {
       return handle.lower().replace('[-_0-9]+', '');
     }
@@ -122,9 +170,9 @@ service cloud.firestore {
     // News: Public read, Admin write
     // Removed as part of News functionality removal
     
-    // Authors/Team: public read; privileged role changes stay privileged.
+    // Private staff records. Public-safe fields are mirrored to publicAuthors.
     match /authors/{userId} {
-      allow read: if true;
+      allow read: if isStaff() || (isAuthenticated() && request.auth.uid == userId);
       allow create: if request.resource.data.uid == userId &&
         (isSuperAdmin() || (isAdmin() && request.resource.data.role != 'super'));
       allow update: if
@@ -141,54 +189,71 @@ service cloud.firestore {
       allow delete: if false;
     }
 
-    // Public reader accounts. Anyone can view individual user profiles; listing is staff only.
+    // Private reader accounts. Public-safe identity fields live in publicProfiles.
     match /users/{userId} {
-      allow get: if true;
+      allow get: if isAuthenticated() && (request.auth.uid == userId || isStaff());
       allow list: if isStaff();
       allow create: if isAuthenticated() &&
         isHandleSystemReady() &&
         request.auth.uid == userId &&
         request.auth.token.email is string &&
         request.resource.data.keys().hasOnly([
-          'uid', 'email', 'displayName', 'photoURL', 'provider', 'handle', 'createdAt', 'updatedAt', 'lastIp'
+          'uid', 'email', 'displayName', 'photoURL', 'provider', 'handle', 'createdAt', 'updatedAt',
+          'termsAcceptedAt', 'termsVersion', 'guidelinesAcceptedAt', 'guidelinesVersion'
         ]) &&
         request.resource.data.uid == userId &&
         request.resource.data.email == request.auth.token.email &&
         request.resource.data.displayName is string &&
         request.resource.data.displayName.size() >= 2 &&
         request.resource.data.displayName.size() <= 80 &&
-        request.resource.data.photoURL is string &&
-        request.resource.data.photoURL.size() >= 1 &&
-        request.resource.data.photoURL.size() <= 1000 &&
+        isAllowedReaderPhoto(request.resource.data.photoURL) &&
         request.resource.data.provider in ['password', 'google.com'] &&
         request.resource.data.handle is string &&
         request.resource.data.handle.matches('^[a-z0-9_-]{3,20}$') &&
         canClaimHandle(request.resource.data.handle) &&
         request.resource.data.displayName == request.resource.data.handle &&
+        exists(/databases/$(database)/documents/riskAttestations/$(userId)) &&
+        get(/databases/$(database)/documents/riskAttestations/$(userId)).data.uid == userId &&
+        get(/databases/$(database)/documents/riskAttestations/$(userId)).data.verifiedAt >=
+          request.time - duration.value(15, 'm') &&
+        get(/databases/$(database)/documents/riskAttestations/$(userId)).data.expiresAt >= request.time &&
         existsAfter(/databases/$(database)/documents/handles/$(request.resource.data.handle)) &&
         getAfter(/databases/$(database)/documents/handles/$(request.resource.data.handle)).data.uid == userId &&
-        (!request.resource.data.keys().hasAny(['lastIp']) ||
-          !exists(/databases/$(database)/documents/bannedIps/$(request.resource.data.lastIp.lower().replace('[:.]', '_')))) &&
+        request.resource.data.termsAcceptedAt == request.time &&
+        request.resource.data.guidelinesAcceptedAt == request.time &&
+        request.resource.data.termsVersion is string &&
+        request.resource.data.guidelinesVersion is string &&
         request.resource.data.createdAt == request.time &&
         request.resource.data.updatedAt == request.time;
       allow update: if isAuthenticated() &&
         request.auth.uid == userId &&
         request.auth.token.email is string &&
         request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-          'email', 'displayName', 'photoURL', 'provider', 'handle', 'updatedAt', 'lastIp'
+          'email', 'displayName', 'photoURL', 'provider', 'handle', 'updatedAt',
+          'termsAcceptedAt', 'termsVersion', 'guidelinesAcceptedAt', 'guidelinesVersion'
         ]) &&
         request.resource.data.uid == resource.data.uid &&
         request.resource.data.email == request.auth.token.email &&
         request.resource.data.displayName is string &&
         request.resource.data.displayName.size() >= 2 &&
         request.resource.data.displayName.size() <= 80 &&
-        request.resource.data.photoURL is string &&
-        request.resource.data.photoURL.size() >= 1 &&
-        request.resource.data.photoURL.size() <= 1000 &&
+        isAllowedReaderPhoto(request.resource.data.photoURL) &&
         request.resource.data.provider in ['password', 'google.com'] &&
         request.resource.data.handle is string &&
-        (!request.resource.data.keys().hasAny(['lastIp']) ||
-          !exists(/databases/$(database)/documents/bannedIps/$(request.resource.data.lastIp.lower().replace('[:.]', '_')))) &&
+        ((resource.data.keys().hasAny(['termsAcceptedAt']) &&
+            request.resource.data.termsAcceptedAt == resource.data.termsAcceptedAt &&
+            request.resource.data.termsVersion == resource.data.termsVersion) ||
+          (!resource.data.keys().hasAny(['termsAcceptedAt']) &&
+            ((!request.resource.data.keys().hasAny(['termsAcceptedAt', 'termsVersion'])) ||
+              (request.resource.data.termsAcceptedAt == request.time &&
+                request.resource.data.termsVersion is string)))) &&
+        ((resource.data.keys().hasAny(['guidelinesAcceptedAt']) &&
+            request.resource.data.guidelinesAcceptedAt == resource.data.guidelinesAcceptedAt &&
+            request.resource.data.guidelinesVersion == resource.data.guidelinesVersion) ||
+          (!resource.data.keys().hasAny(['guidelinesAcceptedAt']) &&
+            ((!request.resource.data.keys().hasAny(['guidelinesAcceptedAt', 'guidelinesVersion'])) ||
+              (request.resource.data.guidelinesAcceptedAt == request.time &&
+                request.resource.data.guidelinesVersion is string)))) &&
         // A handle may be claimed once during onboarding. A non-empty handle
         // must remain unchanged for the lifetime of the reader account.
         (
@@ -218,9 +283,18 @@ service cloud.firestore {
       // Warnings: user can read their own warnings; staff with canModerate() can review & create warnings.
       match /warnings/{warningId} {
         allow read: if (isAuthenticated() && request.auth.uid == userId) || canModerate();
-        allow create: if canModerate();
-        allow update, delete: if isSuperAdmin() || isAdmin();
+        allow create, update, delete: if false;
       }
+    }
+
+    match /publicProfiles/{userId} {
+      allow get: if true;
+      allow list, create, update, delete: if false;
+    }
+
+    match /publicAuthors/{userId} {
+      allow read: if true;
+      allow create, update, delete: if false;
     }
 
     // Exact handles can be checked during authenticated onboarding, but the
@@ -258,8 +332,7 @@ service cloud.firestore {
       allow read: if resource.data.status == 'visible' ||
         isStaff() ||
         (isAuthenticated() && resource.data.authorId == request.auth.uid);
-      allow create: if isAuthenticated() &&
-        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+      allow create: if isActiveParticipant() &&
         exists(/databases/$(database)/documents/articles/$(request.resource.data.articleId)) &&
         get(/databases/$(database)/documents/articles/$(request.resource.data.articleId)).data.publish == true &&
         request.resource.data.keys().hasOnly([
@@ -287,7 +360,7 @@ service cloud.firestore {
           (request.resource.data.keys().hasAny(['imageUrl', 'images']) &&
             ((request.resource.data.keys().hasAny(['imageUrl']) && request.resource.data.imageUrl is string && request.resource.data.imageUrl.size() > 0) ||
              (request.resource.data.keys().hasAny(['images']) && request.resource.data.images is list && request.resource.data.images.size() > 0)))) &&
-        (!request.resource.data.keys().hasAny(['images']) || (request.resource.data.images is list && request.resource.data.images.size() <= 4)) &&
+        hasValidAttachments(request.resource.data) &&
         request.resource.data.status == 'visible' &&
         request.resource.data.edited == false &&
         (!request.resource.data.keys().hasAny(['likeCount']) ||
@@ -338,8 +411,7 @@ service cloud.firestore {
       allow read: if resource.data.status == 'visible' ||
         isStaff() ||
         (isAuthenticated() && resource.data.authorId == request.auth.uid);
-      allow create: if isAuthenticated() &&
-        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+      allow create: if isActiveParticipant() &&
         exists(/databases/$(database)/documents/comments/$(request.resource.data.parentCommentId)) &&
         get(/databases/$(database)/documents/comments/$(request.resource.data.parentCommentId)).data.status == 'visible' &&
         request.resource.data.keys().hasOnly([
@@ -368,7 +440,7 @@ service cloud.firestore {
           (request.resource.data.keys().hasAny(['imageUrl', 'images']) &&
             ((request.resource.data.keys().hasAny(['imageUrl']) && request.resource.data.imageUrl is string && request.resource.data.imageUrl.size() > 0) ||
              (request.resource.data.keys().hasAny(['images']) && request.resource.data.images is list && request.resource.data.images.size() > 0)))) &&
-        (!request.resource.data.keys().hasAny(['images']) || (request.resource.data.images is list && request.resource.data.images.size() <= 4)) &&
+        hasValidAttachments(request.resource.data) &&
         request.resource.data.status == 'visible' &&
         request.resource.data.edited == false &&
         request.resource.data.createdAt == request.time &&
@@ -445,22 +517,47 @@ service cloud.firestore {
     // User & Comment Reports: Any authenticated reader or staff can submit a report (cannot report self or team members).
     // Only Super Admins, Admins, and Moderators can read, review, and manage reports.
     match /reports/{reportId} {
-      allow create: if isAuthenticated() &&
-        request.resource.data.reporterId == request.auth.uid &&
-        request.resource.data.keys().hasAll(['reporterId', 'reportedUserId', 'reason', 'status', 'createdAt']) &&
-        request.resource.data.status == 'pending' &&
-        request.resource.data.reporterId != request.resource.data.reportedUserId &&
-        !exists(/databases/$(database)/documents/authors/$(request.resource.data.reportedUserId));
-      allow read, update: if canModerate();
+      allow create: if false;
+      allow read: if canModerate();
+      allow update: if canModerate() &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'status', 'resolutionNotes', 'resolvedBy', 'resolvedAt'
+        ]) &&
+        request.resource.data.status == 'dismissed' &&
+        request.resource.data.resolvedBy == request.auth.uid &&
+        request.resource.data.resolvedAt == request.time &&
+        request.resource.data.resolutionNotes is string &&
+        request.resource.data.resolutionNotes.size() <= 1000;
       allow delete: if isSuperAdmin() || isAdmin();
     }
 
-    // Banned IP Addresses: Anyone can check their IP ban status.
-    // Only Super Admins and Admins can create, update, or remove banned IPs.
-    // Moderators CANNOT perform IP bans or lift IP bans.
+    // Network and browser-installation risk records are server-only.
     match /bannedIps/{ipId} {
-      allow read: if true;
-      allow create, update, delete: if isSuperAdmin() || isAdmin();
+      allow read, create, update, delete: if false;
+    }
+
+    match /bannedDevices/{deviceHash} {
+      allow read, create, update, delete: if false;
+    }
+
+    match /bannedFingerprints/{fingerprintHash} {
+      allow read, create, update, delete: if false;
+    }
+
+    match /deviceIdentityRegistry/{deviceHash} {
+      allow read, create, update, delete: if false;
+    }
+
+    match /flaggedIps/{ipId} {
+      allow read, create, update, delete: if false;
+    }
+
+    match /rateLimits/{rateLimitId} {
+      allow read, create, update, delete: if false;
+    }
+
+    match /riskAttestations/{userId} {
+      allow read, create, update, delete: if false;
     }
   }
 }

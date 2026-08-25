@@ -45,7 +45,7 @@ export async function sanitizeAndCompressImage(
     (file instanceof File && /\.(heic|heif)$/i.test(file.name));
 
   // Strictly block SVG and non-whitelisted image types
-  if (!isHeic && !ALLOWED_IMAGE_TYPES.includes(type) && !type.startsWith("image/")) {
+  if (!isHeic && !ALLOWED_IMAGE_TYPES.includes(type)) {
     throw new Error(
       "Unsupported file format. Please upload a standard image (JPEG, PNG, WebP, GIF, AVIF, HEIC).",
     );
@@ -196,30 +196,34 @@ export async function uploadSanitizedCommentImage(
 }
 
 /**
- * Uploads multiple sanitized image blobs concurrently to Firebase Storage.
+ * Uploads multiple sanitized images and removes any partial upload on failure.
  */
 export async function uploadMultipleSanitizedImages(
   storageInstance: FirebaseStorage,
   userId: string,
   sanitizedImages: SanitizedImageResult[],
 ): Promise<CommentImageAttachment[]> {
-  const results = await Promise.all(
-    sanitizedImages.map(async (sanitized) => {
+  const results: CommentImageAttachment[] = [];
+  try {
+    for (const sanitized of sanitizedImages) {
       const { imageUrl, imageStoragePath } = await uploadSanitizedCommentImage(
         storageInstance,
         userId,
         sanitized,
       );
-      return {
+      results.push({
         url: imageUrl,
         storagePath: imageStoragePath,
         width: sanitized.width,
         height: sanitized.height,
         alt: sanitized.fileName,
-      };
-    }),
-  );
-  return results;
+      });
+    }
+    return results;
+  } catch (error) {
+    await deleteMultipleCommentImagesSafe(storageInstance, results);
+    throw error;
+  }
 }
 
 /**
