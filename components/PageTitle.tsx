@@ -18,7 +18,7 @@ export default function PageTitle({
         <img
           src={imgSrc}
           alt={imgAlt}
-          className="py-6 md:py-12 h-full w-full"
+          className="h-auto w-full py-6 md:py-12"
         />
       )}
     </div>

@@ -472,18 +472,18 @@ export default function AdminUsersPage() {
         >
           Users
         </PageTitle>
+      </div>
         <Button
           type="button"
           variant="outline"
           size="sm"
           onClick={syncPublicProfiles}
           disabled={syncingPublicProfiles}
-          className="border-white/20 text-xs"
+          className="border-white/20 text-xs mb-5"
         >
           <RefreshCw className={`mr-2 h-3.5 w-3.5 ${syncingPublicProfiles ? "animate-spin" : ""}`} />
           Sync Safe Public Profiles
         </Button>
-      </div>
 
       {publicProfileSyncMessage ? (
         <p className="mb-4 border-l-2 border-[#8a2ae3] pl-3 text-xs text-white/70">
