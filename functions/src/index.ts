@@ -92,7 +92,9 @@ const DEVICE_FINGERPRINT_PEPPER = defineSecret("DEVICE_FINGERPRINT_PEPPER");
 const ENFORCE_APP_CHECK = defineBoolean("ENFORCE_APP_CHECK", { default: false });
 const FINGERPRINT_KEY_VERSION = "v1";
 
-setGlobalOptions({ enforceAppCheck: ENFORCE_APP_CHECK.value() });
+// The runtime accepts Firebase parameter expressions here even though the
+// current TypeScript declaration still narrows this option to a plain boolean.
+setGlobalOptions({ enforceAppCheck: ENFORCE_APP_CHECK as unknown as boolean });
 
 function normalizeDeviceId(value: unknown) {
   const candidate = typeof value === "string" ? value.trim() : "";
@@ -2028,6 +2030,7 @@ async function deleteAccountData(uid: string, rejectPermanentBan = false) {
     });
 
     await mutateDocumentsInChunks(handles.docs, (batch, snapshot) => {
+      if (snapshot.data()?.status === "banned") return;
       batch.delete(snapshot.ref);
     });
     await mutateDocumentsInChunks(ownedReservations.docs, (batch, snapshot) => {
@@ -2439,10 +2442,7 @@ export const createTeamMember = onCall(
         imgAlt: optionalString(imgAlt) || `Profile picture of ${cleanName}`,
         biography: { body: "", summary: "" },
         slug: finalSlug,
-        socials:
-          typeof socials === "object" && socials !== null
-            ? socials
-            : {},
+        socials: sanitizePublicSocials(socials),
         createdAt: new Date().toISOString(),
         dateJoined: admin.firestore.FieldValue.serverTimestamp(),
       };
@@ -2911,7 +2911,7 @@ export const addExistingUserToTeam = onCall(
             ? biography
             : { body: userData.bio || "", summary: "" },
         slug: finalSlug,
-        socials: typeof socials === "object" && socials !== null ? socials : {},
+        socials: sanitizePublicSocials(socials),
         createdAt: userData.createdAt || new Date().toISOString(),
         dateJoined: admin.firestore.FieldValue.serverTimestamp(),
       };

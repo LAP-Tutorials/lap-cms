@@ -34,7 +34,7 @@ import {
   UserPlus,
   X,
 } from "lucide-react";
-import { generateSlugFromTitle, sanitizeUrl } from "@/lib/utils";
+import { generateSlugFromTitle, sanitizeHttpsHref } from "@/lib/utils";
 import { sanitizeAndCompressImage } from "@/lib/image-sanitizer";
 
 interface UserCandidate {
@@ -221,9 +221,19 @@ export default function AddExistingUserToTeamPage() {
       return;
     }
 
+    const safeLink = sanitizeHttpsHref(socialLink);
+    if (!safeLink) {
+      toast({
+        title: "Invalid link",
+        description: "Use a full HTTPS URL without a username or password.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     setSocials({
       ...socials,
-      [socialPlatform]: sanitizeUrl(socialLink),
+      [socialPlatform]: safeLink,
     });
 
     setSocialPlatform("");

@@ -29,52 +29,9 @@ service cloud.firestore {
       return isSuperAdmin() || isAdmin() || isModerator();
     }
 
-    function isActiveParticipant() {
-      return isAuthenticated() &&
-        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
-        (!get(/databases/$(database)/documents/users/$(request.auth.uid)).data.keys().hasAny(['status']) ||
-          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.status in ['active', 'warning'] ||
-          (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.status == 'suspended' &&
-            get(/databases/$(database)/documents/users/$(request.auth.uid)).data.suspendedUntil <= request.time)) &&
-        (!get(/databases/$(database)/documents/users/$(request.auth.uid)).data.keys().hasAny(['bannedAt'])) &&
-        (!get(/databases/$(database)/documents/users/$(request.auth.uid)).data.keys().hasAny(['suspendedUntil']) ||
-          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.suspendedUntil <= request.time);
-    }
-
     function isAllowedReaderPhoto(url) {
       return url is string && url.size() >= 1 && url.size() <= 1000 &&
         url.matches('^https://(firebasestorage\\.googleapis\\.com|([a-z0-9-]+\\.)?googleusercontent\\.com)/.*$');
-    }
-
-    function isValidAttachment(item) {
-      return item is map &&
-        item.keys().hasAll(['url', 'storagePath']) &&
-        item.keys().hasOnly(['url', 'storagePath', 'width', 'height', 'alt']) &&
-        item.url is string &&
-        item.url.matches('^https://firebasestorage\\.googleapis\\.com/.*$') &&
-        item.storagePath is string &&
-        item.storagePath.matches('^comments/' + request.auth.uid + '/[a-zA-Z0-9_-]+\\.(webp|jpg)$') &&
-        (!item.keys().hasAny(['width']) || (item.width is int && item.width > 0 && item.width <= 1600)) &&
-        (!item.keys().hasAny(['height']) || (item.height is int && item.height > 0 && item.height <= 1600)) &&
-        (!item.keys().hasAny(['alt']) || (item.alt is string && item.alt.size() <= 180));
-    }
-
-    function hasValidAttachments(data) {
-      return (!data.keys().hasAny(['images']) ||
-        (data.images is list && data.images.size() >= 1 && data.images.size() <= 4 &&
-          isValidAttachment(data.images[0]) &&
-          (data.images.size() < 2 || isValidAttachment(data.images[1])) &&
-          (data.images.size() < 3 || isValidAttachment(data.images[2])) &&
-          (data.images.size() < 4 || isValidAttachment(data.images[3])))) &&
-        (!data.keys().hasAny(['imageUrl']) ||
-          (data.imageUrl is string && data.imageUrl.matches('^https://firebasestorage\\.googleapis\\.com/.*$'))) &&
-        (!data.keys().hasAny(['imageStoragePath']) ||
-          (data.imageStoragePath is string &&
-            data.imageStoragePath.matches('^comments/' + request.auth.uid + '/[a-zA-Z0-9_-]+\\.(webp|jpg)$'))) &&
-        (!data.keys().hasAny(['imageUrl']) ||
-          (data.keys().hasAny(['images']) && data.imageUrl == data.images[0].url)) &&
-        (!data.keys().hasAny(['imageStoragePath']) ||
-          (data.keys().hasAny(['images']) && data.imageStoragePath == data.images[0].storagePath));
     }
 
     function handleReservationKey(handle) {

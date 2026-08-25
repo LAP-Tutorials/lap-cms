@@ -19,7 +19,7 @@ import {
   X,
   UserCircle,
 } from "lucide-react";
-import { generateSlugFromTitle, sanitizeUrl } from "@/lib/utils";
+import { generateSlugFromTitle, sanitizeHttpsHref, sanitizeUrl } from "@/lib/utils";
 
 export default function NewTeamMemberPage() {
   const [role, setRole] = useState("");
@@ -113,10 +113,19 @@ export default function NewTeamMemberPage() {
       });
       return;
     }
+    const safeLink = sanitizeHttpsHref(socialLink);
+    if (!safeLink) {
+      toast({
+        title: "Invalid link",
+        description: "Use a full HTTPS URL without a username or password.",
+        variant: "destructive",
+      });
+      return;
+    }
 
     setSocials({
       ...socials,
-      [socialPlatform]: socialLink,
+      [socialPlatform]: safeLink,
     });
 
     setSocialPlatform("");
@@ -481,7 +490,7 @@ export default function NewTeamMemberPage() {
                         {platform}
                       </span>
                       <a
-                        href={link}
+                        href={sanitizeHttpsHref(link) || undefined}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="text-sm text-white/60 hover:text-white truncate block max-w-xs"
