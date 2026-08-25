@@ -22,7 +22,7 @@ import {
   X,
   Camera,
 } from "lucide-react";
-import { sanitizeUrl } from "@/lib/utils";
+import { sanitizeHttpsHref, sanitizeSocialMap, sanitizeUrl } from "@/lib/utils";
 import { AvatarCropper } from "@/components/profile/avatar-cropper";
 
 interface Member {
@@ -164,7 +164,7 @@ export default function EditTeamMemberPage() {
         slug: member.slug,
         avatar: member.avatar,
         imgAlt: `${member.name} profile pic, a member of L.A.P`,
-        socials: socials,
+        socials: sanitizeSocialMap(socials),
         // Only super can change role
         ...(currentUserRole === "super" && {
           role: member.role,
@@ -246,10 +246,19 @@ export default function EditTeamMemberPage() {
       });
       return;
     }
+    const safeLink = sanitizeHttpsHref(socialLink);
+    if (!safeLink) {
+      toast({
+        title: "Invalid link",
+        description: "Use a full HTTPS URL without a username or password.",
+        variant: "destructive",
+      });
+      return;
+    }
 
     setSocials({
       ...socials,
-      [socialPlatform]: socialLink,
+      [socialPlatform]: safeLink,
     });
 
     setSocialPlatform("");
@@ -600,7 +609,7 @@ export default function EditTeamMemberPage() {
                         {platform}
                       </span>
                       <a
-                        href={link}
+                        href={sanitizeHttpsHref(link) || undefined}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="text-sm text-white/60 hover:text-white truncate block max-w-xs"

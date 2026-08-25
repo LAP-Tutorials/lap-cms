@@ -141,12 +141,12 @@ service firebase.storage {
 
     // Unknown/legacy namespaces are private. Administrators retain access for
     // migration and cleanup, but a narrow rule above is required for public content.
-    match /{allPaths=**} {
+    match /{topLevel}/{allPaths=**} {
       allow read: if isAdminUser();
       // Comment objects stay immutable for every client role. Administrators
       // can still remove them through the explicit moderation rule above.
       allow create, update, delete: if isAdminUser() &&
-        !allPaths.matches('^comments/.*');
+        topLevel != 'comments';
     }
   }
 }

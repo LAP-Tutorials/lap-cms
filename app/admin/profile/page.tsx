@@ -23,6 +23,7 @@ import { FcGoogle } from "react-icons/fc"
 import { AvatarCropper } from "@/components/profile/avatar-cropper"
 import { useAuth } from "@/lib/auth-context"
 import { logAuditActivity } from "@/lib/audit-logger"
+import { sanitizeHttpsHref, sanitizeSocialMap } from "@/lib/utils"
 
 interface ProfileData {
   avatar: string
@@ -202,7 +203,7 @@ export default function ProfilePage() {
         city: profile.city,
         job: profile.job,
         biography: profile.biography,
-        socials: profile.socials,
+        socials: sanitizeSocialMap(profile.socials),
       })
 
       logAuditActivity({
@@ -369,12 +370,21 @@ export default function ProfilePage() {
       })
       return
     }
+    const safeLink = sanitizeHttpsHref(socialLink)
+    if (!safeLink) {
+      toast({
+        title: "Invalid link",
+        description: "Use a full HTTPS URL without a username or password.",
+        variant: "destructive",
+      })
+      return
+    }
 
     setProfile({
       ...profile,
       socials: {
         ...profile.socials,
-        [socialPlatform]: socialLink,
+        [socialPlatform]: safeLink,
       },
     })
 
@@ -736,7 +746,7 @@ export default function ProfilePage() {
                         {platform}
                       </span>
                       <a
-                        href={link as string}
+                        href={sanitizeHttpsHref(link as string) || undefined}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="text-sm text-white/60 hover:text-white truncate block"
