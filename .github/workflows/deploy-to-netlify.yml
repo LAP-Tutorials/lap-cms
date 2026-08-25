@@ -15,6 +15,7 @@ jobs:
     environment: production
     env:
       NEXT_PUBLIC_FIREBASE_API_KEY: ${{ secrets.NEXT_PUBLIC_FIREBASE_API_KEY }}
+      NEXT_PUBLIC_FIREBASE_APP_CHECK_SITE_KEY: ${{ secrets.NEXT_PUBLIC_FIREBASE_APP_CHECK_SITE_KEY }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4

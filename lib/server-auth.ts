@@ -1,6 +1,6 @@
 import "server-only";
 
-const CONTENT_STAFF_ROLES = new Set(["author", "admin", "super"]);
+const ANALYTICS_ROLES = new Set(["admin", "super"]);
 
 type ContentStaffAuthResult =
   | { ok: true; uid: string }
@@ -40,7 +40,10 @@ export async function verifyContentStaffRequest(
     `https://firestore.googleapis.com/v1/projects/${encodeURIComponent(
       projectId,
     )}/databases/(default)/documents/authors/${encodeURIComponent(uid)}?key=${encodeURIComponent(apiKey)}`,
-    { cache: "no-store" },
+    {
+      headers: { Authorization: `Bearer ${idToken}` },
+      cache: "no-store",
+    },
   );
   if (!authorResponse.ok) return { ok: false, status: 403 };
 
@@ -48,7 +51,7 @@ export async function verifyContentStaffRequest(
     fields?: { role?: { stringValue?: string } };
   };
   const role = author.fields?.role?.stringValue || "";
-  return CONTENT_STAFF_ROLES.has(role)
+  return ANALYTICS_ROLES.has(role)
     ? { ok: true, uid }
     : { ok: false, status: 403 };
 }

@@ -1,4 +1,6 @@
 import { ref, uploadBytes, getDownloadURL, deleteObject, type FirebaseStorage } from "firebase/storage";
+import { httpsCallable } from "firebase/functions";
+import { functions } from "@/lib/firebase";
 
 export const ALLOWED_IMAGE_TYPES = [
   "image/jpeg",
@@ -173,13 +175,11 @@ export interface CommentImageAttachment {
  */
 export async function uploadSanitizedCommentImage(
   storageInstance: FirebaseStorage,
-  userId: string,
+  _userId: string,
   sanitized: SanitizedImageResult,
+  reservedStoragePath: string,
 ): Promise<{ imageUrl: string; imageStoragePath: string }> {
-  const timestamp = Date.now();
-  const random = Math.random().toString(36).slice(2, 9);
-  const ext = sanitized.contentType === "image/webp" ? "webp" : "jpg";
-  const imageStoragePath = `comments/${userId}/${timestamp}_${random}.${ext}`;
+  const imageStoragePath = reservedStoragePath;
 
   const storageRef = ref(storageInstance, imageStoragePath);
   await uploadBytes(storageRef, sanitized.blob, {
@@ -205,11 +205,25 @@ export async function uploadMultipleSanitizedImages(
 ): Promise<CommentImageAttachment[]> {
   const results: CommentImageAttachment[] = [];
   try {
-    for (const sanitized of sanitizedImages) {
+    const reserveUploads = httpsCallable<
+      { extensions: string[] },
+      { storagePaths: string[] }
+    >(functions, "reserveCommentUploads");
+    const reservation = await reserveUploads({
+      extensions: sanitizedImages.map((image) =>
+        image.contentType === "image/webp" ? "webp" : "jpg"
+      ),
+    });
+    if (reservation.data.storagePaths.length !== sanitizedImages.length) {
+      throw new Error("The server returned an invalid upload reservation.");
+    }
+    for (let index = 0; index < sanitizedImages.length; index += 1) {
+      const sanitized = sanitizedImages[index];
       const { imageUrl, imageStoragePath } = await uploadSanitizedCommentImage(
         storageInstance,
         userId,
         sanitized,
+        reservation.data.storagePaths[index],
       );
       results.push({
         url: imageUrl,

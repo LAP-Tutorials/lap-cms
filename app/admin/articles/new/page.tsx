@@ -56,6 +56,7 @@ export default function NewArticlePage() {
   const [slug, setSlug] = useState("");
   const [scheduledDate, setScheduledDate] = useState("");
   const [creating, setCreating] = useState(false);
+  const [draftReady, setDraftReady] = useState(false);
   const [isPublished, setIsPublished] = useState(false);
   const [previewHtml, setPreviewHtml] = useState("");
   const contentRef = useRef<HTMLTextAreaElement>(null!);
@@ -95,6 +96,14 @@ export default function NewArticlePage() {
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop: async (acceptedFiles) => {
       if (acceptedFiles.length === 0) return;
+      if (!draftReady) {
+        toast({
+          title: "Save the draft first",
+          description: "Enter a title, content, and slug, then wait for autosave before uploading assets.",
+          variant: "destructive",
+        });
+        return;
+      }
       const file = acceptedFiles[0];
       try {
         toast({ title: "Processing thumbnail...", variant: "default" });
@@ -395,6 +404,7 @@ export default function NewArticlePage() {
         await setDoc(doc(db, "articles", articleId), articleData, {
           merge: true,
         });
+        setDraftReady(true);
 
         if (isManual) {
           logAuditActivity({
@@ -578,7 +588,13 @@ export default function NewArticlePage() {
             </TabsContent>
             <TabsContent value="assets" className="mt-0">
               <div className="border border-white/20 rounded-b-lg p-4 min-h-[600px] bg-[#0d0d0d]">
-                <AssetManager rootPath={`Articles/${articleId}`} />
+                {draftReady ? (
+                  <AssetManager rootPath={`Articles/${articleId}`} />
+                ) : (
+                  <p className="border border-white/15 bg-white/[0.03] p-4 text-sm text-white/60">
+                    Add a title, content, and slug. Article assets become available after the first autosave.
+                  </p>
+                )}
               </div>
             </TabsContent>
           </Tabs>

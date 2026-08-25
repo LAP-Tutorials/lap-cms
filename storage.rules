@@ -20,6 +20,32 @@ service firebase.storage {
         firestore.get(/databases/(default)/documents/authors/$(request.auth.uid)).data.role in ['moderator', 'admin', 'super'];
     }
 
+    function isStaffUser() {
+      return request.auth != null &&
+        firestore.exists(/databases/(default)/documents/authors/$(request.auth.uid)) &&
+        firestore.get(/databases/(default)/documents/authors/$(request.auth.uid)).data.role in ['author', 'moderator', 'admin', 'super'];
+    }
+
+    function isActiveReaderAccount() {
+      return request.auth != null &&
+        firestore.exists(/databases/(default)/documents/users/$(request.auth.uid)) &&
+        (!firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.keys().hasAny(['status']) ||
+          firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.status in ['active', 'warning'] ||
+          (firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.status == 'suspended' &&
+            firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.suspendedUntil <= request.time)) &&
+        !firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.keys().hasAny(['bannedAt']) &&
+        (!firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.keys().hasAny(['suspendedUntil']) ||
+          firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.suspendedUntil <= request.time);
+    }
+
+    // A newly authenticated reader may choose an avatar before the users doc
+    // is created. Banned accounts keep their users doc, so this cannot bypass
+    // active-account enforcement for an existing reader.
+    function canCreateOwnReaderProfile() {
+      return request.auth != null &&
+        !firestore.exists(/databases/(default)/documents/users/$(request.auth.uid));
+    }
+
     function canManageArticle(articleId) {
       return isAdminUser() ||
         (isCmsUser() &&
@@ -27,10 +53,16 @@ service firebase.storage {
           firestore.get(/databases/(default)/documents/articles/$(articleId)).data.authorUID == request.auth.uid);
     }
 
+    function isPublishedArticle(articleId) {
+      return firestore.exists(/databases/(default)/documents/articles/$(articleId)) &&
+        firestore.get(/databases/(default)/documents/articles/$(articleId)).data.publish == true;
+    }
+
     match /users/{userId}/profile/{fileName} {
-      allow get: if true;
+      allow get: if fileName == 'avatar';
       allow create, update: if request.auth != null &&
         request.auth.uid == userId &&
+        (isActiveReaderAccount() || canCreateOwnReaderProfile()) &&
         fileName == 'avatar' &&
         request.resource.size <= 5 * 1024 * 1024 &&
         request.resource.contentType.matches('image/(jpeg|png|webp)');
@@ -55,14 +87,30 @@ service firebase.storage {
       ) || isAdminUser();
     }
 
-    // Comment and reply attachments: clean sanitized images uploaded by the authenticated author.
+    // Legacy flat attachment paths remain readable/deletable but cannot receive
+    // new objects. New uploads require a short-lived server reservation.
     match /comments/{userId}/{fileName} {
       allow get: if true;
-      allow create, update: if request.auth != null &&
+      allow create, update: if false;
+      allow delete: if (request.auth != null && request.auth.uid == userId) || canModerate();
+    }
+
+    match /comments/{userId}/{reservationId}/{fileName} {
+      allow get: if true;
+      allow create: if request.auth != null &&
         request.auth.uid == userId &&
-        fileName.matches('[a-zA-Z0-9_-]{1,128}\\.(webp|jpg)') &&
+        (isActiveReaderAccount() || isStaffUser()) &&
+        reservationId.matches('[a-zA-Z0-9_-]{20,64}') &&
+        fileName.matches('[0-3]\\.(webp|jpg)') &&
+        firestore.exists(/databases/(default)/documents/commentUploadReservations/$(reservationId)) &&
+        firestore.get(/databases/(default)/documents/commentUploadReservations/$(reservationId)).data.uid == userId &&
+        firestore.get(/databases/(default)/documents/commentUploadReservations/$(reservationId)).data.expiresAt >= request.time &&
+        fileName in firestore.get(/databases/(default)/documents/commentUploadReservations/$(reservationId)).data.fileNames &&
         request.resource.size <= 2 * 1024 * 1024 &&
         request.resource.contentType.matches('image/(webp|jpeg)');
+      // Attachment objects are content-addressed by a random name. Edits must
+      // create a new object so one comment cannot silently replace another's image.
+      allow update: if false;
       allow delete: if (request.auth != null && request.auth.uid == userId) || canModerate();
     }
 
@@ -78,17 +126,27 @@ service firebase.storage {
     // Authors can manage article-scoped assets; other bucket areas are
     // reserved for admins. Public pages may fetch objects but cannot enumerate.
     match /Articles/{articleId}/{allPaths=**} {
-      allow get: if true;
+      allow get: if isPublishedArticle(articleId) || canManageArticle(articleId);
       allow list: if canManageArticle(articleId);
       allow create, update: if canManageArticle(articleId) &&
         request.resource.size <= 25 * 1024 * 1024;
       allow delete: if canManageArticle(articleId);
     }
 
+    // Capability-signed download URLs are generated server-side for these ZIPs.
+    // Do not grant anonymous reads: the signed URL remains the only public access path.
+    match /temp_downloads/{fileName} {
+      allow read, write: if isAdminUser();
+    }
+
+    // Unknown/legacy namespaces are private. Administrators retain access for
+    // migration and cleanup, but a narrow rule above is required for public content.
     match /{allPaths=**} {
-      allow get: if true;
-      allow list: if isAdminUser();
-      allow create, update, delete: if isAdminUser();
+      allow read: if isAdminUser();
+      // Comment objects stay immutable for every client role. Administrators
+      // can still remove them through the explicit moderation rule above.
+      allow create, update, delete: if isAdminUser() &&
+        !allPaths.matches('^comments/.*');
     }
   }
 }

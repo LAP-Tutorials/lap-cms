@@ -2,6 +2,7 @@ import { initializeApp } from "firebase/app";
 import { getAuth } from "firebase/auth";
 import { getStorage } from "firebase/storage";
 import { getFunctions } from "firebase/functions";
+import { initializeAppCheck, ReCaptchaEnterpriseProvider } from "firebase/app-check";
 import {
   getFirestore,
   enableMultiTabIndexedDbPersistence,
@@ -20,6 +21,14 @@ const firebaseConfig = {
 };
 
 const app = initializeApp(firebaseConfig);
+if (typeof window !== "undefined" && process.env.NEXT_PUBLIC_FIREBASE_APP_CHECK_SITE_KEY) {
+  initializeAppCheck(app, {
+    provider: new ReCaptchaEnterpriseProvider(
+      process.env.NEXT_PUBLIC_FIREBASE_APP_CHECK_SITE_KEY,
+    ),
+    isTokenAutoRefreshEnabled: true,
+  });
+}
 
 // Initialize and export auth and storage
 export const auth = getAuth(app);

@@ -176,11 +176,14 @@ service cloud.firestore {
       allow create: if request.resource.data.uid == userId &&
         (isSuperAdmin() || (isAdmin() && request.resource.data.role != 'super'));
       allow update: if
-        !request.resource.data.diff(resource.data).affectedKeys().hasAny(['handle']) &&
+        resource.data.uid == userId &&
+        request.resource.data.uid == userId &&
+        !request.resource.data.diff(resource.data).affectedKeys().hasAny(['uid', 'handle']) &&
         (isSuperAdmin() ||
-          (isAdmin() && resource.data.role != 'super' && request.resource.data.role != 'super') ||
+          (isAdmin() &&
+            resource.data.role != 'super' &&
+            request.resource.data.role == resource.data.role) ||
           (isAuthenticated() && request.auth.uid == userId &&
-            request.resource.data.uid == resource.data.uid &&
             request.resource.data.role == resource.data.role &&
             request.resource.data.diff(resource.data).affectedKeys().hasOnly([
               'avatar', 'name', 'city', 'job', 'biography', 'socials'
@@ -191,8 +194,8 @@ service cloud.firestore {
 
     // Private reader accounts. Public-safe identity fields live in publicProfiles.
     match /users/{userId} {
-      allow get: if isAuthenticated() && (request.auth.uid == userId || isStaff());
-      allow list: if isStaff();
+      allow get: if isAuthenticated() && (request.auth.uid == userId || canModerate());
+      allow list: if canModerate();
       allow create: if isAuthenticated() &&
         isHandleSystemReady() &&
         request.auth.uid == userId &&
@@ -329,48 +332,13 @@ service cloud.firestore {
     // Comments are publicly readable when visible. Owners can edit their own
     // text, while CMS staff can hide, restore, or delete according to role hierarchy.
     match /comments/{commentId} {
-      allow read: if resource.data.status == 'visible' ||
+      allow read: if (resource.data.status == 'visible' &&
+          exists(/databases/$(database)/documents/articles/$(resource.data.articleId)) &&
+          get(/databases/$(database)/documents/articles/$(resource.data.articleId)).data.publish == true) ||
         isStaff() ||
         (isAuthenticated() && resource.data.authorId == request.auth.uid);
-      allow create: if isActiveParticipant() &&
-        exists(/databases/$(database)/documents/articles/$(request.resource.data.articleId)) &&
-        get(/databases/$(database)/documents/articles/$(request.resource.data.articleId)).data.publish == true &&
-        request.resource.data.keys().hasOnly([
-          'articleId', 'articleSlug', 'articleTitle', 'authorId', 'authorName',
-          'authorHandle', 'authorPhotoURL', 'content', 'imageUrl', 'imageStoragePath',
-          'imageWidth', 'imageHeight', 'images', 'status', 'createdAt', 'updatedAt', 'edited',
-          'likeCount', 'dislikeCount', 'replyCount'
-        ]) &&
-        request.resource.data.authorId == request.auth.uid &&
-        request.resource.data.authorName ==
-          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.displayName &&
-        request.resource.data.authorHandle ==
-          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.handle &&
-        request.resource.data.authorHandle.matches('^[a-z0-9_-]{3,20}$') &&
-        request.resource.data.authorPhotoURL ==
-          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.photoURL &&
-        request.resource.data.articleId is string &&
-        request.resource.data.articleSlug ==
-          get(/databases/$(database)/documents/articles/$(request.resource.data.articleId)).data.slug &&
-        request.resource.data.articleTitle ==
-          get(/databases/$(database)/documents/articles/$(request.resource.data.articleId)).data.title &&
-        request.resource.data.content is string &&
-        request.resource.data.content.size() <= 2000 &&
-        (request.resource.data.content.size() >= 1 ||
-          (request.resource.data.keys().hasAny(['imageUrl', 'images']) &&
-            ((request.resource.data.keys().hasAny(['imageUrl']) && request.resource.data.imageUrl is string && request.resource.data.imageUrl.size() > 0) ||
-             (request.resource.data.keys().hasAny(['images']) && request.resource.data.images is list && request.resource.data.images.size() > 0)))) &&
-        hasValidAttachments(request.resource.data) &&
-        request.resource.data.status == 'visible' &&
-        request.resource.data.edited == false &&
-        (!request.resource.data.keys().hasAny(['likeCount']) ||
-          request.resource.data.likeCount == 0) &&
-        (!request.resource.data.keys().hasAny(['dislikeCount']) ||
-          request.resource.data.dislikeCount == 0) &&
-        (!request.resource.data.keys().hasAny(['replyCount']) ||
-          request.resource.data.replyCount == 0) &&
-        request.resource.data.createdAt == request.time &&
-        request.resource.data.updatedAt == request.time;
+      // Creation is rate-limited and identity-bound by createComment.
+      allow create: if false;
       allow update: if (
         isAuthenticated() &&
         resource.data.authorId == request.auth.uid &&
@@ -391,11 +359,6 @@ service cloud.firestore {
         request.resource.data.status in ['visible', 'hidden'] &&
         request.resource.data.moderatedAt == request.time &&
         request.resource.data.moderatedBy == request.auth.uid
-      ) || (
-        isAdmin() &&
-        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-          'pinned', 'pinnedAt', 'pinnedBy'
-        ])
       );
       allow delete: if (isAuthenticated() && resource.data.authorId == request.auth.uid) ||
         isSuperAdmin() ||
@@ -408,43 +371,13 @@ service cloud.firestore {
     // One-level public replies. Owners control their own text; CMS staff
     // control visibility and deletion according to role hierarchy.
     match /commentReplies/{replyId} {
-      allow read: if resource.data.status == 'visible' ||
+      allow read: if (resource.data.status == 'visible' &&
+          exists(/databases/$(database)/documents/articles/$(resource.data.articleId)) &&
+          get(/databases/$(database)/documents/articles/$(resource.data.articleId)).data.publish == true) ||
         isStaff() ||
         (isAuthenticated() && resource.data.authorId == request.auth.uid);
-      allow create: if isActiveParticipant() &&
-        exists(/databases/$(database)/documents/comments/$(request.resource.data.parentCommentId)) &&
-        get(/databases/$(database)/documents/comments/$(request.resource.data.parentCommentId)).data.status == 'visible' &&
-        request.resource.data.keys().hasOnly([
-          'parentCommentId', 'articleId', 'articleSlug', 'articleTitle',
-          'authorId', 'authorName', 'authorHandle', 'authorPhotoURL',
-          'content', 'imageUrl', 'imageStoragePath', 'imageWidth', 'imageHeight', 'images',
-          'status', 'createdAt', 'updatedAt', 'edited'
-        ]) &&
-        request.resource.data.parentCommentId is string &&
-        request.resource.data.articleId ==
-          get(/databases/$(database)/documents/comments/$(request.resource.data.parentCommentId)).data.articleId &&
-        request.resource.data.articleSlug ==
-          get(/databases/$(database)/documents/comments/$(request.resource.data.parentCommentId)).data.articleSlug &&
-        request.resource.data.articleTitle ==
-          get(/databases/$(database)/documents/comments/$(request.resource.data.parentCommentId)).data.articleTitle &&
-        request.resource.data.authorId == request.auth.uid &&
-        request.resource.data.authorName ==
-          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.displayName &&
-        request.resource.data.authorHandle ==
-          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.handle &&
-        request.resource.data.authorPhotoURL ==
-          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.photoURL &&
-        request.resource.data.content is string &&
-        request.resource.data.content.size() <= 2000 &&
-        (request.resource.data.content.size() >= 1 ||
-          (request.resource.data.keys().hasAny(['imageUrl', 'images']) &&
-            ((request.resource.data.keys().hasAny(['imageUrl']) && request.resource.data.imageUrl is string && request.resource.data.imageUrl.size() > 0) ||
-             (request.resource.data.keys().hasAny(['images']) && request.resource.data.images is list && request.resource.data.images.size() > 0)))) &&
-        hasValidAttachments(request.resource.data) &&
-        request.resource.data.status == 'visible' &&
-        request.resource.data.edited == false &&
-        request.resource.data.createdAt == request.time &&
-        request.resource.data.updatedAt == request.time;
+      // Creation is rate-limited and identity-bound by createCommentReply.
+      allow create: if false;
       allow update: if (
         isAuthenticated() &&
         resource.data.authorId == request.auth.uid &&
@@ -466,11 +399,7 @@ service cloud.firestore {
         request.resource.data.moderatedAt == request.time &&
         request.resource.data.moderatedBy == request.auth.uid
       );
-      allow delete: if (isAuthenticated() && (
-          resource.data.authorId == request.auth.uid ||
-          (exists(/databases/$(database)/documents/comments/$(resource.data.parentCommentId)) &&
-            get(/databases/$(database)/documents/comments/$(resource.data.parentCommentId)).data.authorId == request.auth.uid)
-        )) ||
+      allow delete: if (isAuthenticated() && resource.data.authorId == request.auth.uid) ||
         isSuperAdmin() ||
         (isAdmin() && (!exists(/databases/$(database)/documents/authors/$(resource.data.authorId)) ||
           get(/databases/$(database)/documents/authors/$(resource.data.authorId)).data.role != 'super')) ||
@@ -503,15 +432,11 @@ service cloud.firestore {
       allow read: if isCmsUser();
     }
 
-    // Activity Audit Logs: Super Admins can read all logs. Staff can append logs for their own actions.
-    // Logs are immutable (updates and deletes are forbidden).
+    // Activity Audit Logs: Super Admins can read all logs. Client-created records are
+    // immutable and their critical actor identity must match authenticated staff data.
     match /auditLogs/{logId} {
       allow read: if isSuperAdmin();
-      allow create: if isStaff() &&
-        request.resource.data.actorUid == request.auth.uid &&
-        request.resource.data.keys().hasAll(['actorUid', 'action', 'category', 'details', 'timestamp']) &&
-        request.resource.data.timestamp == request.time;
-      allow update, delete: if false;
+      allow create, update, delete: if false;
     }
 
     // User & Comment Reports: Any authenticated reader or staff can submit a report (cannot report self or team members).
@@ -519,15 +444,7 @@ service cloud.firestore {
     match /reports/{reportId} {
       allow create: if false;
       allow read: if canModerate();
-      allow update: if canModerate() &&
-        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-          'status', 'resolutionNotes', 'resolvedBy', 'resolvedAt'
-        ]) &&
-        request.resource.data.status == 'dismissed' &&
-        request.resource.data.resolvedBy == request.auth.uid &&
-        request.resource.data.resolvedAt == request.time &&
-        request.resource.data.resolutionNotes is string &&
-        request.resource.data.resolutionNotes.size() <= 1000;
+      allow update: if false;
       allow delete: if isSuperAdmin() || isAdmin();
     }
 
@@ -552,11 +469,26 @@ service cloud.firestore {
       allow read, create, update, delete: if false;
     }
 
+    // Durable risk observations are written only by trusted Cloud Functions.
+    // Moderators receive a private notification rather than direct access to
+    // raw device, fingerprint, or network identifiers.
+    match /riskAlerts/{alertId} {
+      allow read, create, update, delete: if false;
+    }
+
     match /rateLimits/{rateLimitId} {
       allow read, create, update, delete: if false;
     }
 
     match /riskAttestations/{userId} {
+      allow read, create, update, delete: if false;
+    }
+
+    match /commentAttachmentClaims/{claimId} {
+      allow read, create, update, delete: if false;
+    }
+
+    match /commentUploadReservations/{reservationId} {
       allow read, create, update, delete: if false;
     }
   }

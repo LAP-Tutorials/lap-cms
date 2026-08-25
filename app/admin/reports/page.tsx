@@ -412,24 +412,11 @@ export default function ReportsManagementPage() {
     setSuccessMessage("")
 
     try {
-      await updateDoc(doc(db, "reports", selectedReport.id), {
-        status: "dismissed",
-        resolutionNotes: dismissNotes || "Dismissed by staff review",
-        resolvedBy: user.uid,
-        resolvedAt: serverTimestamp(),
-      })
-
-      logAuditActivity({
-        action: "report.dismiss",
-        category: "comments",
-        details: `Dismissed report against @${selectedReport.reportedUserHandle} (${selectedReport.reasonLabel})`,
-        targetId: selectedReport.id,
-        targetTitle: `Report: @${selectedReport.reportedUserHandle}`,
-        metadata: {
-          reportedUserId: selectedReport.reportedUserId,
-          reportedUserHandle: selectedReport.reportedUserHandle,
-          dismissNotes,
-        },
+      const resolveReport = httpsCallable(functions, "resolveReport")
+      await resolveReport({
+        reportId: selectedReport.id,
+        action: "dismiss",
+        notes: dismissNotes || "Dismissed by staff review",
       })
 
       setSuccessMessage(`Report against @${selectedReport.reportedUserHandle} dismissed.`)

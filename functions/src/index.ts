@@ -1,15 +1,17 @@
 import { onSchedule } from "firebase-functions/v2/scheduler";
+import { setGlobalOptions } from "firebase-functions/v2";
 import { onCall, HttpsError } from "firebase-functions/v2/https";
 import {
   onDocumentCreated,
   onDocumentDeleted,
   onDocumentWritten,
+  onDocumentWrittenWithAuthContext,
 } from "firebase-functions/v2/firestore";
 import * as logger from "firebase-functions/logger";
 import * as admin from "firebase-admin";
 import { createHash, createHmac, randomBytes } from "node:crypto";
 import { isIP } from "node:net";
-import { defineSecret } from "firebase-functions/params";
+import { defineBoolean, defineSecret } from "firebase-functions/params";
 import { BetaAnalyticsDataClient } from "@google-analytics/data";
 import * as JSZip from "jszip";
 // import { google } from "googleapis";
@@ -87,6 +89,10 @@ const REPORT_REASONS = new Set([
   "other",
 ]);
 const DEVICE_FINGERPRINT_PEPPER = defineSecret("DEVICE_FINGERPRINT_PEPPER");
+const ENFORCE_APP_CHECK = defineBoolean("ENFORCE_APP_CHECK", { default: false });
+const FINGERPRINT_KEY_VERSION = "v1";
+
+setGlobalOptions({ enforceAppCheck: ENFORCE_APP_CHECK.value() });
 
 function normalizeDeviceId(value: unknown) {
   const candidate = typeof value === "string" ? value.trim() : "";
@@ -144,6 +150,7 @@ function getRequestIp(rawRequest: { ip?: string; headers?: Record<string, unknow
 
 function isAccountAllowedToParticipate(data: admin.firestore.DocumentData | undefined) {
   if (!data) return false;
+  if (data.status === "banned" || data.bannedAt != null) return false;
   const suspendedUntil = data.suspendedUntil;
   const suspensionActive =
     suspendedUntil instanceof admin.firestore.Timestamp &&
@@ -151,6 +158,22 @@ function isAccountAllowedToParticipate(data: admin.firestore.DocumentData | unde
   if (suspensionActive) return false;
   return ACTIVE_ACCOUNT_STATUSES.has(data.status || "active") ||
     (data.status === "suspended" && suspendedUntil instanceof admin.firestore.Timestamp);
+}
+
+function isActiveReaderAccount(data: admin.firestore.DocumentData | undefined) {
+  return Boolean(
+    data &&
+    data.status !== "banned" &&
+    data.bannedAt == null &&
+    ACTIVE_ACCOUNT_STATUSES.has(data.status || "active")
+  );
+}
+
+function isEligibleReaderForTeam(data: admin.firestore.DocumentData | undefined) {
+  return Boolean(
+    isActiveReaderAccount(data) &&
+    !(typeof data?.staffRole === "string" && data.staffRole.length > 0)
+  );
 }
 
 function safePublicProfile(data: admin.firestore.DocumentData | undefined) {
@@ -164,6 +187,28 @@ function safePublicProfile(data: admin.firestore.DocumentData | undefined) {
   };
 }
 
+function sanitizePublicSocials(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  const result: Record<string, string> = {};
+  for (const [rawKey, rawValue] of Object.entries(value).slice(0, 12)) {
+    const key = rawKey.trim().toLowerCase();
+    if (!/^[a-z0-9_-]{1,32}$/.test(key) || typeof rawValue !== "string") continue;
+    try {
+      const parsed = new URL(rawValue.trim());
+      if (parsed.protocol === "https:" && parsed.username === "" && parsed.password === "") {
+        result[key] = parsed.toString().slice(0, 1000);
+      }
+    } catch {
+      // Invalid and non-HTTPS social links are intentionally omitted publicly.
+    }
+  }
+  return result;
+}
+
+function shouldPublishAuthor(data: admin.firestore.DocumentData | undefined) {
+  return Boolean(data && data.showOnTeam !== false && data.role !== "moderator");
+}
+
 function safePublicAuthor(data: admin.firestore.DocumentData | undefined, uid: string) {
   const publicKeys = [
     "name", "job", "city", "avatar", "imgAlt", "imageAlt", "slug",
@@ -174,6 +219,7 @@ function safePublicAuthor(data: admin.firestore.DocumentData | undefined, uid: s
   for (const key of publicKeys) {
     if (data?.[key] !== undefined) profile[key] = data[key];
   }
+  profile.socials = sanitizePublicSocials(data?.socials);
   profile.updatedAt = admin.firestore.FieldValue.serverTimestamp();
   return profile;
 }
@@ -229,7 +275,7 @@ export const syncPublicReaderProfile = onDocumentWritten(
         if ((error as { code?: number }).code !== 5) throw error;
       });
     }
-    if (data.status === "banned") {
+    if (data.status === "banned" || data.bannedAt != null) {
       await publicRef.set({
         uid: event.params.userId,
         displayName: "Unavailable user",
@@ -255,7 +301,14 @@ export const syncPublicAuthorProfile = onDocumentWritten(
       });
       return;
     }
-    await publicRef.set(safePublicAuthor(after.data(), event.params.userId));
+    const data = after.data();
+    if (!shouldPublishAuthor(data)) {
+      await publicRef.delete().catch((error) => {
+        if ((error as { code?: number }).code !== 5) throw error;
+      });
+      return;
+    }
+    await publicRef.set(safePublicAuthor(data, event.params.userId));
   }
 );
 
@@ -268,13 +321,14 @@ export const issueDeviceIdentity = onCall(
     if (clientIp) {
       await enforceRateLimit(
         `device_issue_${hashDeviceId(clientIp)}`,
-        100,
+        1000,
         60 * 60_000,
         "Too many browser identities were requested from this network. Please try again later."
       );
     }
     await getDb().collection("deviceIdentityRegistry").doc(deviceHash).create({
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      expiresAt: admin.firestore.Timestamp.fromMillis(Date.now() + 90 * 24 * 60 * 60_000),
       ...(clientIp ? { issuedNetworkHash: hashDeviceId(clientIp) } : {}),
     });
     return { deviceId };
@@ -298,7 +352,7 @@ export const backfillPublicProfiles = onCall(
       users.docs.slice(offset, offset + 400).forEach((snapshot) => {
         const data = snapshot.data();
         const publicRef = getDb().collection("publicProfiles").doc(snapshot.id);
-        batch.set(publicRef, data.status === "banned"
+        batch.set(publicRef, data.status === "banned" || data.bannedAt != null
           ? {
               uid: snapshot.id,
               displayName: "Unavailable user",
@@ -314,16 +368,357 @@ export const backfillPublicProfiles = onCall(
     for (let offset = 0; offset < authors.docs.length; offset += 400) {
       const batch = getDb().batch();
       authors.docs.slice(offset, offset + 400).forEach((snapshot) => {
-        batch.set(
-          getDb().collection("publicAuthors").doc(snapshot.id),
-          safePublicAuthor(snapshot.data(), snapshot.id)
-        );
+        const publicRef = getDb().collection("publicAuthors").doc(snapshot.id);
+        if (shouldPublishAuthor(snapshot.data())) {
+          batch.set(publicRef, safePublicAuthor(snapshot.data(), snapshot.id));
+        } else {
+          batch.delete(publicRef);
+        }
       });
       await batch.commit();
     }
     return { updatedReaders: users.size, updatedAuthors: authors.size };
   }
 );
+
+type BanSignalCollection = "bannedDevices" | "bannedFingerprints";
+
+type BanSignalAssociation = {
+  targetUid: string;
+  targetHandle: string;
+  reason: string;
+  blockedBy: string;
+  label?: string;
+  blockedAt: admin.firestore.Timestamp;
+};
+
+function getActiveBanTargetUids(
+  data: admin.firestore.DocumentData | undefined
+) {
+  const targetUids = new Set<string>();
+  if (Array.isArray(data?.targetUids)) {
+    data.targetUids.forEach((value: unknown) => {
+      if (typeof value === "string" && value) targetUids.add(value);
+    });
+  }
+  // Legacy signal documents had a single owner. Reading it here makes the
+  // schema backward-compatible; the next add/remove transaction migrates it.
+  if (typeof data?.targetUid === "string" && data.targetUid) {
+    targetUids.add(data.targetUid);
+  }
+  return targetUids;
+}
+
+function getActiveBanAssociations(
+  data: admin.firestore.DocumentData | undefined
+) {
+  const associations: Record<string, BanSignalAssociation> = {};
+  if (
+    data?.activeAssociations &&
+    typeof data.activeAssociations === "object" &&
+    !Array.isArray(data.activeAssociations)
+  ) {
+    Object.entries(data.activeAssociations).forEach(([uid, value]) => {
+      if (!uid || !value || typeof value !== "object") return;
+      const association = value as Partial<BanSignalAssociation>;
+      associations[uid] = {
+        targetUid: uid,
+        targetHandle:
+          typeof association.targetHandle === "string"
+            ? association.targetHandle
+            : "reader",
+        reason:
+          typeof association.reason === "string"
+            ? association.reason
+            : "Community Guidelines violation",
+        blockedBy:
+          typeof association.blockedBy === "string"
+            ? association.blockedBy
+            : "system",
+        ...(typeof association.label === "string"
+          ? { label: association.label }
+          : {}),
+        blockedAt:
+          association.blockedAt instanceof admin.firestore.Timestamp
+            ? association.blockedAt
+            : admin.firestore.Timestamp.now(),
+      };
+    });
+  }
+
+  const legacyUid = typeof data?.targetUid === "string" ? data.targetUid : "";
+  if (legacyUid && !associations[legacyUid]) {
+    associations[legacyUid] = {
+      targetUid: legacyUid,
+      targetHandle:
+        typeof data?.targetHandle === "string" ? data.targetHandle : "reader",
+      reason:
+        typeof data?.reason === "string"
+          ? data.reason
+          : "Community Guidelines violation",
+      blockedBy:
+        typeof data?.blockedBy === "string" ? data.blockedBy : "system",
+      ...(typeof data?.label === "string" ? { label: data.label } : {}),
+      blockedAt:
+        data?.blockedAt instanceof admin.firestore.Timestamp
+          ? data.blockedAt
+          : admin.firestore.Timestamp.now(),
+    };
+  }
+  getActiveBanTargetUids(data).forEach((uid) => {
+    if (associations[uid]) return;
+    const latest =
+      data?.latestAssociation &&
+      typeof data.latestAssociation === "object" &&
+      data.latestAssociation.targetUid === uid
+        ? (data.latestAssociation as Partial<BanSignalAssociation>)
+        : {};
+    associations[uid] = {
+      targetUid: uid,
+      targetHandle:
+        typeof latest.targetHandle === "string" ? latest.targetHandle : "reader",
+      reason:
+        typeof latest.reason === "string"
+          ? latest.reason
+          : "Community Guidelines violation",
+      blockedBy:
+        typeof latest.blockedBy === "string" ? latest.blockedBy : "system",
+      ...(typeof latest.label === "string" ? { label: latest.label } : {}),
+      blockedAt:
+        latest.blockedAt instanceof admin.firestore.Timestamp
+          ? latest.blockedAt
+          : admin.firestore.Timestamp.now(),
+    };
+  });
+  return associations;
+}
+
+function hasActiveBanSignal(
+  snapshot: admin.firestore.DocumentSnapshot | null
+) {
+  return Boolean(snapshot?.exists && getActiveBanTargetUids(snapshot.data()).size > 0);
+}
+
+async function addBanSignalAssociation(params: {
+  collection: BanSignalCollection;
+  signalHash: string;
+  targetUid: string;
+  targetHandle: string;
+  reason: string;
+  blockedBy: string;
+  label?: string;
+}) {
+  const firestore = getDb();
+  const signalRef = firestore.collection(params.collection).doc(params.signalHash);
+  await firestore.runTransaction(async (transaction) => {
+    const signal = await transaction.get(signalRef);
+    const signalData = signal.data();
+    const targetUids = getActiveBanTargetUids(signalData);
+    const activeAssociations = getActiveBanAssociations(signalData);
+    const now = admin.firestore.Timestamp.now();
+    const association: BanSignalAssociation = {
+      targetUid: params.targetUid,
+      targetHandle: params.targetHandle,
+      reason: params.reason,
+      blockedBy: params.blockedBy,
+      ...(params.label ? { label: params.label } : {}),
+      blockedAt: now,
+    };
+    targetUids.add(params.targetUid);
+    activeAssociations[params.targetUid] = association;
+
+    transaction.set(
+      signalRef,
+      {
+        [params.collection === "bannedDevices"
+          ? "deviceHash"
+          : "fingerprintHash"]: params.signalHash,
+        ...(params.collection === "bannedFingerprints"
+          ? { fingerprintKeyVersion: FINGERPRINT_KEY_VERSION }
+          : {}),
+        ...(params.collection === "bannedDevices"
+          ? { label: params.label || signalData?.label || "Unknown browser" }
+          : {}),
+        targetUids: [...targetUids],
+        activeAssociations,
+        firstBlockedAt:
+          signalData?.firstBlockedAt || signalData?.blockedAt || now,
+        latestAssociation: association,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        // Remove the ambiguous single-account schema as part of every write.
+        targetUid: admin.firestore.FieldValue.delete(),
+        targetHandle: admin.firestore.FieldValue.delete(),
+        reason: admin.firestore.FieldValue.delete(),
+        blockedBy: admin.firestore.FieldValue.delete(),
+        blockedAt: admin.firestore.FieldValue.delete(),
+      },
+      { merge: true }
+    );
+  });
+}
+
+async function removeBanSignalAssociation(params: {
+  collection: BanSignalCollection;
+  signalHash: string;
+  targetUid: string;
+}) {
+  const firestore = getDb();
+  const signalRef = firestore.collection(params.collection).doc(params.signalHash);
+  return firestore.runTransaction(async (transaction) => {
+    const signal = await transaction.get(signalRef);
+    if (!signal.exists) return { associationRemoved: false, signalDeleted: false };
+
+    const targetUids = getActiveBanTargetUids(signal.data());
+    const activeAssociations = getActiveBanAssociations(signal.data());
+    if (!targetUids.delete(params.targetUid)) {
+      return { associationRemoved: false, signalDeleted: false };
+    }
+    delete activeAssociations[params.targetUid];
+
+    if (targetUids.size === 0) {
+      transaction.delete(signalRef);
+      return { associationRemoved: true, signalDeleted: true };
+    }
+
+    const remainingAssociations = Object.values(activeAssociations);
+    transaction.set(
+      signalRef,
+      {
+        targetUids: [...targetUids],
+        activeAssociations,
+        latestAssociation:
+          remainingAssociations[remainingAssociations.length - 1] ||
+          admin.firestore.FieldValue.delete(),
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        targetUid: admin.firestore.FieldValue.delete(),
+        targetHandle: admin.firestore.FieldValue.delete(),
+        reason: admin.firestore.FieldValue.delete(),
+        blockedBy: admin.firestore.FieldValue.delete(),
+        blockedAt: admin.firestore.FieldValue.delete(),
+      },
+      { merge: true }
+    );
+    return { associationRemoved: true, signalDeleted: false };
+  });
+}
+
+async function recordRiskAlert(params: {
+  riskType: "fingerprint_match" | "blocked_device_match";
+  observedUid: string;
+  observedHandle: string;
+  deviceHash: string;
+  deviceLabel: string;
+  signalHash: string;
+  matchedTargetUids: string[];
+  clientIp: string;
+  accessBlocked: boolean;
+}) {
+  const firestore = getDb();
+  const alertId = createHash("sha256")
+    .update(
+      `${params.riskType}:${params.observedUid}:${params.signalHash}`,
+      "utf8"
+    )
+    .digest("hex");
+  const alertRef = firestore.collection("riskAlerts").doc(alertId);
+  const shouldNotify = await firestore.runTransaction(async (transaction) => {
+    const alert = await transaction.get(alertRef);
+    const existingTargets = Array.isArray(alert.data()?.matchedTargetUids)
+      ? alert.data()!.matchedTargetUids.filter(
+          (value: unknown): value is string => typeof value === "string"
+        )
+      : [];
+    transaction.set(
+      alertRef,
+      {
+        type: params.riskType,
+        status: "open",
+        observedUid: params.observedUid,
+        observedHandle: params.observedHandle,
+        deviceHash: params.deviceHash,
+        deviceLabel: params.deviceLabel,
+        ...(params.riskType === "fingerprint_match"
+          ? { fingerprintHash: params.signalHash }
+          : { blockedDeviceHash: params.signalHash }),
+        matchedTargetUids: [
+          ...new Set([...existingTargets, ...params.matchedTargetUids]),
+        ],
+        ...(params.clientIp ? { lastObservedIp: params.clientIp } : {}),
+        ...(!alert.exists
+          ? { firstSeenAt: admin.firestore.FieldValue.serverTimestamp() }
+          : {}),
+        lastSeenAt: admin.firestore.FieldValue.serverTimestamp(),
+        occurrenceCount: admin.firestore.FieldValue.increment(1),
+        expiresAt: admin.firestore.Timestamp.fromMillis(Date.now() + 365 * 24 * 60 * 60_000),
+      },
+      { merge: true }
+    );
+    return !alert.exists || !alert.data()?.notificationDeliveredAt;
+  });
+
+  if (!shouldNotify) return;
+  try {
+    const staff = await firestore
+      .collection("authors")
+      .where("role", "in", ["super", "admin", "moderator"])
+      .get();
+    if (staff.empty) {
+      logger.warn("Device risk alert has no moderation recipients", {
+        alertId,
+        observedUid: params.observedUid,
+      });
+      return;
+    }
+
+    for (let offset = 0; offset < staff.docs.length; offset += 400) {
+      const batch = firestore.batch();
+      staff.docs.slice(offset, offset + 400).forEach((staffMember) => {
+        const notificationRef = firestore
+          .collection("users")
+          .doc(staffMember.id)
+          .collection("notifications")
+          .doc(`risk-${alertId}`);
+        batch.set(notificationRef, {
+          userId: staffMember.id,
+          type: "user_report",
+          title:
+            params.riskType === "fingerprint_match"
+              ? "Security review: browser fingerprint match"
+              : "Security review: blocked browser installation used",
+          message:
+            params.riskType === "fingerprint_match"
+              ? `@${params.observedHandle || "reader"} matched a fingerprint associated with a banned account. Access was not automatically blocked because browser fingerprints can collide or be spoofed.`
+              : `@${params.observedHandle || "reader"} used an exact browser installation associated with a banned account. ${params.accessBlocked ? "The reader session was blocked without banning the account." : "The vetted staff session was allowed under the staff bypass and requires review."}`,
+          link: `/admin/users?id=${encodeURIComponent(params.observedUid)}`,
+          read: false,
+          createdAt: admin.firestore.FieldValue.serverTimestamp(),
+          metadata: {
+            riskAlertId: alertId,
+            observedUid: params.observedUid,
+            observedHandle: params.observedHandle,
+            riskType: params.riskType,
+          },
+        });
+      });
+      await batch.commit();
+    }
+    await alertRef.set(
+      {
+        notificationDeliveredAt: admin.firestore.FieldValue.serverTimestamp(),
+        notificationRecipientCount: staff.size,
+      },
+      { merge: true }
+    );
+  } catch (error) {
+    // The durable alert remains without notificationDeliveredAt, so a later
+    // sync retries delivery without turning this non-blocking signal into a ban.
+    logger.error("Unable to deliver device risk notifications", {
+      alertId,
+      observedUid: params.observedUid,
+      error,
+    });
+  }
+}
 
 export const checkDeviceRisk = onCall(
   { region: "europe-west1", minInstances: 0 },
@@ -340,7 +735,7 @@ export const checkDeviceRisk = onCall(
     if (!registeredDevice.exists) {
       throw new HttpsError("failed-precondition", "This browser identity must be issued by the server.");
     }
-    const blocked = blockedDevice.exists;
+    const blocked = hasActiveBanSignal(blockedDevice);
     return {
       blocked,
       reason: blocked
@@ -389,34 +784,24 @@ export const syncUserRisk = onCall(
       throw new HttpsError("failed-precondition", "This browser identity must be issued by the server.");
     }
 
-    if (blockedDevice.exists && !staffDoc.exists) {
-      await admin.auth().updateUser(uid, { disabled: true }).catch((error) => {
-        logger.warn("Unable to disable account seen on a blocked device", { uid, error });
-      });
-      await admin.auth().revokeRefreshTokens(uid).catch(() => undefined);
-      if (userDoc.exists) {
-        await userDoc.ref.set({
-          status: "banned",
-          bannedAt: admin.firestore.FieldValue.serverTimestamp(),
-          banReason: "Associated browser installation is permanently blocked.",
-          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-        }, { merge: true });
-      }
-      return {
-        blocked: true,
-        reason: "This browser installation has been blocked for Community Guidelines violations.",
-      };
-    }
-
     const now = admin.firestore.Timestamp.now();
-    const previousHashes = Array.isArray(userDoc.data()?.deviceHashes)
-      ? userDoc.data()!.deviceHashes.filter((value: unknown): value is string => typeof value === "string")
+    const userData = userDoc.data() || {};
+    const isStaffAccount =
+      staffDoc.exists && RESERVABLE_TEAM_ROLES.includes(staffDoc.data()?.role);
+    const accountIsPermanentlyBanned =
+      !isStaffAccount &&
+      userDoc.exists &&
+      (userData.status === "banned" || userData.bannedAt != null);
+    const blockedDeviceMatch = hasActiveBanSignal(blockedDevice);
+    const blockedFingerprintMatch = hasActiveBanSignal(blockedFingerprint);
+    const previousHashes = Array.isArray(userData.deviceHashes)
+      ? userData.deviceHashes.filter((value: unknown): value is string => typeof value === "string")
       : [];
-    const previousIps = Array.isArray(userDoc.data()?.ipHistory)
-      ? userDoc.data()!.ipHistory.filter((value: unknown): value is string => typeof value === "string")
+    const previousIps = Array.isArray(userData.ipHistory)
+      ? userData.ipHistory.filter((value: unknown): value is string => typeof value === "string")
       : [];
-    const previousFingerprints = Array.isArray(userDoc.data()?.fingerprintHashes)
-      ? userDoc.data()!.fingerprintHashes.filter((value: unknown): value is string => typeof value === "string")
+    const previousFingerprints = Array.isArray(userData.fingerprintHashes)
+      ? userData.fingerprintHashes.filter((value: unknown): value is string => typeof value === "string")
       : [];
     const deviceHashes = [...new Set([...previousHashes, deviceHash])].slice(-10);
     const fingerprintHashes = fingerprintHash
@@ -431,10 +816,15 @@ export const syncUserRisk = onCall(
       batch.set(userDoc.ref, {
         deviceHashes,
         fingerprintHashes,
+        fingerprintKeyVersion: FINGERPRINT_KEY_VERSION,
         lastDeviceHash: deviceHash,
         lastDeviceLabel: deviceLabel,
         ...(fingerprintHash ? { lastFingerprintHash: fingerprintHash } : {}),
-        ...(blockedFingerprint?.exists === true ? {
+        ...(blockedDeviceMatch ? {
+          deviceRiskMatch: true,
+          deviceRiskMatchedAt: admin.firestore.FieldValue.serverTimestamp(),
+        } : {}),
+        ...(blockedFingerprintMatch ? {
           fingerprintRiskMatch: true,
           fingerprintRiskMatchedAt: admin.firestore.FieldValue.serverTimestamp(),
         } : {}),
@@ -446,7 +836,9 @@ export const syncUserRisk = onCall(
         uid,
         deviceHash,
         ...(fingerprintHash ? { fingerprintHash } : {}),
-        fingerprintRiskMatch: blockedFingerprint?.exists === true,
+        fingerprintKeyVersion: FINGERPRINT_KEY_VERSION,
+        deviceRiskMatch: blockedDeviceMatch,
+        fingerprintRiskMatch: blockedFingerprintMatch,
         verifiedAt: now,
         expiresAt: admin.firestore.Timestamp.fromMillis(now.toMillis() + 15 * 60_000),
       });
@@ -456,6 +848,7 @@ export const syncUserRisk = onCall(
       {
         deviceHash,
         ...(fingerprintHash ? { fingerprintHash } : {}),
+        fingerprintKeyVersion: FINGERPRINT_KEY_VERSION,
         label: deviceLabel,
         ...(clientIp ? { lastIp: clientIp } : {}),
         ...(!knownDevice.exists
@@ -465,11 +858,149 @@ export const syncUserRisk = onCall(
       },
       { merge: true }
     );
+    batch.set(registeredDevice.ref, {
+      lastSeenAt: now,
+      expiresAt: admin.firestore.Timestamp.fromMillis(now.toMillis() + 90 * 24 * 60 * 60_000),
+    }, { merge: true });
     await batch.commit();
 
-    return { blocked: false };
+    const staffData = staffDoc.data() || {};
+    const observedHandle =
+      (typeof userData.handle === "string" && userData.handle) ||
+      (typeof staffData.handle === "string" && staffData.handle) ||
+      (typeof staffData.name === "string" && staffData.name) ||
+      "reader";
+
+    // A permanently banned account cannot evade its ban by clearing site data
+    // and receiving a fresh installation ID. Associate every newly observed
+    // exact ID (and its fingerprint signal) with the existing ban before
+    // returning the blocked response.
+    if (accountIsPermanentlyBanned) {
+      const banReason =
+        typeof userData.banReason === "string" && userData.banReason
+          ? userData.banReason
+          : "Community Guidelines violation";
+      const bannedBy =
+        typeof userData.bannedBy === "string" && userData.bannedBy
+          ? userData.bannedBy
+          : "system";
+      await Promise.all([
+        addBanSignalAssociation({
+          collection: "bannedDevices",
+          signalHash: deviceHash,
+          targetUid: uid,
+          targetHandle: observedHandle,
+          reason: banReason,
+          blockedBy: bannedBy,
+        }),
+        ...(fingerprintHash
+          ? [
+              addBanSignalAssociation({
+                collection: "bannedFingerprints" as const,
+                signalHash: fingerprintHash,
+                targetUid: uid,
+                targetHandle: observedHandle,
+                reason: banReason,
+                blockedBy: bannedBy,
+              }),
+            ]
+          : []),
+      ]);
+      await userDoc.ref.set(
+        {
+          bannedDeviceHashes: admin.firestore.FieldValue.arrayUnion(deviceHash),
+          ...(fingerprintHash
+            ? {
+                bannedFingerprintHashes:
+                  admin.firestore.FieldValue.arrayUnion(fingerprintHash),
+              }
+            : {}),
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        },
+        { merge: true }
+      );
+      return {
+        blocked: true,
+        reason: "This account has been permanently blocked for Community Guidelines violations.",
+        riskFlagged: blockedFingerprintMatch,
+        riskReason: blockedFingerprintMatch ? "fingerprint_match" : "",
+      };
+    }
+
+    if (blockedFingerprintMatch && fingerprintHash) {
+      await recordRiskAlert({
+        riskType: "fingerprint_match",
+        observedUid: uid,
+        observedHandle,
+        deviceHash,
+        deviceLabel,
+        signalHash: fingerprintHash,
+        matchedTargetUids: [...getActiveBanTargetUids(blockedFingerprint?.data())],
+        clientIp,
+        accessBlocked: blockedDeviceMatch && !isStaffAccount,
+      });
+    }
+
+    if (blockedDeviceMatch) {
+      await recordRiskAlert({
+        riskType: "blocked_device_match",
+        observedUid: uid,
+        observedHandle,
+        deviceHash,
+        deviceLabel,
+        signalHash: deviceHash,
+        matchedTargetUids: [...getActiveBanTargetUids(blockedDevice.data())],
+        clientIp,
+        accessBlocked: !isStaffAccount,
+      });
+    }
+
+    // Exact installation matches block reader sessions, but never mutate or
+    // disable an otherwise innocent account. A shared computer can legitimately
+    // be used by more than one person. Staff accounts remain exempt from reader
+    // moderation by design; staff compromise/offboarding uses the team controls.
+    if (blockedDeviceMatch && !isStaffAccount) {
+      return {
+        blocked: true,
+        reason: "This browser installation has been blocked for Community Guidelines violations.",
+        riskFlagged: blockedFingerprintMatch,
+        riskReason: blockedFingerprintMatch ? "fingerprint_match" : "blocked_device",
+      };
+    }
+
+    return {
+      blocked: false,
+      riskFlagged: blockedFingerprintMatch || blockedDeviceMatch,
+      riskReason: blockedFingerprintMatch
+        ? "fingerprint_match"
+        : blockedDeviceMatch
+          ? "staff_device_bypass"
+          : "",
+      staffBypass: isStaffAccount && blockedDeviceMatch,
+    };
   }
 );
+
+function stripUndefinedDeep(value: unknown): unknown {
+  if (value === undefined) return undefined;
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => stripUndefinedDeep(item))
+      .filter((item) => item !== undefined);
+  }
+  if (value !== null && typeof value === "object") {
+    const prototype = Object.getPrototypeOf(value);
+    if (prototype === Object.prototype || prototype === null) {
+      const sanitized: Record<string, unknown> = {};
+      for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
+        const cleanItem = stripUndefinedDeep(item);
+        if (cleanItem !== undefined) sanitized[key] = cleanItem;
+      }
+      return sanitized;
+    }
+  }
+  return value;
+}
 
 async function writeServerAuditLog(params: {
   actorUid: string;
@@ -478,41 +1009,41 @@ async function writeServerAuditLog(params: {
   details: string;
   targetId?: string;
   targetTitle?: string;
-  metadata?: Record<string, any>;
+  metadata?: Record<string, unknown>;
+  idempotencyKey?: string;
 }) {
+  const firestore = getDb();
+  let actorName = "Staff";
+  let actorHandle = "";
+  let actorRole = "staff";
+  let actorEmail = "";
+  let actorPhotoURL = "";
+
   try {
-    const firestore = getDb();
-    let actorName = "Staff";
-    let actorHandle = "";
-    let actorRole = "staff";
-    let actorEmail = "";
-    let actorPhotoURL = "";
-
-    try {
-      const [authorDoc, authUser] = await Promise.all([
-        firestore.collection("authors").doc(params.actorUid).get(),
-        admin.auth().getUser(params.actorUid).catch(() => null),
-      ]);
-      if (authorDoc.exists) {
-        const authorData = authorDoc.data();
-        actorName = authorData?.name || authUser?.displayName || actorName;
-        actorHandle = authorData?.handle || "";
-        actorRole = authorData?.role || "staff";
-        actorPhotoURL = authorData?.avatar || authUser?.photoURL || "";
-      }
-      actorEmail = authUser?.email || "";
-      if (!actorHandle) {
-        const userDoc = await firestore.collection("users").doc(params.actorUid).get();
-        if (userDoc.exists) {
-          actorHandle = userDoc.data()?.handle || "";
-          if (!actorPhotoURL) actorPhotoURL = userDoc.data()?.photoURL || "";
-        }
-      }
-    } catch (e) {
-      logger.warn("Could not enrich server audit log actor details:", e);
+    const [authorDoc, authUser] = await Promise.all([
+      firestore.collection("authors").doc(params.actorUid).get(),
+      admin.auth().getUser(params.actorUid).catch(() => null),
+    ]);
+    if (authorDoc.exists) {
+      const authorData = authorDoc.data();
+      actorName = authorData?.name || authUser?.displayName || actorName;
+      actorHandle = authorData?.handle || "";
+      actorRole = authorData?.role || "staff";
+      actorPhotoURL = authorData?.avatar || authUser?.photoURL || "";
     }
+    actorEmail = authUser?.email || "";
+    if (!actorHandle) {
+      const userDoc = await firestore.collection("users").doc(params.actorUid).get();
+      if (userDoc.exists) {
+        actorHandle = userDoc.data()?.handle || "";
+        if (!actorPhotoURL) actorPhotoURL = userDoc.data()?.photoURL || "";
+      }
+    }
+  } catch (e) {
+    logger.warn("Could not enrich server audit log actor details:", e);
+  }
 
-    await firestore.collection("auditLogs").add({
+  const auditData = stripUndefinedDeep({
       actorUid: params.actorUid,
       actorName,
       actorHandle: actorHandle || actorEmail.split("@")[0] || "staff",
@@ -526,11 +1057,132 @@ async function writeServerAuditLog(params: {
       targetTitle: params.targetTitle || "",
       metadata: params.metadata || {},
       timestamp: admin.firestore.FieldValue.serverTimestamp(),
-    });
-  } catch (logError) {
-    logger.error("Failed to write server audit log:", logError);
+      expiresAt: admin.firestore.Timestamp.fromMillis(Date.now() + 365 * 24 * 60 * 60_000),
+    }) as admin.firestore.DocumentData;
+
+  if (params.idempotencyKey) {
+    const auditId = createHash("sha256")
+      .update(params.idempotencyKey, "utf8")
+      .digest("hex");
+    await firestore.collection("auditLogs").doc(auditId).set(auditData);
+  } else {
+    await firestore.collection("auditLogs").add(auditData);
   }
 }
+
+function changedTopLevelKeys(
+  before: admin.firestore.DocumentData | undefined,
+  after: admin.firestore.DocumentData | undefined
+) {
+  const keys = new Set([...Object.keys(before || {}), ...Object.keys(after || {})]);
+  return [...keys].filter((key) => JSON.stringify(before?.[key]) !== JSON.stringify(after?.[key])).slice(0, 50);
+}
+
+async function auditAuthenticatedClientWrite(params: {
+  eventId: string;
+  actorUid?: string;
+  collection: string;
+  documentId: string;
+  category: "articles" | "comments" | "team" | "profile";
+  before: admin.firestore.DocumentData | undefined;
+  after: admin.firestore.DocumentData | undefined;
+}) {
+  if (!params.actorUid) return;
+  const operation = !params.before ? "create" : !params.after ? "delete" : "update";
+  await writeServerAuditLog({
+    actorUid: params.actorUid,
+    action: `${params.collection}.${operation}`,
+    category: params.category,
+    details: `${operation} ${params.collection} record ${params.documentId}`,
+    targetId: params.documentId,
+    targetTitle:
+      params.after?.title || params.before?.title ||
+      params.after?.name || params.before?.name || params.documentId,
+    metadata: {
+      source: "authenticated_firestore_write",
+      changedFields: changedTopLevelKeys(params.before, params.after),
+    },
+    idempotencyKey: `firestore:${params.eventId}`,
+  });
+}
+
+export const auditClientArticleWrite = onDocumentWrittenWithAuthContext(
+  { document: "articles/{documentId}", region: "europe-west1" },
+  async (event) => auditAuthenticatedClientWrite({
+    eventId: event.id,
+    actorUid: event.authId,
+    collection: "article",
+    documentId: event.params.documentId,
+    category: "articles",
+    before: event.data?.before.exists ? event.data.before.data() : undefined,
+    after: event.data?.after.exists ? event.data.after.data() : undefined,
+  })
+);
+
+export const auditClientArticleTrashWrite = onDocumentWrittenWithAuthContext(
+  { document: "articleTrash/{documentId}", region: "europe-west1" },
+  async (event) => auditAuthenticatedClientWrite({
+    eventId: event.id,
+    actorUid: event.authId,
+    collection: "article_trash",
+    documentId: event.params.documentId,
+    category: "articles",
+    before: event.data?.before.exists ? event.data.before.data() : undefined,
+    after: event.data?.after.exists ? event.data.after.data() : undefined,
+  })
+);
+
+export const auditClientAuthorWrite = onDocumentWrittenWithAuthContext(
+  { document: "authors/{documentId}", region: "europe-west1" },
+  async (event) => auditAuthenticatedClientWrite({
+    eventId: event.id,
+    actorUid: event.authId,
+    collection: "author_profile",
+    documentId: event.params.documentId,
+    category: "profile",
+    before: event.data?.before.exists ? event.data.before.data() : undefined,
+    after: event.data?.after.exists ? event.data.after.data() : undefined,
+  })
+);
+
+export const auditClientCommentWrite = onDocumentWrittenWithAuthContext(
+  { document: "comments/{documentId}", region: "europe-west1" },
+  async (event) => auditAuthenticatedClientWrite({
+    eventId: event.id,
+    actorUid: event.authId,
+    collection: "comment",
+    documentId: event.params.documentId,
+    category: "comments",
+    before: event.data?.before.exists ? event.data.before.data() : undefined,
+    after: event.data?.after.exists ? event.data.after.data() : undefined,
+  })
+);
+
+export const auditClientReplyWrite = onDocumentWrittenWithAuthContext(
+  { document: "commentReplies/{documentId}", region: "europe-west1" },
+  async (event) => auditAuthenticatedClientWrite({
+    eventId: event.id,
+    actorUid: event.authId,
+    collection: "comment_reply",
+    documentId: event.params.documentId,
+    category: "comments",
+    before: event.data?.before.exists ? event.data.before.data() : undefined,
+    after: event.data?.after.exists ? event.data.after.data() : undefined,
+  })
+);
+
+export const auditClientReaderProfileWrite = onDocumentWrittenWithAuthContext(
+  { document: "users/{documentId}", region: "europe-west1" },
+  async (event) => auditAuthenticatedClientWrite({
+    eventId: event.id,
+    actorUid: event.authId,
+    collection: "reader_profile",
+    documentId: event.params.documentId,
+    category: "profile",
+    before: event.data?.before.exists ? event.data.before.data() : undefined,
+    after: event.data?.after.exists ? event.data.after.data() : undefined,
+  })
+);
 
 
 
@@ -982,7 +1634,7 @@ export const upsertHandleReservation = onCall(
       { merge: true }
     );
 
-    writeServerAuditLog({
+    await writeServerAuditLog({
       actorUid: request.auth.uid,
       action: "handle.reserve",
       category: "handles",
@@ -1010,7 +1662,7 @@ export const deleteHandleReservation = onCall(
     }
     await getDb().collection("handleReservations").doc(key).delete();
 
-    writeServerAuditLog({
+    await writeServerAuditLog({
       actorUid: request.auth.uid,
       action: "handle.unreserve",
       category: "handles",
@@ -1215,7 +1867,7 @@ export const searchMentionHandles = onCall(
   }
 );
 
-async function deleteAccountData(uid: string) {
+async function deleteAccountData(uid: string, rejectPermanentBan = false) {
     const firestore = getDb();
     const userRef = firestore.collection("users").doc(uid);
     const authorRef = firestore.collection("authors").doc(uid);
@@ -1233,6 +1885,15 @@ async function deleteAccountData(uid: string) {
     ]);
     const userData = user.data();
     const authorData = author.data();
+    if (
+      rejectPermanentBan &&
+      (userData?.status === "banned" || userData?.bannedAt != null)
+    ) {
+      throw new HttpsError(
+        "failed-precondition",
+        "Permanently banned accounts cannot self-delete. Contact an administrator to appeal the ban."
+      );
+    }
     const retainedAuthorName =
       (typeof authorData?.name === "string" && authorData.name.trim()) ||
       (typeof userData?.staffName === "string" && userData.staffName.trim()) ||
@@ -1316,6 +1977,17 @@ async function deleteAccountData(uid: string) {
       });
     });
 
+    // Remove user-owned discussion images before anonymizing retained posts.
+    // Work in small groups to avoid a burst of Storage requests on large accounts.
+    const authoredDiscussion = [...comments.docs, ...replies.docs];
+    for (let offset = 0; offset < authoredDiscussion.length; offset += 20) {
+      await Promise.all(
+        authoredDiscussion
+          .slice(offset, offset + 20)
+          .map((snapshot) => deleteCommentAttachments(snapshot.data()))
+      );
+    }
+
     const anonymizeDiscussion = (
       batch: admin.firestore.WriteBatch,
       snapshot: admin.firestore.DocumentSnapshot
@@ -1325,6 +1997,11 @@ async function deleteAccountData(uid: string) {
         authorName: "Deleted user",
         authorHandle: admin.firestore.FieldValue.delete(),
         authorPhotoURL: admin.firestore.FieldValue.delete(),
+        images: admin.firestore.FieldValue.delete(),
+        imageUrl: admin.firestore.FieldValue.delete(),
+        imageStoragePath: admin.firestore.FieldValue.delete(),
+        imageWidth: admin.firestore.FieldValue.delete(),
+        imageHeight: admin.firestore.FieldValue.delete(),
       });
     };
     await mutateDocumentsInChunks(comments.docs, anonymizeDiscussion);
@@ -1370,11 +2047,31 @@ async function deleteAccountData(uid: string) {
       }
     );
 
-    // Votes remain in the public totals forever, but their private per-user
-    // records are removed with the account.
-    await mutateDocumentsInChunks(reactions.docs, (batch, snapshot) => {
-      batch.delete(snapshot.ref);
-    });
+    // Remove the user's vote and its public aggregate together so repeated
+    // account deletion/recreation cannot inflate reaction totals.
+    for (let offset = 0; offset < reactions.docs.length; offset += 200) {
+      const slice = reactions.docs.slice(offset, offset + 200);
+      const commentRefs = slice.map((snapshot) =>
+        firestore.collection("comments").doc(
+          typeof snapshot.data()?.commentId === "string"
+            ? snapshot.data()!.commentId
+            : snapshot.id
+        )
+      );
+      const commentSnapshots = await firestore.getAll(...commentRefs);
+      const batch = firestore.batch();
+      slice.forEach((reaction, index) => {
+        const type = reaction.data()?.type;
+        if (commentSnapshots[index]?.exists && ["like", "dislike"].includes(type)) {
+          batch.update(commentRefs[index], {
+            [type === "like" ? "likeCount" : "dislikeCount"]:
+              admin.firestore.FieldValue.increment(-1),
+          });
+        }
+        batch.delete(reaction.ref);
+      });
+      await batch.commit();
+    }
     await reactionOwnerRef.delete().catch((error) => {
       if ((error as { code?: number }).code !== 5) throw error;
     });
@@ -1482,7 +2179,7 @@ export const deleteOwnAccount = onCall(
       );
     }
 
-    await deleteAccountData(request.auth.uid);
+    await deleteAccountData(request.auth.uid, true);
     return { deleted: true };
   }
 );
@@ -1501,8 +2198,18 @@ export const syncCommentReplyCount = onDocumentWritten(
     if (!delta || typeof parentCommentId !== "string") return;
 
     const commentRef = getDb().collection("comments").doc(parentCommentId);
+    const eventRef = getDb().collection("triggerEvents").doc(event.id);
     await getDb().runTransaction(async (transaction) => {
-      const comment = await transaction.get(commentRef);
+      const [eventMarker, comment] = await Promise.all([
+        transaction.get(eventRef),
+        transaction.get(commentRef),
+      ]);
+      if (eventMarker.exists) return;
+      transaction.create(eventRef, {
+        type: "reply_count",
+        processedAt: admin.firestore.FieldValue.serverTimestamp(),
+        expiresAt: admin.firestore.Timestamp.fromMillis(Date.now() + 7 * 24 * 60 * 60_000),
+      });
       if (!comment.exists) return;
       const current = Math.max(0, Number(comment.data()?.replyCount) || 0);
       transaction.update(commentRef, { replyCount: Math.max(0, current + delta) });
@@ -1529,7 +2236,7 @@ function getCommentAttachmentPaths(data: admin.firestore.DocumentData | undefine
   }
   return authorId
     ? [...paths].filter((path) =>
-        new RegExp(`^comments/${authorId}/[a-zA-Z0-9_-]+\\.(webp|jpg)$`).test(path)
+        new RegExp(`^comments/${authorId}/(?:[a-zA-Z0-9_-]{20,64}/[0-3]|[a-zA-Z0-9_-]+)\\.(webp|jpg)$`).test(path)
       )
     : [];
 }
@@ -1539,13 +2246,54 @@ async function deleteCommentAttachments(data: admin.firestore.DocumentData | und
   if (!paths.length) return;
   const bucket = admin.storage().bucket();
   await Promise.all(
-    paths.map((path) =>
-      bucket.file(path).delete({ ignoreNotFound: true }).catch((error) => {
-        logger.error("Unable to remove comment attachment", { path, error });
-      })
-    )
+    paths.map(async (path) => {
+      const claimRef = getDb().collection("commentAttachmentClaims").doc(
+        createHash("sha256").update(path, "utf8").digest("hex")
+      );
+      await Promise.all([
+        bucket.file(path).delete({ ignoreNotFound: true }),
+        claimRef.delete(),
+      ]);
+    })
   );
 }
+
+async function removeAttachmentsWhenHidden(
+  before: admin.firestore.DocumentSnapshot | undefined,
+  after: admin.firestore.DocumentSnapshot | undefined
+) {
+  if (!after?.exists || after.data()?.status !== "hidden") return;
+  const data = after.data();
+  const paths = getCommentAttachmentPaths(data);
+  if (!paths.length) return;
+  await deleteCommentAttachments(data);
+  await after.ref.update({
+    images: admin.firestore.FieldValue.delete(),
+    imageUrl: admin.firestore.FieldValue.delete(),
+    imageStoragePath: admin.firestore.FieldValue.delete(),
+    imageWidth: admin.firestore.FieldValue.delete(),
+    imageHeight: admin.firestore.FieldValue.delete(),
+    attachmentsRemovedAt: admin.firestore.FieldValue.serverTimestamp(),
+    attachmentsRemovedFromStatus:
+      before?.exists && typeof before.data()?.status === "string"
+        ? before.data()!.status
+        : "unknown",
+  });
+}
+
+export const cleanupHiddenCommentAttachments = onDocumentWritten(
+  { document: "comments/{commentId}", region: "europe-west1" },
+  async (event) => {
+    await removeAttachmentsWhenHidden(event.data?.before, event.data?.after);
+  }
+);
+
+export const cleanupHiddenReplyAttachments = onDocumentWritten(
+  { document: "commentReplies/{replyId}", region: "europe-west1" },
+  async (event) => {
+    await removeAttachmentsWhenHidden(event.data?.before, event.data?.after);
+  }
+);
 
 export const cleanupDeletedReplyAttachments = onDocumentDeleted(
   { document: "commentReplies/{replyId}", region: "europe-west1" },
@@ -1635,115 +2383,107 @@ export const createTeamMember = onCall(
 
     let targetUid = "";
     let isNewAuthUser = false;
-    let existingAuthUser: admin.auth.UserRecord | null = null;
 
     try {
-      existingAuthUser = await admin.auth().getUserByEmail(cleanEmail);
-      targetUid = existingAuthUser.uid;
+      await admin.auth().getUserByEmail(cleanEmail);
+      throw new HttpsError(
+        "already-exists",
+        "That email already belongs to an account. Use Add Existing User so their sign-in credentials remain unchanged."
+      );
     } catch (err: any) {
+      if (err instanceof HttpsError) throw err;
       if (err?.code !== "auth/user-not-found") {
         logger.error("Error looking up existing user by email", err);
+        throw new HttpsError("internal", "Could not verify whether that email already exists.");
       }
     }
 
-    if (existingAuthUser) {
-      targetUid = existingAuthUser.uid;
-      const existingAuthorDoc = await getDb().collection("authors").doc(targetUid).get();
-      if (existingAuthorDoc.exists) {
-        const existingRole = existingAuthorDoc.data()?.role;
-        if (callerRole === "admin" && (existingRole === "super" || existingRole === "admin")) {
+    const newUser = await admin
+      .auth()
+      .createUser({
+        email: cleanEmail,
+        password,
+        displayName: cleanName,
+      })
+      .catch((error) => {
+        logger.error("Failed to create Auth user", error);
+        if (error?.code === "auth/email-already-exists") {
           throw new HttpsError(
-            "permission-denied",
-            "Admins cannot modify existing admin or super admin team members."
+            "already-exists",
+            "That email already belongs to an account. Use Add Existing User so their sign-in credentials remain unchanged."
           );
         }
-      }
-
-      const authUpdates: { displayName?: string; password?: string } = {
-        displayName: cleanName,
-      };
-      if (typeof password === "string" && password.trim().length >= 6) {
-        authUpdates.password = password.trim();
-      }
-      await admin.auth().updateUser(targetUid, authUpdates).catch((updateErr) => {
-        logger.warn("Could not update auth user details", updateErr);
+        throw new HttpsError("internal", "Failed to create the user account.");
       });
-    } else {
-      const newUser = await admin
-        .auth()
-        .createUser({
-          email: cleanEmail,
-          password,
-          displayName: cleanName,
-        })
-        .catch((error) => {
-          logger.error("Failed to create Auth user", error);
-          if (error?.code === "auth/email-already-exists") {
-            throw new HttpsError(
-              "already-exists",
-              "A user with this email already exists."
-            );
-          }
-          throw new HttpsError("internal", "Failed to create the user account.");
-        });
 
-      targetUid = newUser.uid;
-      isNewAuthUser = true;
-    }
+    targetUid = newUser.uid;
+    isNewAuthUser = true;
 
     try {
-      const [existingUserDoc, existingAuthorDoc] = await Promise.all([
-        getDb().collection("users").doc(targetUid).get(),
-        getDb().collection("authors").doc(targetUid).get(),
-      ]);
-
-      const existingUserData = existingUserDoc.data() || {};
-      const existingAuthorData = existingAuthorDoc.data() || {};
-
-      const finalAvatar =
-        optionalString(avatar) ||
-        existingAuthorData.avatar ||
-        existingUserData.photoURL ||
-        existingAuthUser?.photoURL ||
-        "";
-
+      const firestore = getDb();
+      const callerRef = firestore.collection("authors").doc(request.auth.uid);
+      const userRef = firestore.collection("users").doc(targetUid);
+      const authorRef = firestore.collection("authors").doc(targetUid);
+      const finalAvatar = optionalString(avatar) || newUser.photoURL || "";
       const finalSlug =
         optionalString(slug) ||
-        existingAuthorData.slug ||
-        normalizeTeamHandle(existingUserData.handle) ||
         cleanName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)+/g, "");
-
-      const authorData = {
+      const authorData: Record<string, unknown> = {
         uid: targetUid,
         name: cleanName,
-        city: optionalString(city) || existingAuthorData.city || existingUserData.city || "",
-        job: optionalString(job) || existingAuthorData.job || "",
+        city: optionalString(city),
+        job: optionalString(job),
         role,
         showOnTeam: role !== "moderator",
         avatar: finalAvatar,
-        imgAlt: optionalString(imgAlt) || existingAuthorData.imgAlt || `Profile picture of ${cleanName}`,
-        biography: existingAuthorData.biography || { body: "", summary: "" },
+        imgAlt: optionalString(imgAlt) || `Profile picture of ${cleanName}`,
+        biography: { body: "", summary: "" },
         slug: finalSlug,
         socials:
           typeof socials === "object" && socials !== null
             ? socials
-            : (existingAuthorData.socials || {}),
-        createdAt: existingAuthorData.createdAt || existingUserData.createdAt || new Date().toISOString(),
-        dateJoined: existingAuthorData.dateJoined || admin.firestore.FieldValue.serverTimestamp(),
+            : {},
+        createdAt: new Date().toISOString(),
+        dateJoined: admin.firestore.FieldValue.serverTimestamp(),
       };
 
-      await getDb().collection("authors").doc(targetUid).set(authorData, { merge: true });
+      await firestore.runTransaction(async (transaction) => {
+        const [currentCaller, existingUserDoc, existingAuthorDoc] = await Promise.all([
+          transaction.get(callerRef),
+          transaction.get(userRef),
+          transaction.get(authorRef),
+        ]);
+        const currentCallerRole = currentCaller.data()?.role;
+        if (!currentCaller.exists || !["admin", "super"].includes(currentCallerRole)) {
+          throw new HttpsError(
+            "permission-denied",
+            "You no longer have permission to create team members."
+          );
+        }
+        if (role === "super" && currentCallerRole !== "super") {
+          throw new HttpsError(
+            "permission-denied",
+            "Only a super admin can create another super admin."
+          );
+        }
+        if (existingUserDoc.exists || existingAuthorDoc.exists) {
+          throw new HttpsError(
+            "already-exists",
+            "That account already has application data. Use Add Existing User instead."
+          );
+        }
+        transaction.create(authorRef, authorData);
+      });
 
-      if (existingUserDoc.exists) {
-        await getDb().collection("users").doc(targetUid).set(
-          {
-            staffName: cleanName,
-            staffRole: role,
-            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-          },
-          { merge: true }
-        );
-      }
+      await writeServerAuditLog({
+        actorUid: request.auth.uid,
+        action: "team.create_member",
+        category: "team",
+        details: `Created team member ${cleanName} as ${role}`,
+        targetId: targetUid,
+        targetTitle: cleanName,
+        metadata: { role, slug: finalSlug },
+      });
     } catch (error) {
       if (isNewAuthUser) {
         await getDb()
@@ -1972,7 +2712,9 @@ export const listModeratorCandidates = onCall(
 
     return {
       candidates: users.docs
-        .filter((snapshot) => !teamUids.has(snapshot.id))
+        .filter((snapshot) =>
+          !teamUids.has(snapshot.id) && isEligibleReaderForTeam(snapshot.data())
+        )
         .map((snapshot) => {
           const data = snapshot.data();
           return {
@@ -2015,7 +2757,9 @@ export const listExistingUserCandidates = onCall(
 
     return {
       candidates: users.docs
-        .filter((snapshot) => !teamUids.has(snapshot.id))
+        .filter((snapshot) =>
+          !teamUids.has(snapshot.id) && isEligibleReaderForTeam(snapshot.data())
+        )
         .map((snapshot) => {
           const data = snapshot.data();
           return {
@@ -2087,65 +2831,94 @@ export const addExistingUserToTeam = onCall(
     }
 
     const userRecord = await admin.auth().getUser(uid).catch(() => null);
-    const userDoc = await firestore.collection("users").doc(uid).get();
-
-    if (!userRecord && !userDoc.exists) {
-      throw new HttpsError("not-found", "User account not found.");
+    if (!userRecord) {
+      throw new HttpsError("not-found", "That reader's sign-in account no longer exists.");
+    }
+    if (userRecord.disabled) {
+      throw new HttpsError("failed-precondition", "That reader's sign-in account is disabled.");
     }
 
-    const userData = userDoc.data() || {};
-    const cleanName =
-      (typeof name === "string" && name.trim()) ||
-      (typeof userData.displayName === "string" && userData.displayName.trim()) ||
-      userRecord?.displayName ||
-      userData.handle ||
-      userRecord?.email?.split("@")[0] ||
-      "Team Member";
-
+    const callerRef = firestore.collection("authors").doc(request.auth.uid);
+    const userRef = firestore.collection("users").doc(uid);
+    const authorRef = firestore.collection("authors").doc(uid);
     const optionalString = (val: unknown) => (typeof val === "string" ? val : "");
+    let cleanName = "";
+    let finalSlug = "";
+    let userHandle = "";
 
-    const finalAvatar =
-      optionalString(avatar) ||
-      userData.photoURL ||
-      userRecord?.photoURL ||
-      "";
+    await firestore.runTransaction(async (transaction) => {
+      const [currentCaller, userDoc, authorDoc] = await Promise.all([
+        transaction.get(callerRef),
+        transaction.get(userRef),
+        transaction.get(authorRef),
+      ]);
+      const currentCallerRole = currentCaller.data()?.role;
+      if (!currentCaller.exists || !["admin", "super"].includes(currentCallerRole)) {
+        throw new HttpsError(
+          "permission-denied",
+          "You no longer have permission to add team members."
+        );
+      }
+      if (role === "super" && currentCallerRole !== "super") {
+        throw new HttpsError(
+          "permission-denied",
+          "Only a super admin can assign the super admin role."
+        );
+      }
+      if (authorDoc.exists) {
+        throw new HttpsError("already-exists", "That account is already a CMS team member.");
+      }
+      if (!userDoc.exists) {
+        throw new HttpsError("not-found", "That Docs reader profile no longer exists.");
+      }
 
-    const finalSlug =
-      optionalString(slug) ||
-      normalizeTeamHandle(userData.handle) ||
-      cleanName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)+/g, "");
+      const userData = userDoc.data() || {};
+      if (
+        (typeof userData.uid === "string" && userData.uid !== uid) ||
+        !isEligibleReaderForTeam(userData)
+      ) {
+        throw new HttpsError(
+          "failed-precondition",
+          "Only an active reader account that is not already staff can be added to the team."
+        );
+      }
 
-    const finalShowOnTeam =
-      typeof showOnTeam === "boolean"
-        ? showOnTeam
-        : role !== "moderator";
+      cleanName =
+        (typeof name === "string" && name.trim()) ||
+        (typeof userData.displayName === "string" && userData.displayName.trim()) ||
+        userRecord.displayName ||
+        userData.handle ||
+        userRecord.email?.split("@")[0] ||
+        "Team Member";
+      userHandle = normalizeTeamHandle(userData.handle);
+      finalSlug =
+        optionalString(slug) ||
+        userHandle ||
+        cleanName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)+/g, "");
 
-    const userHandle = normalizeTeamHandle(userData.handle);
+      const authorData: Record<string, unknown> = {
+        uid,
+        name: cleanName,
+        ...(userHandle ? { handle: userHandle } : {}),
+        city: optionalString(city) || userData.city || "",
+        job: optionalString(job) || "",
+        role,
+        showOnTeam: typeof showOnTeam === "boolean" ? showOnTeam : role !== "moderator",
+        avatar: optionalString(avatar) || userData.photoURL || userRecord.photoURL || "",
+        imgAlt: optionalString(imgAlt) || `Profile picture of ${cleanName}`,
+        biography:
+          typeof biography === "object" && biography !== null
+            ? biography
+            : { body: userData.bio || "", summary: "" },
+        slug: finalSlug,
+        socials: typeof socials === "object" && socials !== null ? socials : {},
+        createdAt: userData.createdAt || new Date().toISOString(),
+        dateJoined: admin.firestore.FieldValue.serverTimestamp(),
+      };
 
-    const authorData: Record<string, any> = {
-      uid,
-      name: cleanName,
-      ...(userHandle ? { handle: userHandle } : {}),
-      city: optionalString(city) || userData.city || "",
-      job: optionalString(job) || "",
-      role,
-      showOnTeam: finalShowOnTeam,
-      avatar: finalAvatar,
-      imgAlt: optionalString(imgAlt) || `Profile picture of ${cleanName}`,
-      biography:
-        typeof biography === "object" && biography !== null
-          ? biography
-          : { body: userData.bio || "", summary: "" },
-      slug: finalSlug,
-      socials: typeof socials === "object" && socials !== null ? socials : {},
-      createdAt: userData.createdAt || new Date().toISOString(),
-      dateJoined: admin.firestore.FieldValue.serverTimestamp(),
-    };
-
-    await firestore.collection("authors").doc(uid).set(authorData, { merge: true });
-
-    if (userDoc.exists) {
-      await firestore.collection("users").doc(uid).set(
+      transaction.create(authorRef, authorData);
+      transaction.set(
+        userRef,
         {
           staffName: cleanName,
           staffRole: role,
@@ -2153,9 +2926,9 @@ export const addExistingUserToTeam = onCall(
         },
         { merge: true }
       );
-    }
+    });
 
-    writeServerAuditLog({
+    await writeServerAuditLog({
       actorUid: request.auth.uid,
       action: "team.add_existing",
       category: "team",
@@ -2197,17 +2970,31 @@ export const promoteReaderToModerator = onCall(
     if (!userRecord) {
       throw new HttpsError("not-found", "That reader's sign-in account no longer exists.");
     }
+    if (userRecord.disabled) {
+      throw new HttpsError("failed-precondition", "That reader's sign-in account is disabled.");
+    }
 
+    const callerRef = firestore.collection("authors").doc(request.auth.uid);
     const userRef = firestore.collection("users").doc(uid);
     const authorRef = firestore.collection("authors").doc(uid);
     let promotedHandle = "";
     let promotedName = "";
 
     await firestore.runTransaction(async (transaction) => {
-      const [user, author] = await Promise.all([
+      const [currentCaller, user, author] = await Promise.all([
+        transaction.get(callerRef),
         transaction.get(userRef),
         transaction.get(authorRef),
       ]);
+      if (
+        !currentCaller.exists ||
+        !["admin", "super"].includes(currentCaller.data()?.role)
+      ) {
+        throw new HttpsError(
+          "permission-denied",
+          "You no longer have permission to promote moderators."
+        );
+      }
       if (!user.exists) {
         throw new HttpsError("not-found", "That Docs reader profile no longer exists.");
       }
@@ -2216,6 +3003,15 @@ export const promoteReaderToModerator = onCall(
       }
 
       const data = user.data() || {};
+      if (
+        (typeof data.uid === "string" && data.uid !== uid) ||
+        !isEligibleReaderForTeam(data)
+      ) {
+        throw new HttpsError(
+          "failed-precondition",
+          "Only an active reader account that is not already staff can be promoted."
+        );
+      }
       const handle = normalizeTeamHandle(data.handle);
       const name =
         (typeof data.displayName === "string" && data.displayName.trim()) ||
@@ -2226,7 +3022,7 @@ export const promoteReaderToModerator = onCall(
       promotedName = name;
       const timestamp = admin.firestore.FieldValue.serverTimestamp();
 
-      transaction.set(authorRef, {
+      transaction.create(authorRef, {
         uid,
         name,
         handle,
@@ -2259,7 +3055,7 @@ export const promoteReaderToModerator = onCall(
       );
     });
 
-    writeServerAuditLog({
+    await writeServerAuditLog({
       actorUid: request.auth.uid,
       action: "team.promote_moderator",
       category: "team",
@@ -2325,7 +3121,7 @@ export const deleteTeamMember = onCall(
 
     await deleteAccountData(uid);
 
-    writeServerAuditLog({
+    await writeServerAuditLog({
       actorUid: request.auth.uid,
       action: "team.delete_member",
       category: "team",
@@ -2583,7 +3379,7 @@ export const manageAssets = onCall(
 
     const isSafeStoragePath = (value: unknown): value is string =>
       typeof value === "string" && value.length >= 1 && value.length <= 1024 &&
-      !value.startsWith("/") && !value.includes("//") &&
+      !value.startsWith("/") && !value.endsWith("/") && !value.includes("//") &&
       !value.split("/").some((part) => part === "." || part === ".." || /[\r\n\0]/.test(part));
     if (action !== "syncIndex" && !items.every(isSafeStoragePath)) {
       throw new HttpsError("invalid-argument", "One or more asset paths are invalid.");
@@ -2596,9 +3392,53 @@ export const manageAssets = onCall(
       throw new HttpsError("invalid-argument", "The destination path is invalid.");
     }
 
+    const storageBaseName = (path: string) =>
+      path.replace(/\/+$/, "").split("/").pop() || "";
+    let renameTargetPath: string | undefined;
+    const derivedDestinationPaths: string[] = [];
+
+    if (action === "rename") {
+      if (items.length !== 1 || !newName) {
+        throw new HttpsError(
+          "invalid-argument",
+          "Rename requires exactly 1 item and newName."
+        );
+      }
+      const normalizedSource = items[0].replace(/\/+$/, "");
+      const sourceParts = normalizedSource.split("/");
+      sourceParts.pop();
+      const parentPath = sourceParts.join("/");
+      const derivedRenameTarget = parentPath ? `${parentPath}/${newName}` : newName;
+      renameTargetPath = derivedRenameTarget;
+      derivedDestinationPaths.push(derivedRenameTarget);
+    } else if (action === "copy" || action === "move") {
+      if (destPath === undefined || destPath === null) {
+        throw new HttpsError(
+          "invalid-argument",
+          "Copy/Move requires destPath (can be empty string)."
+        );
+      }
+      for (const sourcePath of items) {
+        const sourceName = storageBaseName(sourcePath);
+        derivedDestinationPaths.push(
+          destPath ? `${destPath}/${sourceName}` : sourceName
+        );
+      }
+    }
+
+    if (!derivedDestinationPaths.every(isSafeStoragePath)) {
+      throw new HttpsError("invalid-argument", "The derived destination path is invalid.");
+    }
+
     if (!isAssetAdmin && action !== "syncIndex") {
+      if (action === "rename" && /^Articles\/[^/]+\/?$/.test(items[0])) {
+        throw new HttpsError(
+          "permission-denied",
+          "Authors cannot rename an article's top-level asset folder."
+        );
+      }
       const articleIds = new Set<string>();
-      [...items, ...(destPath ? [destPath] : [])].forEach((path) => {
+      [...items, ...derivedDestinationPaths].forEach((path) => {
         const match = /^Articles\/([^/]+)(?:\/|$)/.exec(path);
         if (!match) {
           throw new HttpsError(
@@ -2637,12 +3477,6 @@ export const manageAssets = onCall(
 
     try {
       if (action === "rename") {
-        if (items.length !== 1 || !newName) {
-          throw new HttpsError(
-            "invalid-argument",
-            "Rename requires exactly 1 item and newName."
-          );
-        }
         const srcPath = items[0];
 
         let isFolder = false;
@@ -2653,10 +3487,10 @@ export const manageAssets = onCall(
           else throw e;
         }
 
-        const pathParts = srcPath.split("/");
-        pathParts.pop(); // remove old name
-        const parentPath = pathParts.join("/");
-        const newPath = parentPath ? `${parentPath}/${newName}` : newName;
+        if (!renameTargetPath) {
+          throw new HttpsError("internal", "The rename destination was not resolved.");
+        }
+        const newPath = renameTargetPath;
 
         if (!isFolder) {
           await bucket.file(srcPath).move(newPath);
@@ -2665,6 +3499,12 @@ export const manageAssets = onCall(
           // Folder rename = move all files with prefix
           const prefix = srcPath.endsWith("/") ? srcPath : `${srcPath}/`;
           const [files] = await bucket.getFiles({ prefix });
+          if (files.length > 500) {
+            throw new HttpsError(
+              "resource-exhausted",
+              "Folders with more than 500 objects must be reorganized in smaller sections."
+            );
+          }
           log(
             `Renaming folder ${srcPath} to ${newPath}, found ${files.length} files`
           );
@@ -2676,13 +3516,6 @@ export const manageAssets = onCall(
         }
         results.success++;
       } else if (action === "copy" || action === "move") {
-        if (destPath === undefined || destPath === null) {
-          throw new HttpsError(
-            "invalid-argument",
-            "Copy/Move requires destPath (can be empty string)."
-          );
-        }
-
         for (const srcPath of items) {
           try {
             let isFolder = false;
@@ -2714,6 +3547,12 @@ export const manageAssets = onCall(
             } else {
               const prefix = srcPath.endsWith("/") ? srcPath : `${srcPath}/`;
               const [files] = await bucket.getFiles({ prefix });
+              if (files.length > 500) {
+                throw new HttpsError(
+                  "resource-exhausted",
+                  "Folders with more than 500 objects must be moved or copied in smaller sections."
+                );
+              }
 
               log(`Processing folder ${prefix}, found ${files.length} files`);
 
@@ -2849,10 +3688,10 @@ export const manageAssets = onCall(
         const prefix = srcPath.endsWith("/") ? srcPath : `${srcPath}/`;
         const [files] = await bucket.getFiles({ prefix });
 
-        if (files.length > 250) {
+        if (files.length > 100) {
           throw new HttpsError(
             "resource-exhausted",
-            "Folders with more than 250 files must be downloaded in smaller sections."
+            "Folders with more than 100 files must be downloaded in smaller sections."
           );
         }
 
@@ -2860,10 +3699,10 @@ export const manageAssets = onCall(
           (sum, file) => sum + (Number(file.metadata.size) || 0),
           0
         );
-        if (totalBytes > 250 * 1024 * 1024) {
+        if (totalBytes > 64 * 1024 * 1024) {
           throw new HttpsError(
             "resource-exhausted",
-            "Folders larger than 250 MB must be downloaded in smaller sections."
+            "Folders larger than 64 MB must be downloaded in smaller sections."
           );
         }
 
@@ -2874,13 +3713,10 @@ export const manageAssets = onCall(
 
         const zip = new JSZip();
 
-        // Download all files in parallel
-        // WARNING: Large folders might run out of memory.
-        // Ideally we stream, but JSZip generateAsync needs all data for compression unless we use a stream-capable zip lib.
-        // JSZip is memory-bound.
-
-        await Promise.all(
-          files.map(async (file) => {
+        // JSZip buffers output, so bound both total size above and download
+        // concurrency here to keep peak memory below the Function allocation.
+        for (let offset = 0; offset < files.length; offset += 4) {
+          await Promise.all(files.slice(offset, offset + 4).map(async (file) => {
             if (file.name.endsWith("/")) return; // Skip directories if listed
             try {
               const [content] = await file.download();
@@ -2891,8 +3727,8 @@ export const manageAssets = onCall(
             } catch (e) {
               logger.error(`Failed to download file for zip: ${file.name}`, e);
             }
-          })
-        );
+          }));
+        }
 
         const zipContent = await zip.generateAsync({ type: "nodebuffer" });
 
@@ -3362,16 +4198,13 @@ export const checkScheduledPosts = onSchedule(
 
       logger.info(`Found ${snapshot.size} scheduled posts to publish.`);
 
-      const batch = db.batch();
-      snapshot.docs.forEach((doc) => {
+      await mutateDocumentsInChunks(snapshot.docs, (batch, doc) => {
         batch.update(doc.ref, {
           publish: true,
-          date: doc.data().scheduledPublishDate || now, // Use scheduled time as publish time
+          date: doc.data()?.scheduledPublishDate || now, // Use scheduled time as publish time
           updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         });
       });
-
-      await batch.commit();
       logger.info(`Successfully published ${snapshot.size} articles.`);
     } catch (error) {
       logger.error("Error in checkScheduledPosts", error);
@@ -3423,16 +4256,17 @@ interface NotificationPayload {
   message: string;
   link: string;
   metadata?: Record<string, any>;
+  idempotencyKey?: string;
 }
 
 async function sendNotification(payload: NotificationPayload) {
   try {
     const firestore = getDb();
-    await firestore
+    const notifications = firestore
       .collection("users")
       .doc(payload.userId)
-      .collection("notifications")
-      .add({
+      .collection("notifications");
+    const data = {
         userId: payload.userId,
         type: payload.type,
         title: payload.title,
@@ -3441,7 +4275,15 @@ async function sendNotification(payload: NotificationPayload) {
         read: false,
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
         metadata: payload.metadata || {},
-      });
+      };
+    if (payload.idempotencyKey) {
+      const id = createHash("sha256")
+        .update(payload.idempotencyKey, "utf8")
+        .digest("hex");
+      await notifications.doc(id).set(data);
+    } else {
+      await notifications.add(data);
+    }
   } catch (error) {
     logger.error(`Error sending notification to user ${payload.userId}:`, error);
   }
@@ -3483,6 +4325,7 @@ export const onCommentCreated = onDocumentCreated(
             title: `${authorName} mentioned you`,
             message: `In a comment on "${articleTitle}": "${snippet}"`,
             link,
+            idempotencyKey: `comment:${commentId}:mention:${targetUid}`,
             metadata: {
               articleId: comment.articleId,
               articleSlug,
@@ -3501,7 +4344,7 @@ export const onCommentCreated = onDocumentCreated(
       const firestore = getDb();
       const staffSnapshot = await firestore
         .collection("authors")
-        .where("role", "in", ["super", "admin", "author", "moderator"])
+        .where("role", "in", ["super", "admin", "moderator"])
         .get();
 
       for (const staffDoc of staffSnapshot.docs) {
@@ -3514,6 +4357,7 @@ export const onCommentCreated = onDocumentCreated(
             title: `New comment from ${authorName}`,
             message: `On "${articleTitle}": "${snippet}"`,
             link,
+            idempotencyKey: `comment:${commentId}:staff:${staffUid}`,
             metadata: {
               articleId: comment.articleId,
               articleSlug,
@@ -3569,6 +4413,7 @@ export const onCommentReplyCreated = onDocumentCreated(
             title: `${authorName} mentioned you`,
             message: `In a reply on "${articleTitle}": "${snippet}"`,
             link,
+            idempotencyKey: `reply:${replyId}:mention:${targetUid}`,
             metadata: {
               articleId: reply.articleId,
               articleSlug,
@@ -3601,6 +4446,7 @@ export const onCommentReplyCreated = onDocumentCreated(
               title: `${authorName} replied to your comment`,
               message: `On "${articleTitle}": "${snippet}"`,
               link,
+              idempotencyKey: `reply:${replyId}:parent:${parentAuthorId}`,
               metadata: {
                 articleId: reply.articleId,
                 articleSlug,
@@ -3623,7 +4469,7 @@ export const onCommentReplyCreated = onDocumentCreated(
       const firestore = getDb();
       const staffSnapshot = await firestore
         .collection("authors")
-        .where("role", "in", ["super", "admin", "author", "moderator"])
+        .where("role", "in", ["super", "admin", "moderator"])
         .get();
 
       for (const staffDoc of staffSnapshot.docs) {
@@ -3636,6 +4482,7 @@ export const onCommentReplyCreated = onDocumentCreated(
             title: `New reply from ${authorName}`,
             message: `On "${articleTitle}": "${snippet}"`,
             link,
+            idempotencyKey: `reply:${replyId}:staff:${staffUid}`,
             metadata: {
               articleId: reply.articleId,
               articleSlug,
@@ -3695,7 +4542,7 @@ export const onArticlePublished = onDocumentWritten(
             .collection("users")
             .doc(userDoc.id)
             .collection("notifications")
-            .doc();
+            .doc(createHash("sha256").update(`article:${articleId}`, "utf8").digest("hex"));
 
           batch.set(notificationRef, {
             userId: userDoc.id,
@@ -3800,7 +4647,7 @@ export const togglePinComment = onCall(
 
     await batch.commit();
 
-    writeServerAuditLog({
+    await writeServerAuditLog({
       actorUid: request.auth.uid,
       action: pinned ? "comment.pin" : "comment.unpin",
       category: "comments",
@@ -3811,6 +4658,367 @@ export const togglePinComment = onCall(
     });
 
     return { success: true, pinned };
+  }
+);
+
+export const cleanupPermanentlyDeletedArticleAssets = onDocumentDeleted(
+  { document: "articleTrash/{articleId}", region: "europe-west1" },
+  async (event) => {
+    const articleId = event.params.articleId;
+    const restoredArticle = await getDb().collection("articles").doc(articleId).get();
+    if (restoredArticle.exists) return;
+    await admin.storage().bucket().deleteFiles({ prefix: `Articles/${articleId}/` });
+    logger.info("Removed assets for permanently deleted article", { articleId });
+  }
+);
+
+type CommentAttachment = {
+  url: string;
+  storagePath: string;
+  width?: number;
+  height?: number;
+  alt?: string;
+};
+
+function normalizeCommentAttachments(value: unknown, uid: string): CommentAttachment[] {
+  if (value == null) return [];
+  if (!Array.isArray(value) || value.length > 4) {
+    throw new HttpsError("invalid-argument", "A post can contain at most four images.");
+  }
+  return value.map((item) => {
+    if (!item || typeof item !== "object") {
+      throw new HttpsError("invalid-argument", "Invalid image attachment.");
+    }
+    const source = item as Record<string, unknown>;
+    const storagePath = typeof source.storagePath === "string" ? source.storagePath : "";
+    const url = typeof source.url === "string" ? source.url : "";
+    if (!new RegExp(`^comments/${uid}/[a-zA-Z0-9_-]{20,64}/[0-3]\\.(webp|jpg)$`).test(storagePath)) {
+      throw new HttpsError("invalid-argument", "An image does not belong to this account.");
+    }
+    try {
+      const parsed = new URL(url);
+      if (parsed.protocol !== "https:" || parsed.hostname !== "firebasestorage.googleapis.com" ||
+          !decodeURIComponent(parsed.pathname).includes(storagePath)) {
+        throw new Error("mismatch");
+      }
+    } catch {
+      throw new HttpsError("invalid-argument", "Invalid image URL.");
+    }
+    const boundedDimension = (field: "width" | "height") => {
+      const candidate = Number(source[field]);
+      return Number.isInteger(candidate) && candidate > 0 && candidate <= 1600
+        ? candidate
+        : undefined;
+    };
+    const alt = typeof source.alt === "string" ? source.alt.trim().slice(0, 180) : "";
+    return {
+      url,
+      storagePath,
+      ...(boundedDimension("width") ? { width: boundedDimension("width") } : {}),
+      ...(boundedDimension("height") ? { height: boundedDimension("height") } : {}),
+      ...(alt ? { alt } : {}),
+    };
+  });
+}
+
+function getAttachmentReservationId(attachments: CommentAttachment[], uid: string) {
+  if (!attachments.length) return "";
+  const ids = new Set(attachments.map((attachment) =>
+    new RegExp(`^comments/${uid}/([a-zA-Z0-9_-]{20,64})/`).exec(attachment.storagePath)?.[1] || ""
+  ));
+  if (ids.size !== 1 || ids.has("")) {
+    throw new HttpsError("invalid-argument", "Images must come from one upload reservation.");
+  }
+  return [...ids][0];
+}
+
+async function verifyCommentAttachmentObjects(attachments: CommentAttachment[]) {
+  const bucket = admin.storage().bucket();
+  await Promise.all(attachments.map(async (attachment) => {
+    const object = bucket.file(attachment.storagePath);
+    const [[metadata], [header]] = await Promise.all([
+      object.getMetadata(),
+      object.download({ start: 0, end: 15 }),
+    ]).catch(() => {
+      throw new HttpsError("failed-precondition", "An uploaded image could not be verified.");
+    });
+    const size = Number(metadata.size) || 0;
+    const contentType = String(metadata.contentType || "");
+    const isJpeg = header.length >= 3 && header[0] === 0xff && header[1] === 0xd8 && header[2] === 0xff;
+    const isWebp = header.length >= 12 &&
+      header.subarray(0, 4).toString("ascii") === "RIFF" &&
+      header.subarray(8, 12).toString("ascii") === "WEBP";
+    if (size <= 0 || size > 2 * 1024 * 1024 ||
+        !((contentType === "image/jpeg" && isJpeg) || (contentType === "image/webp" && isWebp))) {
+      throw new HttpsError("failed-precondition", "An uploaded image failed validation.");
+    }
+    try {
+      const parsed = new URL(attachment.url);
+      const expectedPath = `/v0/b/${bucket.name}/o/${encodeURIComponent(attachment.storagePath)}`;
+      const downloadTokens = String(metadata.metadata?.firebaseStorageDownloadTokens || "")
+        .split(",")
+        .map((token) => token.trim())
+        .filter(Boolean);
+      if (
+        parsed.protocol !== "https:" ||
+        parsed.hostname !== "firebasestorage.googleapis.com" ||
+        parsed.pathname !== expectedPath ||
+        parsed.searchParams.get("alt") !== "media" ||
+        !downloadTokens.includes(parsed.searchParams.get("token") || "")
+      ) {
+        throw new Error("Attachment URL does not match the verified object.");
+      }
+    } catch {
+      throw new HttpsError("failed-precondition", "An uploaded image URL failed validation.");
+    }
+  }));
+}
+
+function validatePostContent(value: unknown, hasAttachments: boolean) {
+  const content = typeof value === "string" ? value.trim() : "";
+  if (content.length > 2000 || (!content && !hasAttachments)) {
+    throw new HttpsError("invalid-argument", "Write a message up to 2,000 characters.");
+  }
+  return content;
+}
+
+function attachmentClaimRef(attachment: CommentAttachment) {
+  return getDb().collection("commentAttachmentClaims").doc(
+    createHash("sha256").update(attachment.storagePath, "utf8").digest("hex")
+  );
+}
+
+export const reserveCommentUploads = onCall(
+  { region: "europe-west1", minInstances: 0 },
+  async (request) => {
+    if (!request.auth) throw new HttpsError("unauthenticated", "Sign in to upload images.");
+    const uid = request.auth.uid;
+    const extensions = Array.isArray(request.data?.extensions)
+      ? request.data.extensions
+      : [];
+    if (extensions.length < 1 || extensions.length > 4 ||
+        extensions.some((value: unknown) => !["webp", "jpg"].includes(value as string))) {
+      throw new HttpsError("invalid-argument", "Reserve between one and four JPG or WebP images.");
+    }
+    await Promise.all([
+      enforceRateLimit(`uploads_hour_${uid}`, 12, 60 * 60_000, "Too many image uploads. Please try again later."),
+      enforceRateLimit(`uploads_day_${uid}`, 40, 24 * 60 * 60_000, "Your daily image upload limit has been reached."),
+    ]);
+    const firestore = getDb();
+    const [user, author] = await Promise.all([
+      firestore.collection("users").doc(uid).get(),
+      firestore.collection("authors").doc(uid).get(),
+    ]);
+    const isStaff = author.exists && RESERVABLE_TEAM_ROLES.includes(author.data()?.role);
+    if (!isStaff && (!user.exists || !isAccountAllowedToParticipate(user.data()))) {
+      throw new HttpsError("permission-denied", "This account cannot upload comment images.");
+    }
+    const reservationId = randomBytes(24).toString("base64url");
+    const fileNames = extensions.map((extension: string, index: number) => `${index}.${extension}`);
+    const storagePaths = fileNames.map((fileName: string) =>
+      `comments/${uid}/${reservationId}/${fileName}`
+    );
+    await firestore.collection("commentUploadReservations").doc(reservationId).create({
+      uid,
+      fileNames,
+      storagePaths,
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      expiresAt: admin.firestore.Timestamp.fromMillis(Date.now() + 15 * 60_000),
+    });
+    return { reservationId, storagePaths };
+  }
+);
+
+export const createComment = onCall(
+  { region: "europe-west1", minInstances: 0 },
+  async (request) => {
+    if (!request.auth) throw new HttpsError("unauthenticated", "Sign in to comment.");
+    const uid = request.auth.uid;
+    const articleId = typeof request.data?.articleId === "string"
+      ? request.data.articleId.trim()
+      : "";
+    if (!articleId || articleId.length > 128 || articleId.includes("/")) {
+      throw new HttpsError("invalid-argument", "Invalid article.");
+    }
+    const attachments = normalizeCommentAttachments(request.data?.images, uid);
+    const reservationId = getAttachmentReservationId(attachments, uid);
+    const content = validatePostContent(request.data?.content, attachments.length > 0);
+    await Promise.all([
+      enforceRateLimit(`posts_minute_${uid}`, 6, 60_000, "You are posting too quickly. Please wait a minute."),
+      enforceRateLimit(`posts_day_${uid}`, 60, 24 * 60 * 60_000, "Your daily posting limit has been reached."),
+      verifyCommentAttachmentObjects(attachments),
+    ]);
+
+    const firestore = getDb();
+    const commentRef = firestore.collection("comments").doc();
+    const userRef = firestore.collection("users").doc(uid);
+    const authorRef = firestore.collection("authors").doc(uid);
+    const articleRef = firestore.collection("articles").doc(articleId);
+    const claimRefs = attachments.map(attachmentClaimRef);
+    const reservationRef = reservationId
+      ? firestore.collection("commentUploadReservations").doc(reservationId)
+      : null;
+
+    await firestore.runTransaction(async (transaction) => {
+      const [user, author, article, reservation, ...claims] = await Promise.all([
+        transaction.get(userRef),
+        transaction.get(authorRef),
+        transaction.get(articleRef),
+        reservationRef ? transaction.get(reservationRef) : Promise.resolve(null),
+        ...claimRefs.map((ref) => transaction.get(ref)),
+      ]);
+      const isStaff = author.exists && RESERVABLE_TEAM_ROLES.includes(author.data()?.role);
+      if (!isStaff && (!user.exists || !isAccountAllowedToParticipate(user.data()))) {
+        throw new HttpsError("permission-denied", "This account cannot post comments.");
+      }
+      if (!article.exists || article.data()?.publish !== true) {
+        throw new HttpsError("failed-precondition", "Comments are available only on published articles.");
+      }
+      if (claims.some((claim) => claim.exists)) {
+        throw new HttpsError("already-exists", "An image is already attached to another post.");
+      }
+      if (attachments.length && (!reservation?.exists || reservation.data()?.uid !== uid ||
+          reservation.data()?.expiresAt?.toMillis?.() < Date.now() ||
+          attachments.some((attachment) => !reservation.data()?.storagePaths?.includes(attachment.storagePath)))) {
+        throw new HttpsError("failed-precondition", "The image upload reservation is invalid or expired.");
+      }
+      const identity = isStaff ? author.data() || {} : user.data() || {};
+      const handle = normalizeTeamHandle(identity.handle);
+      if (!handle) throw new HttpsError("failed-precondition", "Set your handle before commenting.");
+      const images = attachments;
+      const now = admin.firestore.FieldValue.serverTimestamp();
+      transaction.create(commentRef, {
+        articleId,
+        articleSlug: article.data()?.slug || "",
+        articleTitle: article.data()?.title || "",
+        authorId: uid,
+        authorName: identity.name || identity.displayName || handle,
+        authorHandle: handle,
+        authorPhotoURL: identity.avatar || identity.photoURL || "",
+        content,
+        ...(images.length ? {
+          images,
+          imageUrl: images[0].url,
+          imageStoragePath: images[0].storagePath,
+          ...(images[0].width ? { imageWidth: images[0].width } : {}),
+          ...(images[0].height ? { imageHeight: images[0].height } : {}),
+        } : {}),
+        status: "visible",
+        createdAt: now,
+        updatedAt: now,
+        edited: false,
+        likeCount: 0,
+        dislikeCount: 0,
+        replyCount: 0,
+      });
+      claimRefs.forEach((ref, index) => transaction.create(ref, {
+        storagePath: images[index].storagePath,
+        ownerUid: uid,
+        contentType: "comment",
+        contentId: commentRef.id,
+        createdAt: now,
+      }));
+      if (reservationRef) transaction.delete(reservationRef);
+    });
+    return { success: true, commentId: commentRef.id };
+  }
+);
+
+export const createCommentReply = onCall(
+  { region: "europe-west1", minInstances: 0 },
+  async (request) => {
+    if (!request.auth) throw new HttpsError("unauthenticated", "Sign in to reply.");
+    const uid = request.auth.uid;
+    const parentCommentId = typeof request.data?.parentCommentId === "string"
+      ? request.data.parentCommentId.trim()
+      : "";
+    if (!parentCommentId || parentCommentId.length > 128 || parentCommentId.includes("/")) {
+      throw new HttpsError("invalid-argument", "Invalid parent comment.");
+    }
+    const attachments = normalizeCommentAttachments(request.data?.images, uid);
+    const reservationId = getAttachmentReservationId(attachments, uid);
+    const content = validatePostContent(request.data?.content, attachments.length > 0);
+    await Promise.all([
+      enforceRateLimit(`posts_minute_${uid}`, 6, 60_000, "You are posting too quickly. Please wait a minute."),
+      enforceRateLimit(`posts_day_${uid}`, 60, 24 * 60 * 60_000, "Your daily posting limit has been reached."),
+      verifyCommentAttachmentObjects(attachments),
+    ]);
+
+    const firestore = getDb();
+    const replyRef = firestore.collection("commentReplies").doc();
+    const userRef = firestore.collection("users").doc(uid);
+    const authorRef = firestore.collection("authors").doc(uid);
+    const parentRef = firestore.collection("comments").doc(parentCommentId);
+    const claimRefs = attachments.map(attachmentClaimRef);
+    const reservationRef = reservationId
+      ? firestore.collection("commentUploadReservations").doc(reservationId)
+      : null;
+
+    await firestore.runTransaction(async (transaction) => {
+      const [user, author, parent, reservation, ...claims] = await Promise.all([
+        transaction.get(userRef),
+        transaction.get(authorRef),
+        transaction.get(parentRef),
+        reservationRef ? transaction.get(reservationRef) : Promise.resolve(null),
+        ...claimRefs.map((ref) => transaction.get(ref)),
+      ]);
+      const isStaff = author.exists && RESERVABLE_TEAM_ROLES.includes(author.data()?.role);
+      if (!isStaff && (!user.exists || !isAccountAllowedToParticipate(user.data()))) {
+        throw new HttpsError("permission-denied", "This account cannot post replies.");
+      }
+      if (!parent.exists || parent.data()?.status !== "visible") {
+        throw new HttpsError("failed-precondition", "That comment is not available for replies.");
+      }
+      const articleRef = firestore.collection("articles").doc(parent.data()?.articleId || "_");
+      const article = await transaction.get(articleRef);
+      if (!article.exists || (!isStaff && article.data()?.publish !== true)) {
+        throw new HttpsError("failed-precondition", "Replies are unavailable for this article.");
+      }
+      if (claims.some((claim) => claim.exists)) {
+        throw new HttpsError("already-exists", "An image is already attached to another post.");
+      }
+      if (attachments.length && (!reservation?.exists || reservation.data()?.uid !== uid ||
+          reservation.data()?.expiresAt?.toMillis?.() < Date.now() ||
+          attachments.some((attachment) => !reservation.data()?.storagePaths?.includes(attachment.storagePath)))) {
+        throw new HttpsError("failed-precondition", "The image upload reservation is invalid or expired.");
+      }
+      const identity = isStaff ? author.data() || {} : user.data() || {};
+      const handle = normalizeTeamHandle(identity.handle);
+      if (!handle) throw new HttpsError("failed-precondition", "Set your handle before replying.");
+      const images = attachments;
+      const now = admin.firestore.FieldValue.serverTimestamp();
+      transaction.create(replyRef, {
+        parentCommentId,
+        articleId: parent.data()?.articleId || "",
+        articleSlug: parent.data()?.articleSlug || article.data()?.slug || "",
+        articleTitle: parent.data()?.articleTitle || article.data()?.title || "",
+        authorId: uid,
+        authorName: identity.name || identity.displayName || handle,
+        authorHandle: handle,
+        authorPhotoURL: identity.avatar || identity.photoURL || "",
+        content,
+        ...(images.length ? {
+          images,
+          imageUrl: images[0].url,
+          imageStoragePath: images[0].storagePath,
+          ...(images[0].width ? { imageWidth: images[0].width } : {}),
+          ...(images[0].height ? { imageHeight: images[0].height } : {}),
+        } : {}),
+        status: "visible",
+        createdAt: now,
+        updatedAt: now,
+        edited: false,
+      });
+      claimRefs.forEach((ref, index) => transaction.create(ref, {
+        storagePath: images[index].storagePath,
+        ownerUid: uid,
+        contentType: "reply",
+        contentId: replyRef.id,
+        createdAt: now,
+      }));
+      if (reservationRef) transaction.delete(reservationRef);
+    });
+    return { success: true, replyId: replyRef.id };
   }
 );
 
@@ -3920,8 +5128,112 @@ export const submitReport = onCall(
       articleSlug: targetData?.articleSlug || null,
       status: "pending",
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      expiresAt: admin.firestore.Timestamp.fromMillis(Date.now() + 730 * 24 * 60 * 60_000),
     });
     return { submitted: true, reportId: reportRef.id };
+  }
+);
+
+export const resolveReport = onCall(
+  { region: "europe-west1", minInstances: 0 },
+  async (request) => {
+    if (!request.auth) {
+      throw new HttpsError("unauthenticated", "Authentication is required.");
+    }
+    const reportId = typeof request.data?.reportId === "string"
+      ? request.data.reportId.trim()
+      : "";
+    const action = request.data?.action;
+    const notes = typeof request.data?.notes === "string"
+      ? request.data.notes.replace(/[\r\n\t]+/g, " ").trim().slice(0, 1000)
+      : "";
+    if (!reportId || reportId.length > 128 || reportId.includes("/") ||
+        !["dismiss", "hide", "delete"].includes(action)) {
+      throw new HttpsError("invalid-argument", "Invalid report action.");
+    }
+
+    const firestore = getDb();
+    const callerRef = firestore.collection("authors").doc(request.auth.uid);
+    const reportRef = firestore.collection("reports").doc(reportId);
+    let reportedUserHandle = "reader";
+    let contentId = "";
+
+    await firestore.runTransaction(async (transaction) => {
+      const [caller, report] = await Promise.all([
+        transaction.get(callerRef),
+        transaction.get(reportRef),
+      ]);
+      if (!caller.exists || !["super", "admin", "moderator"].includes(caller.data()?.role)) {
+        throw new HttpsError("permission-denied", "You cannot resolve reports.");
+      }
+      if (!report.exists) {
+        throw new HttpsError("not-found", "That report no longer exists.");
+      }
+      const reportData = report.data() || {};
+      if (reportData.status !== "pending") {
+        throw new HttpsError("failed-precondition", "That report has already been resolved.");
+      }
+      reportedUserHandle = reportData.reportedUserHandle || "reader";
+      const reportedUserId = reportData.reportedUserId;
+      const targetAuthorRef = typeof reportedUserId === "string" && reportedUserId
+        ? firestore.collection("authors").doc(reportedUserId)
+        : null;
+      const requestedContentId = reportData.commentId;
+      const contentCollection = reportData.type === "reply" ? "commentReplies" : "comments";
+      const contentRef =
+        action !== "dismiss" && typeof requestedContentId === "string" && requestedContentId
+          ? firestore.collection(contentCollection).doc(requestedContentId)
+          : null;
+      const [targetAuthor, content] = await Promise.all([
+        targetAuthorRef ? transaction.get(targetAuthorRef) : Promise.resolve(null),
+        contentRef ? transaction.get(contentRef) : Promise.resolve(null),
+      ]);
+      if (targetAuthor?.exists) {
+        throw new HttpsError("failed-precondition", "Team accounts cannot be moderated from a reader report.");
+      }
+
+      if (action !== "dismiss") {
+        if (!contentRef || !content?.exists || content.data()?.authorId !== reportedUserId) {
+          throw new HttpsError("failed-precondition", "The reported content no longer matches this report.");
+        }
+        contentId = content.id;
+        if (action === "hide") {
+          transaction.update(contentRef, {
+            status: "hidden",
+            moderatedAt: admin.firestore.FieldValue.serverTimestamp(),
+            moderatedBy: request.auth!.uid,
+          });
+        } else {
+          transaction.delete(contentRef);
+        }
+      }
+
+      transaction.update(reportRef, {
+        status: action === "dismiss" ? "dismissed" : "action_taken",
+        actionTaken: action === "dismiss"
+          ? admin.firestore.FieldValue.delete()
+          : `${action}_content`,
+        resolutionNotes: notes ||
+          (action === "dismiss"
+            ? "Dismissed by staff review"
+            : action === "hide"
+              ? "Hidden reported content"
+              : "Deleted reported content"),
+        resolvedBy: request.auth!.uid,
+        resolvedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+    });
+
+    await writeServerAuditLog({
+      actorUid: request.auth.uid,
+      action: `report.${action}`,
+      category: "comments",
+      details: `${action === "dismiss" ? "Dismissed" : action === "hide" ? "Hid" : "Deleted"} report content for @${reportedUserHandle}`,
+      targetId: reportId,
+      targetTitle: `Report on @${reportedUserHandle}`,
+      metadata: { reportId, contentId, action },
+    });
+    return { success: true, reportId, action };
   }
 );
 
@@ -3976,6 +5288,7 @@ export const onReportCreated = onDocumentCreated(
         title: `🚨 User Report: @${reportedUserHandle}`,
         message: `Reported by @${reporterHandle} for ${reasonLabel}${snippet ? `: "${snippet}"` : ""}`,
         link: "/admin/comments",
+        idempotencyKey: `report:${reportId}:staff:${staffUid}`,
         metadata: {
           reportId,
           type: report.type || "user",
@@ -3992,7 +5305,7 @@ export const onReportCreated = onDocumentCreated(
 
     await Promise.all(notificationPromises);
 
-    writeServerAuditLog({
+    await writeServerAuditLog({
       actorUid: report.reporterId || "system",
       action: "report.created",
       category: "comments",
@@ -4085,7 +5398,8 @@ export const warnUser = onCall(
     }
     const db = getDb();
     const callerUid = request.auth.uid;
-    const callerSnap = await db.collection("authors").doc(callerUid).get();
+    const callerRef = db.collection("authors").doc(callerUid);
+    const callerSnap = await callerRef.get();
     const callerRole = callerSnap.data()?.role;
 
     if (!callerSnap.exists || !["super", "admin", "moderator"].includes(callerRole)) {
@@ -4095,20 +5409,13 @@ export const warnUser = onCall(
     const { targetUid, reason, customMessage, reportId, commentId, commentType } = request.data || {};
     validateModerationPayload(targetUid, reason, customMessage);
 
-    const targetAuthorSnap = await db.collection("authors").doc(targetUid).get();
+    const targetAuthorRef = db.collection("authors").doc(targetUid);
+    const targetAuthorSnap = await targetAuthorRef.get();
     if (targetAuthorSnap.exists) {
       throw new HttpsError("failed-precondition", "Team members and official authors cannot be warned.");
     }
 
     const userRef = db.collection("users").doc(targetUid);
-    const userSnap = await userRef.get();
-    if (!userSnap.exists) {
-      throw new HttpsError("not-found", "Target user profile does not exist.");
-    }
-    const userData = userSnap.data() || {};
-    const targetHandle = userData.handle || userData.displayName || "reader";
-
-    // 1. Append warning document
     await validateModerationReferences({
       firestore: db,
       targetUid,
@@ -4116,23 +5423,65 @@ export const warnUser = onCall(
       commentId,
       commentType,
     });
-    const warnRef = await userRef.collection("warnings").add({
-      reason,
-      customMessage: customMessage || "",
-      issuedBy: callerUid,
-      issuedByRole: callerRole,
-      reportId: reportId || null,
-      commentId: commentId || null,
-      createdAt: admin.firestore.FieldValue.serverTimestamp(),
-    });
+    const warnRef = userRef.collection("warnings").doc();
+    let targetHandle = "reader";
 
-    // 2. Update user profile status & warning count
-    await userRef.update({
-      status: "warning",
-      warningCount: admin.firestore.FieldValue.increment(1),
-      lastWarnedAt: admin.firestore.FieldValue.serverTimestamp(),
-      lastWarningReason: reason,
-      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    // Append the warning and change state atomically so a concurrent permanent ban wins.
+    await db.runTransaction(async (transaction) => {
+      const [currentCaller, currentAuthor, currentUser] = await Promise.all([
+        transaction.get(callerRef),
+        transaction.get(targetAuthorRef),
+        transaction.get(userRef),
+      ]);
+      const currentCallerRole = currentCaller.data()?.role;
+      if (
+        !currentCaller.exists ||
+        !["super", "admin", "moderator"].includes(currentCallerRole)
+      ) {
+        throw new HttpsError(
+          "permission-denied",
+          "You no longer have permission to issue warnings."
+        );
+      }
+      if (currentAuthor.exists) {
+        throw new HttpsError(
+          "failed-precondition",
+          "Team members and official authors cannot be warned."
+        );
+      }
+      if (!currentUser.exists) {
+        throw new HttpsError("not-found", "Target user profile does not exist.");
+      }
+      const currentData = currentUser.data() || {};
+      if (currentData.status === "banned" || currentData.bannedAt != null) {
+        throw new HttpsError(
+          "failed-precondition",
+          "A permanently banned account cannot be warned. Use the unban action first."
+        );
+      }
+      if (!ACTIVE_ACCOUNT_STATUSES.has(currentData.status || "active")) {
+        throw new HttpsError(
+          "failed-precondition",
+          "Warnings can only be issued to active or already-warned reader accounts."
+        );
+      }
+      targetHandle = currentData.handle || currentData.displayName || "reader";
+      transaction.create(warnRef, {
+        reason,
+        customMessage: customMessage || "",
+        issuedBy: callerUid,
+        issuedByRole: currentCallerRole,
+        reportId: reportId || null,
+        commentId: commentId || null,
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+      transaction.update(userRef, {
+        status: "warning",
+        warningCount: admin.firestore.FieldValue.increment(1),
+        lastWarnedAt: admin.firestore.FieldValue.serverTimestamp(),
+        lastWarningReason: reason,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
     });
 
     // 3. Hide infringing comment/reply if provided
@@ -4204,7 +5553,8 @@ export const suspendUser = onCall(
     }
     const db = getDb();
     const callerUid = request.auth.uid;
-    const callerSnap = await db.collection("authors").doc(callerUid).get();
+    const callerRef = db.collection("authors").doc(callerUid);
+    const callerSnap = await callerRef.get();
     const callerRole = callerSnap.data()?.role;
 
     if (!callerSnap.exists || !["super", "admin", "moderator"].includes(callerRole)) {
@@ -4214,19 +5564,13 @@ export const suspendUser = onCall(
     const { targetUid, durationDays = 3, reason, customMessage, reportId, commentId, commentType } = request.data || {};
     validateModerationPayload(targetUid, reason, customMessage);
 
-    const targetAuthorSnap = await db.collection("authors").doc(targetUid).get();
+    const targetAuthorRef = db.collection("authors").doc(targetUid);
+    const targetAuthorSnap = await targetAuthorRef.get();
     if (targetAuthorSnap.exists) {
       throw new HttpsError("failed-precondition", "Team members and official authors cannot be suspended.");
     }
 
     const userRef = db.collection("users").doc(targetUid);
-    const userSnap = await userRef.get();
-    if (!userSnap.exists) {
-      throw new HttpsError("not-found", "Target user profile does not exist.");
-    }
-    const userData = userSnap.data() || {};
-    const targetHandle = userData.handle || userData.displayName || "reader";
-
     const normalizedDurationDays = Math.min(
       365,
       Math.max(1, Number.isFinite(Number(durationDays)) ? Number(durationDays) : 3)
@@ -4241,16 +5585,56 @@ export const suspendUser = onCall(
     });
     const suspendedUntilDate = new Date(Date.now() + suspensionMs);
     const suspendedUntilTimestamp = admin.firestore.Timestamp.fromDate(suspendedUntilDate);
+    let targetHandle = "reader";
 
-    // 1. Update user profile
-    await userRef.update({
-      status: "suspended",
-      suspendedUntil: suspendedUntilTimestamp,
-      suspensionReason: reason,
-      suspendedAt: admin.firestore.FieldValue.serverTimestamp(),
-      suspendedBy: callerUid,
-      suspensionCount: admin.firestore.FieldValue.increment(1),
-      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    // Change state transactionally so a concurrent permanent ban cannot be overwritten.
+    await db.runTransaction(async (transaction) => {
+      const [currentCaller, currentAuthor, currentUser] = await Promise.all([
+        transaction.get(callerRef),
+        transaction.get(targetAuthorRef),
+        transaction.get(userRef),
+      ]);
+      if (
+        !currentCaller.exists ||
+        !["super", "admin", "moderator"].includes(currentCaller.data()?.role)
+      ) {
+        throw new HttpsError(
+          "permission-denied",
+          "You no longer have permission to suspend users."
+        );
+      }
+      if (currentAuthor.exists) {
+        throw new HttpsError(
+          "failed-precondition",
+          "Team members and official authors cannot be suspended."
+        );
+      }
+      if (!currentUser.exists) {
+        throw new HttpsError("not-found", "Target user profile does not exist.");
+      }
+      const currentData = currentUser.data() || {};
+      if (currentData.status === "banned" || currentData.bannedAt != null) {
+        throw new HttpsError(
+          "failed-precondition",
+          "A permanently banned account cannot be suspended. Use the unban action first."
+        );
+      }
+      if (!ACTIVE_ACCOUNT_STATUSES.has(currentData.status || "active")) {
+        throw new HttpsError(
+          "failed-precondition",
+          "Only active or warned reader accounts can be suspended."
+        );
+      }
+      targetHandle = currentData.handle || currentData.displayName || "reader";
+      transaction.update(userRef, {
+        status: "suspended",
+        suspendedUntil: suspendedUntilTimestamp,
+        suspensionReason: reason,
+        suspendedAt: admin.firestore.FieldValue.serverTimestamp(),
+        suspendedBy: callerUid,
+        suspensionCount: admin.firestore.FieldValue.increment(1),
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
     });
 
     // 2. Hide or delete infringing comment if provided
@@ -4357,16 +5741,7 @@ export const banUser = onCall(
       commentType,
     });
 
-    // 1. Disable Firebase Auth user account & revoke all session tokens
-    try {
-      await admin.auth().updateUser(targetUid, { disabled: true });
-      await admin.auth().revokeRefreshTokens(targetUid);
-      logger.info(`Disabled Firebase Auth account for UID: ${targetUid}`);
-    } catch (authErr) {
-      logger.warn(`Could not disable Firebase Auth account for ${targetUid}:`, authErr);
-    }
-
-    // 2. Gather associated devices and network signals. Devices are enforceable;
+    // Gather associated devices and network signals. Devices are enforceable;
     // shared network addresses are investigation-only to avoid collateral bans.
     const devicesSnapshot = await userRef.collection("devices").get();
     const deviceHashes = new Set<string>();
@@ -4401,14 +5776,14 @@ export const banUser = onCall(
 
     const deviceWrites = [...deviceHashes].map(async (deviceHash) => {
       const device = devicesSnapshot.docs.find((snapshot) => snapshot.id === deviceHash)?.data();
-      await db.collection("bannedDevices").doc(deviceHash).set({
-        deviceHash,
+      await addBanSignalAssociation({
+        collection: "bannedDevices",
+        signalHash: deviceHash,
         label: device?.label || (deviceHash === userData.lastDeviceHash ? userData.lastDeviceLabel : "Unknown browser"),
-        blockedAt: admin.firestore.FieldValue.serverTimestamp(),
-        blockedBy: callerUid,
-        reason,
         targetUid,
         targetHandle,
+        reason,
+        blockedBy: callerUid,
       });
     });
     const networkWrites = [...observedIps].map(async (rawIp) => {
@@ -4417,6 +5792,7 @@ export const banUser = onCall(
         ip: rawIp,
         observedAt: admin.firestore.FieldValue.serverTimestamp(),
         associatedAccounts: admin.firestore.FieldValue.arrayUnion(targetUid),
+        expiresAt: admin.firestore.Timestamp.fromMillis(Date.now() + 180 * 24 * 60 * 60_000),
         latestModeration: {
           bannedBy: callerUid,
           reason,
@@ -4426,34 +5802,34 @@ export const banUser = onCall(
       }, { merge: true });
     });
     const fingerprintWrites = [...fingerprintHashes].map((fingerprintHash) =>
-      db.collection("bannedFingerprints").doc(fingerprintHash).set({
-        fingerprintHash,
-        blockedAt: admin.firestore.FieldValue.serverTimestamp(),
-        blockedBy: callerUid,
-        reason,
+      addBanSignalAssociation({
+        collection: "bannedFingerprints",
+        signalHash: fingerprintHash,
         targetUid,
         targetHandle,
+        reason,
+        blockedBy: callerUid,
       })
     );
     await Promise.all([...deviceWrites, ...fingerprintWrites, ...networkWrites]);
 
-    // 4. Lock handle permanently so it cannot be reclaimed
-    if (targetHandle) {
-      try {
-        await db.collection("handles").doc(targetHandle.toLowerCase()).set(
-          {
-            uid: targetUid,
-            status: "banned",
-            lockedAt: admin.firestore.FieldValue.serverTimestamp(),
-          },
-          { merge: true }
-        );
-      } catch (handleErr) {
-        logger.warn(`Could not lock handle ${targetHandle}:`, handleErr);
-      }
+    // Lock the normalized handle before completing the ban. A failed tombstone
+    // is a failed ban, not a warning that can be overlooked.
+    const normalizedTargetHandle = normalizeTeamHandle(targetHandle);
+    if (normalizedTargetHandle) {
+      await db.collection("handles").doc(normalizedTargetHandle).set(
+        {
+          uid: targetUid,
+          status: "banned",
+          lockedAt: admin.firestore.FieldValue.serverTimestamp(),
+        },
+        { merge: true }
+      );
     }
 
-    // 5. Update user profile document to banned status
+    // Persist Firestore enforcement before disabling Auth. If Auth has a
+    // transient failure, rules and callables still block the account and the
+    // scheduled reconciler retries the Auth operation.
     await userRef.update({
       status: "banned",
       bannedAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -4461,8 +5837,34 @@ export const banUser = onCall(
       bannedBy: callerUid,
       bannedDeviceHashes: [...deviceHashes],
       bannedFingerprintHashes: [...fingerprintHashes],
+      authDisablePending: true,
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
+
+    try {
+      await admin.auth().updateUser(targetUid, { disabled: true });
+      await admin.auth().revokeRefreshTokens(targetUid);
+      await userRef.update({
+        authDisablePending: admin.firestore.FieldValue.delete(),
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+      logger.info(`Disabled Firebase Auth account for UID: ${targetUid}`);
+    } catch (authErr) {
+      logger.error(`Ban recorded but Auth disable is pending for ${targetUid}:`, authErr);
+      await writeServerAuditLog({
+        actorUid: callerUid,
+        action: "moderation.ban_auth_pending",
+        category: "team",
+        details: `Permanent ban recorded for @${targetHandle}; Auth disable queued for retry`,
+        targetId: targetUid,
+        targetTitle: `@${targetHandle}`,
+        metadata: { targetUid, reason },
+      });
+      throw new HttpsError(
+        "internal",
+        "The permanent ban is active, but sign-in revocation is still being retried."
+      );
+    }
 
     // 6. Delete / hide infringing comment
     if (commentId) {
@@ -4522,7 +5924,8 @@ export const unsuspendUser = onCall(
     }
     const db = getDb();
     const callerUid = request.auth.uid;
-    const callerSnap = await db.collection("authors").doc(callerUid).get();
+    const callerRef = db.collection("authors").doc(callerUid);
+    const callerSnap = await callerRef.get();
     const callerRole = callerSnap.data()?.role;
 
     if (!callerSnap.exists || !["super", "admin", "moderator"].includes(callerRole)) {
@@ -4530,26 +5933,73 @@ export const unsuspendUser = onCall(
     }
 
     const { targetUid } = request.data || {};
-    if (!targetUid) {
+    if (
+      typeof targetUid !== "string" || !targetUid || targetUid.length > 128 ||
+      targetUid.includes("/") || /[\r\n\0]/.test(targetUid)
+    ) {
       throw new HttpsError("invalid-argument", "Missing required field: targetUid.");
     }
 
-    const userRef = db.collection("users").doc(targetUid);
-    const userSnap = await userRef.get();
-    if (!userSnap.exists) {
-      throw new HttpsError("not-found", "Target user profile does not exist.");
+    const targetAuthorRef = db.collection("authors").doc(targetUid);
+    const targetAuthorSnap = await targetAuthorRef.get();
+    if (targetAuthorSnap.exists) {
+      throw new HttpsError(
+        "failed-precondition",
+        "Team members and official authors cannot be unsuspended through reader moderation."
+      );
     }
-    const userData = userSnap.data() || {};
-    const targetHandle = userData.handle || userData.displayName || "reader";
-    const nextStatus = (userData.warningCount ?? 0) > 0 ? "warning" : "active";
 
-    await userRef.update({
-      status: nextStatus,
-      suspendedUntil: admin.firestore.FieldValue.delete(),
-      suspensionReason: admin.firestore.FieldValue.delete(),
-      suspendedAt: admin.firestore.FieldValue.delete(),
-      suspendedBy: admin.firestore.FieldValue.delete(),
-      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    const userRef = db.collection("users").doc(targetUid);
+    let targetHandle = "reader";
+    let nextStatus = "active";
+
+    await db.runTransaction(async (transaction) => {
+      const [currentCaller, currentAuthor, currentUser] = await Promise.all([
+        transaction.get(callerRef),
+        transaction.get(targetAuthorRef),
+        transaction.get(userRef),
+      ]);
+      if (
+        !currentCaller.exists ||
+        !["super", "admin", "moderator"].includes(currentCaller.data()?.role)
+      ) {
+        throw new HttpsError(
+          "permission-denied",
+          "You no longer have permission to lift suspensions."
+        );
+      }
+      if (currentAuthor.exists) {
+        throw new HttpsError(
+          "failed-precondition",
+          "Team members and official authors cannot be unsuspended through reader moderation."
+        );
+      }
+      if (!currentUser.exists) {
+        throw new HttpsError("not-found", "Target user profile does not exist.");
+      }
+      const currentData = currentUser.data() || {};
+      if (currentData.status === "banned" || currentData.bannedAt != null) {
+        throw new HttpsError(
+          "failed-precondition",
+          "A permanently banned account cannot be unsuspended. Use the unban action instead."
+        );
+      }
+      if (currentData.status !== "suspended") {
+        throw new HttpsError(
+          "failed-precondition",
+          "Only a currently suspended reader account can be unsuspended."
+        );
+      }
+      targetHandle = currentData.handle || currentData.displayName || "reader";
+      nextStatus = (currentData.warningCount ?? 0) > 0 ? "warning" : "active";
+      transaction.update(userRef, {
+        status: nextStatus,
+        suspendedUntil: admin.firestore.FieldValue.delete(),
+        suspensionReason: admin.firestore.FieldValue.delete(),
+        suspendedAt: admin.firestore.FieldValue.delete(),
+        suspendedBy: admin.firestore.FieldValue.delete(),
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
     });
 
     await sendNotification({
@@ -4606,12 +6056,22 @@ export const unbanUser = onCall(
     const userData = userSnap.data() || {};
     const targetHandle = userData.handle || userData.displayName || "reader";
     const nextStatus = (userData.warningCount ?? 0) > 0 ? "warning" : "active";
+    if (userData.status !== "banned" && userData.bannedAt == null) {
+      throw new HttpsError(
+        "failed-precondition",
+        "This account is not permanently banned."
+      );
+    }
 
     // 1. Re-enable Auth account
     try {
       await admin.auth().updateUser(targetUid, { disabled: false });
     } catch (authErr) {
-      logger.warn(`Could not re-enable Auth for ${targetUid}:`, authErr);
+      logger.error(`Could not re-enable Auth for ${targetUid}:`, authErr);
+      throw new HttpsError(
+        "internal",
+        "The sign-in account could not be re-enabled, so the permanent ban remains in place. Please retry."
+      );
     }
 
     // 2. Unblock browser installations owned by this moderation record.
@@ -4625,13 +6085,15 @@ export const unbanUser = onCall(
       });
     }
     let unblockedDevicesCount = 0;
+    let removedDeviceAssociationsCount = 0;
     for (const deviceHash of deviceHashes) {
-      const blockedRef = db.collection("bannedDevices").doc(deviceHash);
-      const blocked = await blockedRef.get();
-      if (blocked.data()?.targetUid === targetUid) {
-        await blockedRef.delete();
-        unblockedDevicesCount += 1;
-      }
+      const result = await removeBanSignalAssociation({
+        collection: "bannedDevices",
+        signalHash: deviceHash,
+        targetUid,
+      });
+      if (result.associationRemoved) removedDeviceAssociationsCount += 1;
+      if (result.signalDeleted) unblockedDevicesCount += 1;
     }
     const fingerprintHashes = new Set<string>();
     const storedFingerprintHashes = Array.isArray(userData.bannedFingerprintHashes)
@@ -4643,13 +6105,15 @@ export const unbanUser = onCall(
       });
     }
     let clearedFingerprintsCount = 0;
+    let removedFingerprintAssociationsCount = 0;
     for (const fingerprintHash of fingerprintHashes) {
-      const blockedRef = db.collection("bannedFingerprints").doc(fingerprintHash);
-      const blocked = await blockedRef.get();
-      if (blocked.data()?.targetUid === targetUid) {
-        await blockedRef.delete();
-        clearedFingerprintsCount += 1;
-      }
+      const result = await removeBanSignalAssociation({
+        collection: "bannedFingerprints",
+        signalHash: fingerprintHash,
+        targetUid,
+      });
+      if (result.associationRemoved) removedFingerprintAssociationsCount += 1;
+      if (result.signalDeleted) clearedFingerprintsCount += 1;
     }
 
     // Remove legacy blanket IP bans created by older deployments. Network
@@ -4679,6 +6143,7 @@ export const unbanUser = onCall(
       bannedIps: admin.firestore.FieldValue.delete(),
       bannedDeviceHashes: admin.firestore.FieldValue.delete(),
       bannedFingerprintHashes: admin.firestore.FieldValue.delete(),
+      authDisablePending: admin.firestore.FieldValue.delete(),
       fingerprintRiskMatch: admin.firestore.FieldValue.delete(),
       fingerprintRiskMatchedAt: admin.firestore.FieldValue.delete(),
       suspendedUntil: admin.firestore.FieldValue.delete(),
@@ -4687,6 +6152,20 @@ export const unbanUser = onCall(
       suspendedBy: admin.firestore.FieldValue.delete(),
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
+
+    const normalizedHandle = normalizeTeamHandle(targetHandle);
+    if (normalizedHandle) {
+      const handleRef = db.collection("handles").doc(normalizedHandle);
+      await db.runTransaction(async (transaction) => {
+        const handle = await transaction.get(handleRef);
+        if (handle.exists && handle.data()?.uid === targetUid) {
+          transaction.set(handleRef, {
+            status: admin.firestore.FieldValue.delete(),
+            lockedAt: admin.firestore.FieldValue.delete(),
+          }, { merge: true });
+        }
+      });
+    }
 
     await sendNotification({
       userId: targetUid,
@@ -4706,7 +6185,14 @@ export const unbanUser = onCall(
       metadata: { targetUid, targetHandle, unblockedDevicesCount, clearedFingerprintsCount, nextStatus },
     });
 
-    return { success: true, nextStatus, unblockedDevicesCount, clearedFingerprintsCount };
+    return {
+      success: true,
+      nextStatus,
+      unblockedDevicesCount,
+      clearedFingerprintsCount,
+      removedDeviceAssociationsCount,
+      removedFingerprintAssociationsCount,
+    };
   }
 );
 
@@ -4744,11 +6230,9 @@ export const clearUserWarnings = onCall(
 
     // 1. Delete all warning subcollection documents
     const warningsSnap = await userRef.collection("warnings").get();
-    const batch = db.batch();
-    warningsSnap.docs.forEach((d) => {
-      batch.delete(d.ref);
+    await mutateDocumentsInChunks(warningsSnap.docs, (batch, warning) => {
+      batch.delete(warning.ref);
     });
-    await batch.commit();
 
     // 2. Update user status (if currently "warning", restore to "active")
     const currentStatus = userData.status || "active";
@@ -4782,5 +6266,126 @@ export const clearUserWarnings = onCall(
     });
 
     return { success: true, clearedCount: warningsSnap.size, nextStatus };
+  }
+);
+
+async function purgeExpiredCollection(collectionName: string) {
+  const firestore = getDb();
+  let deleted = 0;
+  for (let page = 0; page < 10; page += 1) {
+    const expired = await firestore
+      .collection(collectionName)
+      .where("expiresAt", "<=", admin.firestore.Timestamp.now())
+      .limit(400)
+      .get();
+    if (expired.empty) break;
+    const batch = firestore.batch();
+    expired.docs.forEach((snapshot) => batch.delete(snapshot.ref));
+    await batch.commit();
+    deleted += expired.size;
+    if (expired.size < 400) break;
+  }
+  return deleted;
+}
+
+export const reconcilePendingAuthDisables = onSchedule(
+  { schedule: "every 30 minutes", region: "europe-west1", timeoutSeconds: 120 },
+  async () => {
+    const pending = await getDb()
+      .collection("users")
+      .where("authDisablePending", "==", true)
+      .limit(200)
+      .get();
+    for (const account of pending.docs) {
+      if (account.data()?.status !== "banned" && account.data()?.bannedAt == null) {
+        await account.ref.update({ authDisablePending: admin.firestore.FieldValue.delete() });
+        continue;
+      }
+      try {
+        await admin.auth().updateUser(account.id, { disabled: true });
+        await admin.auth().revokeRefreshTokens(account.id);
+        await account.ref.update({
+          authDisablePending: admin.firestore.FieldValue.delete(),
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+      } catch (error) {
+        if ((error as { code?: string }).code === "auth/user-not-found") {
+          await account.ref.update({ authDisablePending: admin.firestore.FieldValue.delete() });
+        } else {
+          logger.error("Unable to reconcile pending Auth disable", {
+            uid: account.id,
+            error,
+          });
+        }
+      }
+    }
+  }
+);
+
+export const purgeExpiredSecurityData = onSchedule(
+  {
+    schedule: "every day 03:15",
+    region: "europe-west1",
+    timeoutSeconds: 300,
+    memory: "512MiB",
+  },
+  async () => {
+    const collections = [
+      "deviceIdentityRegistry",
+      "rateLimits",
+      "riskAttestations",
+      "commentUploadReservations",
+      "riskAlerts",
+      "flaggedIps",
+      "triggerEvents",
+      "auditLogs",
+      "reports",
+    ];
+    const results: Record<string, number> = {};
+    for (const collectionName of collections) {
+      results[collectionName] = await purgeExpiredCollection(collectionName);
+    }
+
+    const bucket = admin.storage().bucket();
+    const [temporaryFiles] = await bucket.getFiles({
+      prefix: "temp_downloads/",
+      maxResults: 1000,
+    });
+    const cutoff = Date.now() - 60 * 60_000;
+    let temporaryDownloadsDeleted = 0;
+    for (let offset = 0; offset < temporaryFiles.length; offset += 50) {
+      await Promise.all(temporaryFiles.slice(offset, offset + 50).map(async (file) => {
+        const createdAt = Date.parse(String(file.metadata.timeCreated || file.metadata.updated || ""));
+        if (Number.isFinite(createdAt) && createdAt < cutoff) {
+          await file.delete({ ignoreNotFound: true });
+          temporaryDownloadsDeleted += 1;
+        }
+      }));
+    }
+    const [commentFiles] = await bucket.getFiles({ prefix: "comments/", maxResults: 2000 });
+    const orphanCandidates = commentFiles.filter((file) => {
+      const createdAt = Date.parse(String(file.metadata.timeCreated || file.metadata.updated || ""));
+      return /^comments\/[^/]+\/[a-zA-Z0-9_-]{20,64}\/[0-3]\.(webp|jpg)$/.test(file.name) &&
+        Number.isFinite(createdAt) && createdAt < cutoff;
+    });
+    let orphanCommentUploadsDeleted = 0;
+    for (let offset = 0; offset < orphanCandidates.length; offset += 200) {
+      const files = orphanCandidates.slice(offset, offset + 200);
+      const claimRefs = files.map((file) => getDb().collection("commentAttachmentClaims").doc(
+        createHash("sha256").update(file.name, "utf8").digest("hex")
+      ));
+      const claims = await getDb().getAll(...claimRefs);
+      await Promise.all(files.map(async (file, index) => {
+        if (!claims[index]?.exists) {
+          await file.delete({ ignoreNotFound: true });
+          orphanCommentUploadsDeleted += 1;
+        }
+      }));
+    }
+    logger.info("Expired security data purge completed", {
+      ...results,
+      temporaryDownloadsDeleted,
+      orphanCommentUploadsDeleted,
+    });
   }
 );

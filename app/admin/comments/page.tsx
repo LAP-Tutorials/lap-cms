@@ -978,23 +978,8 @@ export default function CommentsModerationPage() {
     if (!user) return
     setBusyId(`report:${report.id}`)
     try {
-      await updateDoc(doc(db, "reports", report.id), {
-        status: "dismissed",
-        resolvedBy: user.uid,
-        resolvedAt: serverTimestamp(),
-      })
-      logAuditActivity({
-        action: "report.dismiss",
-        category: "comments",
-        details: `Dismissed report against @${report.reportedUserHandle} (${report.reasonLabel || report.reason})`,
-        targetId: report.id,
-        targetTitle: `Report on @${report.reportedUserHandle}`,
-        metadata: {
-          reportedUserId: report.reportedUserId,
-          reportedUserHandle: report.reportedUserHandle,
-          reason: report.reason,
-        },
-      })
+      const resolveReport = httpsCallable(functions, "resolveReport")
+      await resolveReport({ reportId: report.id, action: "dismiss" })
     } catch (err: any) {
       console.error("Failed to dismiss report:", err)
     } finally {
@@ -1006,32 +991,8 @@ export default function CommentsModerationPage() {
     if (!user) return
     setBusyId(`report:${report.id}`)
     try {
-      if (report.commentId) {
-        const collectionName = report.type === "reply" ? "commentReplies" : "comments"
-        if (action === "hide") {
-          await updateDoc(doc(db, collectionName, report.commentId), { status: "hidden" })
-        } else {
-          await deleteDoc(doc(db, collectionName, report.commentId))
-        }
-      }
-      await updateDoc(doc(db, "reports", report.id), {
-        status: "action_taken",
-        resolvedBy: user.uid,
-        resolvedAt: serverTimestamp(),
-      })
-      logAuditActivity({
-        action: action === "hide" ? "report.hide_content" : "report.delete_content",
-        category: "comments",
-        details: `${action === "hide" ? "Hidden" : "Deleted"} reported comment from @${report.reportedUserHandle} (${report.reasonLabel || report.reason})`,
-        targetId: report.id,
-        targetTitle: `Report on @${report.reportedUserHandle}`,
-        metadata: {
-          reportedUserId: report.reportedUserId,
-          reportedUserHandle: report.reportedUserHandle,
-          reason: report.reason,
-          action,
-        },
-      })
+      const resolveReport = httpsCallable(functions, "resolveReport")
+      await resolveReport({ reportId: report.id, action })
     } catch (err: any) {
       console.error("Failed to resolve report:", err)
     } finally {
@@ -1360,39 +1321,11 @@ export default function CommentsModerationPage() {
     setError("")
 
     try {
-      try {
-        const togglePin = httpsCallable<{ commentId: string; pinned: boolean }>(
-          functions,
-          "togglePinComment"
-        )
-        await togglePin({ commentId: entry.id, pinned: newPinned })
-      } catch (fnErr) {
-        // Fallback to direct Firestore update
-        const batch = writeBatch(db)
-        if (newPinned) {
-          comments.forEach((c) => {
-            if (c.articleId === entry.articleId && c.pinned && c.id !== entry.id) {
-              batch.update(doc(db, "comments", c.id), {
-                pinned: false,
-                pinnedAt: null,
-                pinnedBy: null,
-              })
-            }
-          })
-          batch.update(doc(db, "comments", entry.id), {
-            pinned: true,
-            pinnedAt: serverTimestamp(),
-            pinnedBy: user?.uid || "",
-          })
-        } else {
-          batch.update(doc(db, "comments", entry.id), {
-            pinned: false,
-            pinnedAt: null,
-            pinnedBy: null,
-          })
-        }
-        await batch.commit()
-      }
+      const togglePin = httpsCallable<{ commentId: string; pinned: boolean }>(
+        functions,
+        "togglePinComment"
+      )
+      await togglePin({ commentId: entry.id, pinned: newPinned })
 
       setComments((current) =>
         current.map((c) => {
@@ -1431,31 +1364,12 @@ export default function CommentsModerationPage() {
         uploadedImages = await uploadMultipleSanitizedImages(storage, user.uid, replyImages)
       }
 
-      const replyData: Record<string, any> = {
+      const createReply = httpsCallable(functions, "createCommentReply")
+      await createReply({
         parentCommentId: parent.id,
-        articleId: parent.articleId,
-        articleSlug: parent.articleSlug,
-        articleTitle: parent.articleTitle,
-        authorId: user.uid,
-        authorName: replyProfile.displayName,
-        authorHandle: replyProfile.handle,
-        authorPhotoURL: replyProfile.photoURL,
         content,
-        status: "visible",
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-        edited: false,
-      }
-
-      if (uploadedImages.length > 0) {
-        replyData.images = uploadedImages
-        replyData.imageUrl = uploadedImages[0].url
-        replyData.imageStoragePath = uploadedImages[0].storagePath
-        if (uploadedImages[0].width) replyData.imageWidth = uploadedImages[0].width
-        if (uploadedImages[0].height) replyData.imageHeight = uploadedImages[0].height
-      }
-
-      await addDoc(collection(db, "commentReplies"), replyData)
+        images: uploadedImages,
+      })
       setReplyContent("")
       clearPendingReplyImages()
       setReplyImageError(null)
