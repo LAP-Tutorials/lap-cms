@@ -36,6 +36,7 @@ import { useAuth } from "@/lib/auth-context";
 import { Breadcrumb } from "@/components/breadcrumb";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { openCmsNotification } from "@/lib/notification-href";
 
 export type NotificationItem = {
   id: string;
@@ -219,11 +220,7 @@ export default function NotificationsPage() {
       }
     }
 
-    if (item.type === "user_report") {
-      router.push("/admin/reports");
-    } else {
-      router.push("/admin/comments");
-    }
+    openCmsNotification(item, (href) => router.push(href));
   };
 
   const handleMarkAllRead = async () => {

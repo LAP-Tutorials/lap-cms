@@ -46,7 +46,7 @@ const getArticleViewConfig = (article: Article) => {
 
   if (hasPublicView) {
     return {
-      href: `https://lap-docs.netlify.app/posts/${article.slug}`,
+      href: `https://lap.onl/posts/${article.slug}`,
       title: "View live article",
     };
   }

@@ -125,7 +125,7 @@ export default function TeamPage() {
                         teamMember.role !== "moderator" ? (
                           <Button asChild size="sm" variant="ghost">
                             <Link
-                              href={`https://lap-docs.netlify.app/team/${teamMember.slug}`}
+                              href={`https://lap.onl/team/${teamMember.slug}`}
                               target="_blank"
                               title="View profile"
                             >

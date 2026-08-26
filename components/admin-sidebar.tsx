@@ -26,6 +26,7 @@ import {
 import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/lib/auth-context";
+import { openCmsNotification } from "@/lib/notification-href";
 
 export default function AdminSidebar() {
   const router = useRouter();
@@ -76,11 +77,7 @@ export default function AdminSidebar() {
                   );
                   popup.onclick = () => {
                     window.focus();
-                    if (data.type === "user_report") {
-                      router.push("/admin/reports");
-                    } else {
-                      router.push("/admin/comments");
-                    }
+                    openCmsNotification(data, (href) => router.push(href));
                     popup.close();
                   };
                 } catch (popupErr) {

@@ -29,6 +29,7 @@ import {
 } from "lucide-react";
 import { db } from "@/lib/firebase";
 import { useAuth } from "@/lib/auth-context";
+import { openCmsNotification } from "@/lib/notification-href";
 
 export type NotificationItem = {
   id: string;
@@ -172,11 +173,7 @@ export default function NotificationBell({
       }
     }
 
-    if (item.link) {
-      router.push(item.link);
-    } else {
-      router.push("/admin/comments");
-    }
+    openCmsNotification(item, (href) => router.push(href));
   };
 
   const handleMarkAllRead = async () => {
