@@ -1063,6 +1063,23 @@ function stripUndefinedDeep(value: unknown): unknown {
   return value;
 }
 
+function isSystemAuditActor(actorUid: string, authType?: string) {
+  return (
+    authType === "service_account" ||
+    authType === "system" ||
+    authType === "api_key" ||
+    /gserviceaccount\.com$/i.test(actorUid)
+  );
+}
+
+function pickAuditName(value: unknown) {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function pickAuditHandle(value: unknown) {
+  return typeof value === "string" ? value.trim().replace(/^@/, "") : "";
+}
+
 async function writeServerAuditLog(params: {
   actorUid: string;
   action: string;
@@ -1072,42 +1089,78 @@ async function writeServerAuditLog(params: {
   targetTitle?: string;
   metadata?: Record<string, unknown>;
   idempotencyKey?: string;
+  authType?: string;
+  actorHint?: {
+    name?: string;
+    handle?: string;
+    role?: string;
+    email?: string;
+    photoURL?: string;
+  };
 }) {
   const firestore = getDb();
-  let actorName = "Staff";
+  const hint = params.actorHint || {};
+  let actorName = "";
   let actorHandle = "";
-  let actorRole = "staff";
+  let actorRole = "";
   let actorEmail = "";
   let actorPhotoURL = "";
 
-  try {
-    const [authorDoc, authUser] = await Promise.all([
-      firestore.collection("authors").doc(params.actorUid).get(),
-      admin.auth().getUser(params.actorUid).catch(() => null),
-    ]);
-    if (authorDoc.exists) {
-      const authorData = authorDoc.data();
-      actorName = authorData?.name || authUser?.displayName || actorName;
-      actorHandle = authorData?.handle || "";
-      actorRole = authorData?.role || "staff";
-      actorPhotoURL = authorData?.avatar || authUser?.photoURL || "";
+  if (isSystemAuditActor(params.actorUid, params.authType)) {
+    actorName = "System";
+    actorRole = "system";
+    actorEmail = params.actorUid.includes("@") ? params.actorUid : "";
+  } else {
+    try {
+      const [authorDoc, userDoc, authUser] = await Promise.all([
+        firestore.collection("authors").doc(params.actorUid).get(),
+        firestore.collection("users").doc(params.actorUid).get(),
+        admin.auth().getUser(params.actorUid).catch(() => null),
+      ]);
+      const authorData = authorDoc.exists ? authorDoc.data() : undefined;
+      const userData = userDoc.exists ? userDoc.data() : undefined;
+      actorName =
+        pickAuditName(authorData?.name) ||
+        pickAuditName(userData?.staffName) ||
+        pickAuditName(userData?.displayName) ||
+        pickAuditName(authUser?.displayName) ||
+        pickAuditName(hint.name) ||
+        pickAuditName(authUser?.email?.split("@")[0]) ||
+        params.actorUid;
+      actorHandle =
+        pickAuditHandle(authorData?.handle) ||
+        pickAuditHandle(userData?.handle) ||
+        pickAuditHandle(hint.handle) ||
+        pickAuditHandle(authUser?.email?.split("@")[0]) ||
+        "";
+      actorRole =
+        pickAuditHandle(authorData?.role) ||
+        pickAuditHandle(hint.role) ||
+        (authorDoc.exists ? "staff" : "user");
+      actorEmail =
+        authUser?.email ||
+        pickAuditName(userData?.email) ||
+        pickAuditName(hint.email) ||
+        "";
+      actorPhotoURL =
+        pickAuditName(authorData?.avatar) ||
+        pickAuditName(userData?.photoURL) ||
+        authUser?.photoURL ||
+        pickAuditName(hint.photoURL) ||
+        "";
+    } catch (e) {
+      logger.warn("Could not enrich server audit log actor details:", e);
+      actorName = pickAuditName(hint.name) || params.actorUid;
+      actorHandle = pickAuditHandle(hint.handle) || "";
+      actorRole = pickAuditHandle(hint.role) || "user";
+      actorEmail = pickAuditName(hint.email) || "";
     }
-    actorEmail = authUser?.email || "";
-    if (!actorHandle) {
-      const userDoc = await firestore.collection("users").doc(params.actorUid).get();
-      if (userDoc.exists) {
-        actorHandle = userDoc.data()?.handle || "";
-        if (!actorPhotoURL) actorPhotoURL = userDoc.data()?.photoURL || "";
-      }
-    }
-  } catch (e) {
-    logger.warn("Could not enrich server audit log actor details:", e);
   }
 
   const auditData = stripUndefinedDeep({
       actorUid: params.actorUid,
       actorName,
-      actorHandle: actorHandle || actorEmail.split("@")[0] || "staff",
+      actorHandle,
       actorEmail,
       actorRole,
       actorPhotoURL,
@@ -1142,6 +1195,7 @@ function changedTopLevelKeys(
 async function auditAuthenticatedClientWrite(params: {
   eventId: string;
   actorUid?: string;
+  authType?: string;
   collection: string;
   documentId: string;
   category: "articles" | "comments" | "team" | "profile";
@@ -1150,8 +1204,21 @@ async function auditAuthenticatedClientWrite(params: {
 }) {
   if (!params.actorUid) return;
   const operation = !params.before ? "create" : !params.after ? "delete" : "update";
+  const snapshot = params.after || params.before;
+  const actorHint =
+    params.documentId === params.actorUid
+      ? {
+          name: pickAuditName(snapshot?.name) || pickAuditName(snapshot?.displayName) || pickAuditName(snapshot?.staffName),
+          handle: pickAuditHandle(snapshot?.handle),
+          role: pickAuditHandle(snapshot?.role),
+          email: pickAuditName(snapshot?.email),
+          photoURL: pickAuditName(snapshot?.avatar) || pickAuditName(snapshot?.photoURL),
+        }
+      : undefined;
   await writeServerAuditLog({
     actorUid: params.actorUid,
+    authType: params.authType,
+    actorHint,
     action: `${params.collection}.${operation}`,
     category: params.category,
     details: `${operation} ${params.collection} record ${params.documentId}`,
@@ -1172,6 +1239,7 @@ export const auditClientArticleWrite = onDocumentWrittenWithAuthContext(
   async (event) => auditAuthenticatedClientWrite({
     eventId: event.id,
     actorUid: event.authId,
+    authType: event.authType,
     collection: "article",
     documentId: event.params.documentId,
     category: "articles",
@@ -1185,6 +1253,7 @@ export const auditClientArticleTrashWrite = onDocumentWrittenWithAuthContext(
   async (event) => auditAuthenticatedClientWrite({
     eventId: event.id,
     actorUid: event.authId,
+    authType: event.authType,
     collection: "article_trash",
     documentId: event.params.documentId,
     category: "articles",
@@ -1198,6 +1267,7 @@ export const auditClientAuthorWrite = onDocumentWrittenWithAuthContext(
   async (event) => auditAuthenticatedClientWrite({
     eventId: event.id,
     actorUid: event.authId,
+    authType: event.authType,
     collection: "author_profile",
     documentId: event.params.documentId,
     category: "profile",
@@ -1211,6 +1281,7 @@ export const auditClientCommentWrite = onDocumentWrittenWithAuthContext(
   async (event) => auditAuthenticatedClientWrite({
     eventId: event.id,
     actorUid: event.authId,
+    authType: event.authType,
     collection: "comment",
     documentId: event.params.documentId,
     category: "comments",
@@ -1224,6 +1295,7 @@ export const auditClientReplyWrite = onDocumentWrittenWithAuthContext(
   async (event) => auditAuthenticatedClientWrite({
     eventId: event.id,
     actorUid: event.authId,
+    authType: event.authType,
     collection: "comment_reply",
     documentId: event.params.documentId,
     category: "comments",
@@ -1237,6 +1309,7 @@ export const auditClientReaderProfileWrite = onDocumentWrittenWithAuthContext(
   async (event) => auditAuthenticatedClientWrite({
     eventId: event.id,
     actorUid: event.authId,
+    authType: event.authType,
     collection: "reader_profile",
     documentId: event.params.documentId,
     category: "profile",

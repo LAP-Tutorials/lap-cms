@@ -67,6 +67,22 @@ const ROLE_COLORS: Record<string, string> = {
   admin: "bg-purple-500/15 text-purple-300 border-purple-500/30",
   author: "bg-blue-500/15 text-blue-300 border-blue-500/30",
   moderator: "bg-emerald-500/15 text-emerald-300 border-emerald-500/30",
+  system: "bg-white/10 text-white/70 border-white/20",
+}
+
+function isSystemActorUid(uid: string) {
+  return /gserviceaccount\.com$/i.test(uid || "")
+}
+
+function resolveActorDisplay(log: AuditLogEntry) {
+  if (isSystemActorUid(log.actorUid) || log.actorRole === "system") {
+    return { name: "System", handle: "", role: "system" }
+  }
+  return {
+    name: log.actorName || "Unknown user",
+    handle: log.actorHandle || "",
+    role: log.actorRole || "user",
+  }
 }
 
 export default function ActivityLogPage() {
@@ -139,11 +155,12 @@ export default function ActivityLogPage() {
     const actorMap = new Map<string, { uid: string; name: string; handle: string; role: string }>()
     logs.forEach((log) => {
       if (log.actorUid && !actorMap.has(log.actorUid)) {
+        const display = resolveActorDisplay(log)
         actorMap.set(log.actorUid, {
           uid: log.actorUid,
-          name: log.actorName,
-          handle: log.actorHandle,
-          role: log.actorRole,
+          name: display.name,
+          handle: display.handle,
+          role: display.role,
         })
       }
     })
@@ -182,10 +199,12 @@ export default function ActivityLogPage() {
       // Search query filter
       if (searchQuery.trim()) {
         const queryLower = searchQuery.toLowerCase().trim()
+        const display = resolveActorDisplay(log)
         const matchDetails = log.details.toLowerCase().includes(queryLower)
-        const matchActorName = log.actorName.toLowerCase().includes(queryLower)
-        const matchActorHandle = log.actorHandle.toLowerCase().includes(queryLower)
+        const matchActorName = display.name.toLowerCase().includes(queryLower)
+        const matchActorHandle = display.handle.toLowerCase().includes(queryLower)
         const matchActorEmail = log.actorEmail.toLowerCase().includes(queryLower)
+        const matchActorUid = log.actorUid.toLowerCase().includes(queryLower)
         const matchTarget = (log.targetTitle || "").toLowerCase().includes(queryLower)
         const matchAction = log.action.toLowerCase().includes(queryLower)
         return (
@@ -193,6 +212,7 @@ export default function ActivityLogPage() {
           matchActorName ||
           matchActorHandle ||
           matchActorEmail ||
+          matchActorUid ||
           matchTarget ||
           matchAction
         )
@@ -214,7 +234,8 @@ export default function ActivityLogPage() {
 
     const actorActionCounts = new Map<string, { name: string; count: number }>()
     logs.forEach((log) => {
-      const curr = actorActionCounts.get(log.actorUid) || { name: log.actorName, count: 0 }
+      const display = resolveActorDisplay(log)
+      const curr = actorActionCounts.get(log.actorUid) || { name: display.name, count: 0 }
       curr.count++
       actorActionCounts.set(log.actorUid, curr)
     })
@@ -248,19 +269,23 @@ export default function ActivityLogPage() {
   }
 
   const handleExportCSV = () => {
-    const headers = ["Timestamp", "Actor Name", "Actor Handle", "Actor Role", "Actor Email", "Category", "Action", "Details", "Target Title", "Target ID"]
-    const rows = filteredLogs.map((log) => [
+    const headers = ["Timestamp", "Actor Name", "Actor Handle", "Actor Role", "Actor Email", "Category", "Action", "Details", "Target Title", "Target ID", "Actor UID"]
+    const rows = filteredLogs.map((log) => {
+      const actor = resolveActorDisplay(log)
+      return [
       log.timestamp?.toDate ? log.timestamp.toDate().toISOString() : "",
-      `"${(log.actorName || "").replace(/"/g, '""')}"`,
-      `"${(log.actorHandle || "").replace(/"/g, '""')}"`,
-      log.actorRole,
+      `"${(actor.name || "").replace(/"/g, '""')}"`,
+      `"${(actor.handle || "").replace(/"/g, '""')}"`,
+      actor.role,
       log.actorEmail,
       log.category,
       log.action,
       `"${(log.details || "").replace(/"/g, '""')}"`,
       `"${(log.targetTitle || "").replace(/"/g, '""')}"`,
       log.targetId,
-    ])
+      log.actorUid,
+    ]
+    })
 
     const csvContent = "data:text/csv;charset=utf-8," + [headers.join(","), ...rows.map((e) => e.join(","))].join("\n")
     const encodedUri = encodeURI(csvContent)
@@ -409,7 +434,9 @@ export default function ActivityLogPage() {
               <SelectItem value="all">All Staff Members</SelectItem>
               {distinctActors.map((actor) => (
                 <SelectItem key={actor.uid} value={actor.uid}>
-                  {actor.name} (@{actor.handle}) &bull; {actor.role}
+                  {actor.handle
+                    ? `${actor.name} (@${actor.handle}) • ${actor.role}`
+                    : `${actor.name} • ${actor.role}`}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -492,8 +519,9 @@ export default function ActivityLogPage() {
                   })
                 : "Just now"
 
+              const actor = resolveActorDisplay(log)
               const categoryBadge = CATEGORY_COLORS[log.category] || "bg-white/10 text-white/70 border-white/15"
-              const roleBadge = ROLE_COLORS[log.actorRole] || "bg-white/10 text-white/70 border-white/15"
+              const roleBadge = ROLE_COLORS[actor.role] || "bg-white/10 text-white/70 border-white/15"
               const hasMetadata = log.metadata && Object.keys(log.metadata).length > 0
 
               return (
@@ -517,7 +545,7 @@ export default function ActivityLogPage() {
                         />
                       ) : (
                         <div className="h-10 w-10 rounded-full bg-white/10 border border-white/15 flex items-center justify-center text-white/70 text-xs shrink-0 font-bold mt-0.5">
-                          {(log.actorName || "S").slice(0, 2).toUpperCase()}
+                          {(actor.name || "S").slice(0, 2).toUpperCase()}
                         </div>
                       )}
 
@@ -525,15 +553,15 @@ export default function ActivityLogPage() {
                         {/* Actor Name, Handle, Role, Category */}
                         <div className="flex flex-wrap items-center gap-2">
                           <span className="font-semibold text-white text-sm">
-                            {log.actorName}
+                            {actor.name}
                           </span>
-                          {log.actorHandle && (
+                          {actor.handle && (
                             <span className="text-xs text-white/45 font-mono">
-                              @{log.actorHandle}
+                              @{actor.handle}
                             </span>
                           )}
                           <span className={`text-[10px] uppercase font-bold px-1.5 py-0.2 rounded border ${roleBadge}`}>
-                            {log.actorRole}
+                            {actor.role}
                           </span>
                           <span className={`text-[10px] uppercase font-bold px-1.5 py-0.2 rounded border flex items-center gap-1 ${categoryBadge}`}>
                             {CATEGORY_ICONS[log.category]}

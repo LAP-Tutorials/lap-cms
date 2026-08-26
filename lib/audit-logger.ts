@@ -25,7 +25,7 @@ export interface AuditLogEntry {
   actorName: string
   actorHandle: string
   actorEmail: string
-  actorRole: "super" | "admin" | "author" | "moderator"
+  actorRole: "super" | "admin" | "author" | "moderator" | "staff" | "system" | "user"
   actorPhotoURL?: string
   action: string
   category: AuditCategory
