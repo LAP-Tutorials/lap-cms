@@ -96,16 +96,20 @@ service firebase.storage {
     }
 
     match /comments/{userId}/{reservationId}/{fileName} {
+      function reservation() {
+        return firestore.get(/databases/(default)/documents/commentUploadReservations/$(reservationId)).data;
+      }
       allow get: if true;
+      // Storage rules may read at most two Firestore documents. Account checks
+      // stay on reserveCommentUploads / createComment so this rule only reads
+      // the reservation.
       allow create: if request.auth != null &&
         request.auth.uid == userId &&
-        (isActiveReaderAccount() || isStaffUser()) &&
         reservationId.matches('[a-zA-Z0-9_-]{20,64}') &&
         fileName.matches('[0-3]\\.(webp|jpg)') &&
-        firestore.exists(/databases/(default)/documents/commentUploadReservations/$(reservationId)) &&
-        firestore.get(/databases/(default)/documents/commentUploadReservations/$(reservationId)).data.uid == userId &&
-        firestore.get(/databases/(default)/documents/commentUploadReservations/$(reservationId)).data.expiresAt >= request.time &&
-        fileName in firestore.get(/databases/(default)/documents/commentUploadReservations/$(reservationId)).data.fileNames &&
+        reservation().uid == userId &&
+        reservation().expiresAt >= request.time &&
+        fileName in reservation().fileNames &&
         request.resource.size <= 2 * 1024 * 1024 &&
         request.resource.contentType.matches('image/(webp|jpeg)');
       // Attachment objects are content-addressed by a random name. Edits must

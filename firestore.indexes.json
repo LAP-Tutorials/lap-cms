@@ -29,6 +29,15 @@
       ]
     },
     {
+      "collectionGroup": "comments",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "articleId", "order": "ASCENDING" },
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "pinned", "order": "ASCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "commentReplies",
       "queryScope": "COLLECTION",
       "fields": [

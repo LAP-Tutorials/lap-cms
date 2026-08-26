@@ -1063,11 +1063,17 @@ function stripUndefinedDeep(value: unknown): unknown {
   return value;
 }
 
+function isFirebaseUserUid(actorUid: string) {
+  // Firestore auth context has no "user" type. Client SDK writes often
+  // arrive as api_key/unknown with the Firebase UID in authId.
+  return Boolean(actorUid) && !actorUid.includes("@");
+}
+
 function isSystemAuditActor(actorUid: string, authType?: string) {
+  if (isFirebaseUserUid(actorUid)) return false;
   return (
     authType === "service_account" ||
     authType === "system" ||
-    authType === "api_key" ||
     /gserviceaccount\.com$/i.test(actorUid)
   );
 }
@@ -1203,6 +1209,9 @@ async function auditAuthenticatedClientWrite(params: {
   after: admin.firestore.DocumentData | undefined;
 }) {
   if (!params.actorUid) return;
+  // Admin SDK / scheduled jobs have no signed-in user here. Callables that
+  // act for a person log that person themselves via writeServerAuditLog.
+  if (isSystemAuditActor(params.actorUid, params.authType)) return;
   const operation = !params.before ? "create" : !params.after ? "delete" : "update";
   const snapshot = params.after || params.before;
   const actorHint =
@@ -5056,6 +5065,13 @@ export const createComment = onCall(
       }));
       if (reservationRef) transaction.delete(reservationRef);
     });
+    await writeServerAuditLog({
+      actorUid: uid,
+      action: "comment.create",
+      category: "comments",
+      details: `create comment record ${commentRef.id}`,
+      targetId: commentRef.id,
+    });
     return { success: true, commentId: commentRef.id };
   }
 );
@@ -5149,6 +5165,13 @@ export const createCommentReply = onCall(
         createdAt: now,
       }));
       if (reservationRef) transaction.delete(reservationRef);
+    });
+    await writeServerAuditLog({
+      actorUid: uid,
+      action: "comment_reply.create",
+      category: "comments",
+      details: `create comment_reply record ${replyRef.id}`,
+      targetId: replyRef.id,
     });
     return { success: true, replyId: replyRef.id };
   }
