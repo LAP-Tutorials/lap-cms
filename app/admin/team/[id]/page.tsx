@@ -305,22 +305,26 @@ export default function EditTeamMemberPage() {
           .replace(/(^-|-$)+/g, "") || "unknown-member";
 
       const storageRef = ref(storage, `avatars/team/${nameSlug}.webp`);
-      const uploadTask = await uploadBytes(storageRef, croppedBlob);
+      const uploadTask = await uploadBytes(storageRef, croppedBlob, {
+        contentType: "image/webp",
+        cacheControl: "public,max-age=300",
+      });
       const downloadURL = await getDownloadURL(uploadTask.ref);
+      const versionedURL = `${downloadURL}${downloadURL.includes("?") ? "&" : "?"}v=${Date.now()}`;
 
       const newImgAlt = `${member.name} profile pic, a member of L.A.P`;
 
       // Update local state
       setMember((prev) =>
-        prev ? { ...prev, avatar: downloadURL, imgAlt: newImgAlt } : null,
+        prev ? { ...prev, avatar: versionedURL, imgAlt: newImgAlt } : null,
       );
-      setAvatarPreview(downloadURL);
+      setAvatarPreview(versionedURL);
 
       // Auto-save to Firestore
       if (id) {
         const ref = doc(db, "authors", id);
         await updateDoc(ref, {
-          avatar: downloadURL,
+          avatar: versionedURL,
           imgAlt: newImgAlt,
         });
       }

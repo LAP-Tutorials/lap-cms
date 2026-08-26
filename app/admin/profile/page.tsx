@@ -427,14 +427,18 @@ export default function ProfilePage() {
     setUploadingAvatar(true)
     try {
       const storageRef = ref(storage, `avatars/team/${auth.currentUser.uid}.webp`)
-      const uploadTask = await uploadBytes(storageRef, croppedBlob)
+      const uploadTask = await uploadBytes(storageRef, croppedBlob, {
+        contentType: "image/webp",
+        cacheControl: "public,max-age=300",
+      })
       const downloadURL = await getDownloadURL(uploadTask.ref)
+      const versionedURL = `${downloadURL}${downloadURL.includes("?") ? "&" : "?"}v=${Date.now()}`
 
-      setProfile((prev) => ({ ...prev, avatar: downloadURL }))
+      setProfile((prev) => ({ ...prev, avatar: versionedURL }))
       
       // Auto-save the profile with new avatar
       const userRef = doc(db, "authors", auth.currentUser.uid)
-      await updateDoc(userRef, { avatar: downloadURL })
+      await updateDoc(userRef, { avatar: versionedURL })
 
       toast({
         title: "Avatar updated",

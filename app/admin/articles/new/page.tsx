@@ -118,10 +118,14 @@ export default function NewArticlePage() {
         const { storage } = await import("@/lib/firebase");
 
         const storageRef = ref(storage, `Articles/${articleId}/thumbnail.webp`);
-        await uploadBytes(storageRef, thumbnailFile);
+        await uploadBytes(storageRef, thumbnailFile, {
+          contentType: "image/webp",
+          cacheControl: "public,max-age=300",
+        });
         const url = await getDownloadURL(storageRef);
 
-        setImg(url);
+        const versionedURL = `${url}${url.includes("?") ? "&" : "?"}v=${Date.now()}`;
+        setImg(versionedURL);
         const newAlt = `${title || "Article"} thumbnail`;
         setImgAlt(newAlt);
         toast({ title: "Thumbnail uploaded", variant: "success" });
