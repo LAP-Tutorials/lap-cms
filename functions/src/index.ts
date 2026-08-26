@@ -150,6 +150,18 @@ function getRequestIp(rawRequest: { ip?: string; headers?: Record<string, unknow
   return isIP(normalized) ? normalized : "";
 }
 
+const CMS_CALLABLE_ORIGINS = new Set(["https://cms.lap.onl"]);
+
+function getRequestOrigin(rawRequest: { headers?: Record<string, unknown> }) {
+  const value = rawRequest.headers?.origin ?? rawRequest.headers?.Origin;
+  if (Array.isArray(value)) return String(value[0] || "").trim();
+  return String(value || "").trim();
+}
+
+function isStaffAuthorRole(role: unknown) {
+  return typeof role === "string" && RESERVABLE_TEAM_ROLES.includes(role);
+}
+
 function isAccountAllowedToParticipate(data: admin.firestore.DocumentData | undefined) {
   if (!data) return false;
   if (data.status === "banned" || data.bannedAt != null) return false;
@@ -2227,6 +2239,16 @@ export const deleteOwnAccount = onCall(
         "invalid-argument",
         "Type DELETE to confirm account deletion."
       );
+    }
+
+    const author = await getDb().collection("authors").doc(request.auth.uid).get();
+    if (isStaffAuthorRole(author.data()?.role)) {
+      if (!CMS_CALLABLE_ORIGINS.has(getRequestOrigin(request.rawRequest))) {
+        throw new HttpsError(
+          "failed-precondition",
+          "Staff accounts can only be deleted from the CMS."
+        );
+      }
     }
 
     await deleteAccountData(request.auth.uid, true);
