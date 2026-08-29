@@ -2,13 +2,20 @@ import type React from "react";
 import "./globals.css";
 import type { Metadata } from "next";
 import localFont from "next/font/local";
-import { Fira_Code } from "next/font/google";
+import { Fira_Code, Roboto } from "next/font/google";
 import { Toaster } from "@/components/ui/toaster";
 import { Providers } from "./providers";
 
 const firaCode = Fira_Code({
   subsets: ["latin"],
   variable: "--font-fira-code",
+  display: "swap",
+});
+
+const titleFont = Roboto({
+  subsets: ["latin"],
+  weight: "700",
+  variable: "--font-title",
   display: "swap",
 });
 
@@ -97,7 +104,7 @@ export default function RootLayout({
         <link rel="icon" href="/logos/LAP-Logo-Color.png" type="image/x-icon" />
       </head>
       <body
-        className={`${generalSans.variable} ${firaCode.variable} font-sans`}
+        className={`${generalSans.variable} ${firaCode.variable} ${titleFont.variable} font-sans`}
       >
         <Providers>
           {children}
