@@ -26,7 +26,7 @@ import {
 import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/lib/auth-context";
-import { openCmsNotification } from "@/lib/notification-href";
+import { getCmsNotificationHref, openCmsNotification } from "@/lib/notification-href";
 
 export default function AdminSidebar() {
   const router = useRouter();
@@ -67,19 +67,36 @@ export default function AdminSidebar() {
                 Notification.permission === "granted"
               ) {
                 try {
-                  const popup = new Notification(
-                    data.title || "New CMS Notification",
-                    {
-                      body: data.message || "You have a new notification in the CMS.",
-                      icon: "/favicon.ico",
-                      tag: change.doc.id,
-                    }
-                  );
-                  popup.onclick = () => {
-                    window.focus();
-                    openCmsNotification(data, (href) => router.push(href));
-                    popup.close();
+                  const href = getCmsNotificationHref(data);
+                  const options: NotificationOptions = {
+                    body: data.message || "You have a new notification in the CMS.",
+                    icon: "/logos/LAP-Logo-Color.png",
+                    tag: change.doc.id,
+                    data: { url: href },
                   };
+
+                  if ("serviceWorker" in navigator) {
+                    void navigator.serviceWorker.ready
+                      .then((registration) =>
+                        registration.showNotification(
+                          data.title || "New CMS Notification",
+                          options,
+                        ),
+                      )
+                      .catch((popupErr) => {
+                        console.error("Error displaying CMS service worker notification:", popupErr);
+                      });
+                  } else {
+                    const popup = new Notification(
+                      data.title || "New CMS Notification",
+                      options,
+                    );
+                    popup.onclick = () => {
+                      window.focus();
+                      openCmsNotification(data, (nextHref) => router.push(nextHref));
+                      popup.close();
+                    };
+                  }
                 } catch (popupErr) {
                   console.error("Error displaying native CMS notification:", popupErr);
                 }

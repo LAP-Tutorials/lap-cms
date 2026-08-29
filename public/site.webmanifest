@@ -1,0 +1,18 @@
+{
+  "name": "L.A.P CMS",
+  "short_name": "L.A.P CMS",
+  "description": "The content management dashboard for L.A.P Docs.",
+  "id": "/",
+  "start_url": "/admin",
+  "scope": "/",
+  "display": "standalone",
+  "theme_color": "#121212",
+  "background_color": "#121212",
+  "icons": [
+    {
+      "src": "/logos/LAP-Logo-Color.png",
+      "sizes": "any",
+      "type": "image/png"
+    }
+  ]
+}

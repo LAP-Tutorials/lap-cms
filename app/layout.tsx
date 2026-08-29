@@ -3,6 +3,7 @@ import "./globals.css";
 import type { Metadata } from "next";
 import localFont from "next/font/local";
 import { Fira_Code, Roboto } from "next/font/google";
+import Script from "next/script";
 import { Toaster } from "@/components/ui/toaster";
 import { Providers } from "./providers";
 
@@ -43,6 +44,12 @@ const generalSans = localFont({
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://lap-cms.vercel.app"),
+  manifest: "/site.webmanifest",
+  appleWebApp: {
+    capable: true,
+    title: "L.A.P CMS",
+    statusBarStyle: "black-translucent",
+  },
   title: {
     default: "L.A.P CMS",
     template: "%s | L.A.P CMS",
@@ -102,6 +109,7 @@ export default function RootLayout({
     <html lang="en" className="scroll-smooth">
       <head>
         <link rel="icon" href="/logos/LAP-Logo-Color.png" type="image/x-icon" />
+        <link rel="apple-touch-icon" href="/logos/LAP-Logo-Color.png" />
       </head>
       <body
         className={`${generalSans.variable} ${firaCode.variable} ${titleFont.variable} font-sans`}
@@ -110,6 +118,25 @@ export default function RootLayout({
           {children}
           <Toaster />
         </Providers>
+        <Script
+          id="register-cms-service-worker"
+          strategy="afterInteractive"
+          dangerouslySetInnerHTML={{
+            __html: `
+              if ('serviceWorker' in navigator) {
+                window.addEventListener('load', function () {
+                  navigator.serviceWorker.register('/sw.js', { updateViaCache: 'none' })
+                    .then(function (registration) {
+                      registration.update().catch(function () {});
+                    })
+                    .catch(function (error) {
+                      console.warn('CMS service worker registration failed:', error);
+                    });
+                });
+              }
+            `,
+          }}
+        />
       </body>
     </html>
   );

@@ -68,6 +68,29 @@ export type NotificationItem = {
   };
 };
 
+type BrowserNotificationSupport =
+  | "checking"
+  | "available"
+  | "ios-browser"
+  | "unsupported";
+
+function isAppleMobileBrowser() {
+  if (typeof navigator === "undefined") return false;
+  return (
+    /iPad|iPhone|iPod/i.test(navigator.userAgent) ||
+    (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1)
+  );
+}
+
+function isStandaloneWebApp() {
+  if (typeof window === "undefined") return false;
+  const standaloneNavigator = navigator as Navigator & { standalone?: boolean };
+  return (
+    window.matchMedia("(display-mode: standalone)").matches ||
+    standaloneNavigator.standalone === true
+  );
+}
+
 function formatTimeAgo(timestamp?: Timestamp): string {
   if (!timestamp) return "Just now";
   const seconds = Math.floor((Date.now() - timestamp.toMillis()) / 1000);
@@ -105,10 +128,17 @@ export default function NotificationsPage() {
   >("all");
   const [busyId, setBusyId] = useState<string | null>(null);
   const [browserPermission, setBrowserPermission] = useState<NotificationPermission>("default");
+  const [browserSupport, setBrowserSupport] =
+    useState<BrowserNotificationSupport>("checking");
 
   useEffect(() => {
-    if (typeof window !== "undefined" && "Notification" in window) {
+    if (isAppleMobileBrowser() && !isStandaloneWebApp()) {
+      setBrowserSupport("ios-browser");
+    } else if (typeof window !== "undefined" && "Notification" in window) {
       setBrowserPermission(Notification.permission);
+      setBrowserSupport("available");
+    } else {
+      setBrowserSupport("unsupported");
     }
   }, []);
 
@@ -119,6 +149,11 @@ export default function NotificationsPage() {
         setBrowserPermission(perm);
       } catch (err) {
         console.error("Error requesting notification permission:", err);
+        setBrowserSupport(
+          isAppleMobileBrowser() && !isStandaloneWebApp()
+            ? "ios-browser"
+            : "unsupported",
+        );
       }
     }
   };
@@ -437,7 +472,7 @@ export default function NotificationsPage() {
                 ? "You are all caught up! No unread notifications."
                 : "Notifications will appear here when readers interact or content is published."}
             </p>
-            {browserPermission === "default" && (
+            {browserSupport === "available" && browserPermission === "default" && (
               <div className="mt-4">
                 <Button
                   onClick={requestBrowserPermission}
@@ -446,9 +481,19 @@ export default function NotificationsPage() {
                   className="border-[#8a2be2]/40 bg-[#8a2be2]/10 hover:bg-[#8a2be2]/20 text-[#8a2be2]"
                 >
                   <Bell className="h-4 w-4 mr-1.5" />
-                  Enable browser pop-ups
+                  Enable notifications
                 </Button>
               </div>
+            )}
+            {browserSupport === "ios-browser" && (
+              <p className="mx-auto mt-4 max-w-md text-sm leading-6 text-[#c997ff]">
+                Add L.A.P CMS to your iPad Home Screen, open it there, then return here to enable notifications.
+              </p>
+            )}
+            {browserSupport === "unsupported" && (
+              <p className="mx-auto mt-4 max-w-md text-sm leading-6 text-white/45">
+                Browser notifications are unavailable on this device or browser.
+              </p>
             )}
           </div>
         ) : (
@@ -458,7 +503,7 @@ export default function NotificationsPage() {
                 <span>
                   Showing {filteredNotifications.length} {filteredNotifications.length === 1 ? "notification" : "notifications"}
                 </span>
-                {browserPermission === "default" && (
+                {browserSupport === "available" && browserPermission === "default" && (
                   <Button
                     onClick={requestBrowserPermission}
                     variant="outline"
@@ -466,8 +511,18 @@ export default function NotificationsPage() {
                     className="h-7 px-2.5 text-xs border-[#8a2be2]/40 bg-[#8a2be2]/10 hover:bg-[#8a2be2]/20 text-[#8a2be2] font-medium"
                   >
                     <Bell className="h-3 w-3 mr-1.5" />
-                    Enable browser pop-ups
+                    Enable notifications
                   </Button>
+                )}
+                {browserSupport === "ios-browser" && (
+                  <span className="max-w-sm text-[#c997ff]">
+                    Add CMS to your iPad Home Screen and open it there to enable notifications.
+                  </span>
+                )}
+                {browserSupport === "unsupported" && (
+                  <span className="text-white/40">
+                    Browser notifications are unavailable here.
+                  </span>
                 )}
               </div>
               {notifications.length > 0 && (
