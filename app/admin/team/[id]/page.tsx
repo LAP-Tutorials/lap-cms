@@ -22,7 +22,8 @@ import {
   X,
   Camera,
 } from "lucide-react";
-import { sanitizeHttpsHref, sanitizeSocialMap, sanitizeUrl } from "@/lib/utils";
+import { sanitizeHttpsHref, sanitizeSocialMap } from "@/lib/utils";
+import { sanitizeImageUrl } from "@/lib/image-url";
 import { AvatarCropper } from "@/components/profile/avatar-cropper";
 
 interface Member {
@@ -423,7 +424,7 @@ export default function EditTeamMemberPage() {
                   <div className="w-40 h-40 rounded-none overflow-hidden flex items-center justify-center border border-white/20 relative">
                     {avatarPreview ? (
                       <img
-                        src={sanitizeUrl(avatarPreview) || "/placeholder.svg"}
+                        src={sanitizeImageUrl(avatarPreview) || "/placeholder.svg"}
                         alt={member.imgAlt || member.name}
                         className="w-full h-full object-cover"
                         onError={(e) => {

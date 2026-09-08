@@ -36,6 +36,7 @@ import {
 } from "lucide-react";
 import { generateSlugFromTitle, sanitizeHttpsHref } from "@/lib/utils";
 import { sanitizeAndCompressImage } from "@/lib/image-sanitizer";
+import { sanitizeImageUrl } from "@/lib/image-url";
 
 interface UserCandidate {
   uid: string;
@@ -690,7 +691,7 @@ export default function AddExistingUserToTeamPage() {
               <div className="flex flex-wrap items-center gap-5">
                 {avatar ? (
                   <img
-                    src={avatar}
+                    src={sanitizeImageUrl(avatar) || "/placeholder.svg"}
                     alt={imgAlt || name}
                     referrerPolicy="no-referrer"
                     className="h-20 w-20 rounded-full border-2 border-white/20 object-cover"

@@ -361,7 +361,7 @@ function greeklishToGreek(text: string): string {
   for (const key of sortedKeys) {
     result = result.replaceAll(key, GREEK_MAP[key]);
   }
-  result = result.replace(/σ(?=[^a-zα-ωά-ώ]|$)/g, "ς");
+  result = result.replace(/σ(?=[^a-zα-ωάέήίόύώΐΰ]|$)/g, "ς");
   return result;
 }
 

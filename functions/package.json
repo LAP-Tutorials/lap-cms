@@ -21,13 +21,14 @@
     "firebase-functions": "^7.1.0",
     "jszip": "^3.10.1",
     "node-fetch": "^3.3.2",
-    "qs": "^6.15.1"
+    "qs": "^6.16.0"
   },
   "devDependencies": {
     "typescript": "^5.7.3"
   },
   "private": true,
   "overrides": {
+    "qs": "$qs",
     "brace-expansion": "^5.0.9",
     "body-parser": "^1.20.6",
     "form-data": "^2.5.6",

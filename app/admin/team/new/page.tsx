@@ -19,7 +19,8 @@ import {
   X,
   UserCircle,
 } from "lucide-react";
-import { generateSlugFromTitle, sanitizeHttpsHref, sanitizeUrl } from "@/lib/utils";
+import { generateSlugFromTitle, sanitizeHttpsHref } from "@/lib/utils";
+import { sanitizeImageUrl } from "@/lib/image-url";
 
 export default function NewTeamMemberPage() {
   const [role, setRole] = useState("");
@@ -292,7 +293,7 @@ export default function NewTeamMemberPage() {
                 <div className="w-40 h-40 rounded-none overflow-hidden flex items-center justify-center border border-white/20">
                   {avatar ? (
                     <img
-                      src={sanitizeUrl(avatar) || "/placeholder.svg"}
+                      src={sanitizeImageUrl(avatar) || "/placeholder.svg"}
                       alt={imgAlt || "Profile preview"}
                       className="w-full h-full object-cover"
                       onError={(e) => {
